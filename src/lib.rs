@@ -34,6 +34,10 @@
 //!         top_k: 10,
 //!         filter: None,
 //!         include_metadata: true,
+//!         include_vectors: false,
+//!         distance_metric: Default::default(),
+//!         consistency: Default::default(),
+//!         staleness_config: None,
 //!     };
 //!     let results = client.query("my-namespace", query).await?;
 //!
