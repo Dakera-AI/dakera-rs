@@ -1,0 +1,21 @@
+# Rust build artifacts
+/target/
+
+# Cargo.lock is excluded for libraries (included for binaries)
+Cargo.lock
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env
+.env.local
