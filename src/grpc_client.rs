@@ -285,9 +285,8 @@ impl GrpcClient {
         let response: HealthResponse = self
             .send_request("/dakera.VectorService/Health", request)
             .await
-            .map_err(|e| {
+            .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
-                e
             })?;
 
         self.track_success().await;
@@ -310,9 +309,8 @@ impl GrpcClient {
         let response: NamespaceInfo = self
             .send_request("/dakera.VectorService/GetNamespace", request)
             .await
-            .map_err(|e| {
+            .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
-                e
             })?;
 
         self.track_success().await;
@@ -336,9 +334,8 @@ impl GrpcClient {
         let response: DeleteNamespaceResponse = self
             .send_request("/dakera.VectorService/DeleteNamespace", request)
             .await
-            .map_err(|e| {
+            .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
-                e
             })?;
 
         self.track_success().await;
@@ -377,9 +374,8 @@ impl GrpcClient {
         let response: UpsertResponse = self
             .send_request("/dakera.VectorService/Upsert", request)
             .await
-            .map_err(|e| {
+            .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
-                e
             })?;
 
         self.track_success().await;
@@ -413,9 +409,8 @@ impl GrpcClient {
         let response: QueryResponse = self
             .send_request("/dakera.VectorService/Query", request)
             .await
-            .map_err(|e| {
+            .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
-                e
             })?;
 
         self.track_success().await;
@@ -453,9 +448,8 @@ impl GrpcClient {
         let response: DeleteVectorsResponse = self
             .send_request("/dakera.VectorService/DeleteVectors", request)
             .await
-            .map_err(|e| {
+            .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
-                e
             })?;
 
         self.track_success().await;
@@ -481,9 +475,8 @@ impl GrpcClient {
         let response: WarmCacheResponse = self
             .send_request("/dakera.VectorService/WarmCache", request)
             .await
-            .map_err(|e| {
+            .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
-                e
             })?;
 
         self.track_success().await;
