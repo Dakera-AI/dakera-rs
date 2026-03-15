@@ -466,10 +466,7 @@ impl DakeraClient {
         agent_id: &str,
         request: FeedbackRequest,
     ) -> Result<FeedbackResponse> {
-        let url = format!(
-            "{}/v1/agents/{}/memories/feedback",
-            self.base_url, agent_id
-        );
+        let url = format!("{}/v1/agents/{}/memories/feedback", self.base_url, agent_id);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -505,11 +502,7 @@ impl DakeraClient {
     }
 
     /// End a session, optionally with a summary
-    pub async fn end_session(
-        &self,
-        session_id: &str,
-        summary: Option<String>,
-    ) -> Result<Session> {
+    pub async fn end_session(&self, session_id: &str, summary: Option<String>) -> Result<Session> {
         let url = format!("{}/v1/sessions/{}/end", self.base_url, session_id);
         let request = SessionEndRequest { summary };
         let response = self.client.post(&url).json(&request).send().await?;

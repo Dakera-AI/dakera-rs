@@ -134,20 +134,14 @@ impl DakeraClient {
     }
 
     /// Summarize memories
-    pub async fn summarize(
-        &self,
-        request: SummarizeRequest,
-    ) -> Result<SummarizeResponse> {
+    pub async fn summarize(&self, request: SummarizeRequest) -> Result<SummarizeResponse> {
         let url = format!("{}/v1/knowledge/summarize", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
     /// Deduplicate memories
-    pub async fn deduplicate(
-        &self,
-        request: DeduplicateRequest,
-    ) -> Result<DeduplicateResponse> {
+    pub async fn deduplicate(&self, request: DeduplicateRequest) -> Result<DeduplicateResponse> {
         let url = format!("{}/v1/knowledge/deduplicate", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await

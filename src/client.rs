@@ -114,7 +114,11 @@ impl DakeraClient {
     #[instrument(skip(self, request), fields(vector_count = request.vectors.len()))]
     pub async fn upsert(&self, namespace: &str, request: UpsertRequest) -> Result<UpsertResponse> {
         let url = format!("{}/v1/namespaces/{}/vectors", self.base_url, namespace);
-        debug!("Upserting {} vectors to {}", request.vectors.len(), namespace);
+        debug!(
+            "Upserting {} vectors to {}",
+            request.vectors.len(),
+            namespace
+        );
 
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -182,7 +186,10 @@ impl DakeraClient {
     #[instrument(skip(self, request), fields(top_k = request.top_k))]
     pub async fn query(&self, namespace: &str, request: QueryRequest) -> Result<QueryResponse> {
         let url = format!("{}/v1/namespaces/{}/query", self.base_url, namespace);
-        debug!("Querying namespace {} for top {} results", namespace, request.top_k);
+        debug!(
+            "Querying namespace {} for top {} results",
+            namespace, request.top_k
+        );
 
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -196,7 +203,8 @@ impl DakeraClient {
         vector: Vec<f32>,
         top_k: u32,
     ) -> Result<QueryResponse> {
-        self.query(namespace, QueryRequest::new(vector, top_k)).await
+        self.query(namespace, QueryRequest::new(vector, top_k))
+            .await
     }
 
     /// Execute multiple queries in a single request
@@ -242,7 +250,10 @@ impl DakeraClient {
     /// Delete vectors by ID
     #[instrument(skip(self, request), fields(id_count = request.ids.len()))]
     pub async fn delete(&self, namespace: &str, request: DeleteRequest) -> Result<DeleteResponse> {
-        let url = format!("{}/v1/namespaces/{}/vectors/delete", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/vectors/delete",
+            self.base_url, namespace
+        );
         debug!("Deleting {} vectors from {}", request.ids.len(), namespace);
 
         let response = self.client.post(&url).json(&request).send().await?;
@@ -266,8 +277,15 @@ impl DakeraClient {
         namespace: &str,
         request: IndexDocumentsRequest,
     ) -> Result<IndexDocumentsResponse> {
-        let url = format!("{}/v1/namespaces/{}/fulltext/index", self.base_url, namespace);
-        debug!("Indexing {} documents in {}", request.documents.len(), namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/fulltext/index",
+            self.base_url, namespace
+        );
+        debug!(
+            "Indexing {} documents in {}",
+            request.documents.len(),
+            namespace
+        );
 
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -296,7 +314,10 @@ impl DakeraClient {
         namespace: &str,
         request: FullTextSearchRequest,
     ) -> Result<FullTextSearchResponse> {
-        let url = format!("{}/v1/namespaces/{}/fulltext/search", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/fulltext/search",
+            self.base_url, namespace
+        );
         debug!("Full-text search in {} for: {}", namespace, request.query);
 
         let response = self.client.post(&url).json(&request).send().await?;
@@ -318,7 +339,10 @@ impl DakeraClient {
     /// Get full-text index statistics
     #[instrument(skip(self))]
     pub async fn fulltext_stats(&self, namespace: &str) -> Result<FullTextStats> {
-        let url = format!("{}/v1/namespaces/{}/fulltext/stats", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/fulltext/stats",
+            self.base_url, namespace
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -330,7 +354,10 @@ impl DakeraClient {
         namespace: &str,
         request: DeleteRequest,
     ) -> Result<DeleteResponse> {
-        let url = format!("{}/v1/namespaces/{}/fulltext/delete", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/fulltext/delete",
+            self.base_url, namespace
+        );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -502,7 +529,10 @@ impl DakeraClient {
         namespace: &str,
         request: UnifiedQueryRequest,
     ) -> Result<UnifiedQueryResponse> {
-        let url = format!("{}/v1/namespaces/{}/unified-query", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/unified-query",
+            self.base_url, namespace
+        );
         debug!(
             "Unified query in namespace {} with top_k={}",
             namespace, request.top_k
@@ -645,10 +675,8 @@ impl DakeraClient {
         namespace: &str,
         vector_ids: Vec<String>,
     ) -> Result<WarmCacheResponse> {
-        self.warm_cache(
-            WarmCacheRequest::new(namespace).with_vector_ids(vector_ids),
-        )
-        .await
+        self.warm_cache(WarmCacheRequest::new(namespace).with_vector_ids(vector_ids))
+            .await
     }
 
     // ========================================================================
@@ -684,11 +712,7 @@ impl DakeraClient {
     /// # }
     /// ```
     #[instrument(skip(self, request), fields(namespace = %namespace))]
-    pub async fn export(
-        &self,
-        namespace: &str,
-        request: ExportRequest,
-    ) -> Result<ExportResponse> {
+    pub async fn export(&self, namespace: &str, request: ExportRequest) -> Result<ExportResponse> {
         let url = format!("{}/v1/namespaces/{}/export", self.base_url, namespace);
         debug!(
             "Exporting vectors from namespace {} (top_k={}, cursor={:?})",
@@ -915,8 +939,7 @@ mod tests {
 
     #[test]
     fn test_hybrid_search_request() {
-        let req = HybridSearchRequest::new(vec![0.1], "test query", 5)
-            .with_vector_weight(0.7);
+        let req = HybridSearchRequest::new(vec![0.1], "test query", 5).with_vector_weight(0.7);
 
         assert_eq!(req.vector_weight, 0.7);
         assert_eq!(req.text, "test query");
@@ -924,8 +947,7 @@ mod tests {
 
     #[test]
     fn test_hybrid_search_weight_clamping() {
-        let req = HybridSearchRequest::new(vec![0.1], "test", 5)
-            .with_vector_weight(1.5); // Should be clamped to 1.0
+        let req = HybridSearchRequest::new(vec![0.1], "test", 5).with_vector_weight(1.5); // Should be clamped to 1.0
 
         assert_eq!(req.vector_weight, 1.0);
     }

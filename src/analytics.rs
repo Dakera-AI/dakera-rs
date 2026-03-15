@@ -145,10 +145,7 @@ impl DakeraClient {
     }
 
     /// Get storage analytics
-    pub async fn analytics_storage(
-        &self,
-        namespace: Option<&str>,
-    ) -> Result<StorageAnalytics> {
+    pub async fn analytics_storage(&self, namespace: Option<&str>) -> Result<StorageAnalytics> {
         let mut url = format!("{}/v1/analytics/storage", self.base_url);
         if let Some(ns) = namespace {
             url.push_str(&format!("?namespace={}", ns));

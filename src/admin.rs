@@ -467,7 +467,10 @@ impl DakeraClient {
     }
 
     /// Rebuild indexes
-    pub async fn rebuild_indexes(&self, request: RebuildIndexRequest) -> Result<RebuildIndexResponse> {
+    pub async fn rebuild_indexes(
+        &self,
+        request: RebuildIndexRequest,
+    ) -> Result<RebuildIndexResponse> {
         let url = format!("{}/admin/indexes/rebuild", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -534,7 +537,11 @@ impl DakeraClient {
     }
 
     /// Set quota for a specific namespace
-    pub async fn set_quota(&self, namespace: &str, config: QuotaConfig) -> Result<serde_json::Value> {
+    pub async fn set_quota(
+        &self,
+        namespace: &str,
+        config: QuotaConfig,
+    ) -> Result<serde_json::Value> {
         let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
         let request = serde_json::json!({ "config": config });
         let response = self.client.put(&url).json(&request).send().await?;
@@ -549,10 +556,7 @@ impl DakeraClient {
     }
 
     /// Update quotas (alias for set_quota on default)
-    pub async fn update_quotas(
-        &self,
-        config: Option<QuotaConfig>,
-    ) -> Result<serde_json::Value> {
+    pub async fn update_quotas(&self, config: Option<QuotaConfig>) -> Result<serde_json::Value> {
         let url = format!("{}/admin/quotas/default", self.base_url);
         let request = serde_json::json!({ "config": config });
         let response = self.client.put(&url).json(&request).send().await?;
@@ -608,7 +612,10 @@ impl DakeraClient {
     // ====================================================================
 
     /// Create a new backup
-    pub async fn create_backup(&self, request: CreateBackupRequest) -> Result<CreateBackupResponse> {
+    pub async fn create_backup(
+        &self,
+        request: CreateBackupRequest,
+    ) -> Result<CreateBackupResponse> {
         let url = format!("{}/admin/backups", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -629,7 +636,10 @@ impl DakeraClient {
     }
 
     /// Restore from a backup
-    pub async fn restore_backup(&self, request: RestoreBackupRequest) -> Result<RestoreBackupResponse> {
+    pub async fn restore_backup(
+        &self,
+        request: RestoreBackupRequest,
+    ) -> Result<RestoreBackupResponse> {
         let url = format!("{}/admin/backups/restore", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -647,10 +657,7 @@ impl DakeraClient {
     // ====================================================================
 
     /// Run TTL cleanup on expired vectors
-    pub async fn ttl_cleanup(
-        &self,
-        namespace: Option<&str>,
-    ) -> Result<TtlCleanupResponse> {
+    pub async fn ttl_cleanup(&self, namespace: Option<&str>) -> Result<TtlCleanupResponse> {
         let url = format!("{}/admin/ttl/cleanup", self.base_url);
         let request = TtlCleanupRequest {
             namespace: namespace.map(|s| s.to_string()),

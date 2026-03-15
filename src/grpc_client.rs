@@ -81,8 +81,8 @@ impl Default for GrpcClientConfig {
             keep_alive_interval_secs: 30,
             keep_alive_timeout_secs: 10,
             http2_adaptive_window: true,
-            initial_connection_window_size: 1024 * 1024,      // 1MB
-            initial_stream_window_size: 1024 * 1024,          // 1MB
+            initial_connection_window_size: 1024 * 1024, // 1MB
+            initial_stream_window_size: 1024 * 1024,     // 1MB
         }
     }
 }
@@ -219,7 +219,6 @@ impl GrpcClient {
         stats.successful_requests += 1;
     }
 
-
     /// Send a raw gRPC request and decode the response
     async fn send_request<Req: Message, Resp: Message + Default>(
         &self,
@@ -353,14 +352,20 @@ impl GrpcClient {
         namespace: &str,
         vectors: Vec<Vector>,
     ) -> Result<ClientUpsertResponse> {
-        debug!("Upserting {} vectors to namespace: {}", vectors.len(), namespace);
+        debug!(
+            "Upserting {} vectors to namespace: {}",
+            vectors.len(),
+            namespace
+        );
 
         let proto_vectors: Vec<ProtoVector> = vectors
             .into_iter()
             .map(|v| ProtoVector {
                 id: v.id,
                 values: v.values,
-                metadata_json: v.metadata.map(|m| serde_json::to_string(&m).unwrap_or_default()),
+                metadata_json: v
+                    .metadata
+                    .map(|m| serde_json::to_string(&m).unwrap_or_default()),
             })
             .collect();
 
@@ -421,9 +426,7 @@ impl GrpcClient {
             .map(|r| Match {
                 id: r.id,
                 score: r.score,
-                metadata: r
-                    .metadata_json
-                    .and_then(|s| serde_json::from_str(&s).ok()),
+                metadata: r.metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
             })
             .collect();
 
@@ -431,8 +434,16 @@ impl GrpcClient {
     }
 
     /// Delete vectors by ID
-    pub async fn delete_vectors(&self, namespace: &str, ids: Vec<String>) -> Result<DeleteResponse> {
-        debug!("Deleting {} vectors from namespace: {}", ids.len(), namespace);
+    pub async fn delete_vectors(
+        &self,
+        namespace: &str,
+        ids: Vec<String>,
+    ) -> Result<DeleteResponse> {
+        debug!(
+            "Deleting {} vectors from namespace: {}",
+            ids.len(),
+            namespace
+        );
 
         let request = DeleteVectorsRequest {
             namespace: namespace.to_string(),
@@ -502,7 +513,10 @@ pub struct GrpcConnectionPool {
 impl GrpcConnectionPool {
     /// Create a new connection pool with the specified number of connections
     pub async fn new(config: GrpcClientConfig, pool_size: usize) -> Result<Self> {
-        info!("Creating gRPC connection pool with {} connections", pool_size);
+        info!(
+            "Creating gRPC connection pool with {} connections",
+            pool_size
+        );
 
         let mut clients = Vec::with_capacity(pool_size);
         for i in 0..pool_size {

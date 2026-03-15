@@ -72,12 +72,12 @@
 //! }
 //! ```
 
-#[cfg(feature = "http-client")]
-mod client;
-mod error;
 pub mod admin;
 pub mod agents;
 pub mod analytics;
+#[cfg(feature = "http-client")]
+mod client;
+mod error;
 pub mod keys;
 pub mod knowledge;
 pub mod memory;
@@ -85,29 +85,29 @@ mod types;
 
 // gRPC client with connection pooling
 #[cfg(feature = "grpc")]
-mod grpc_proto;
-#[cfg(feature = "grpc")]
 mod grpc_client;
+#[cfg(feature = "grpc")]
+mod grpc_proto;
 
+pub use admin::{
+    BackupInfo, BackupListResponse, CacheStats, ClusterStatus, CreateBackupRequest,
+    CreateBackupResponse, IndexStats, IndexStatsResponse, NodeInfo, NodeListResponse, QuotaConfig,
+    QuotaListResponse, QuotaStatus, RestoreBackupRequest, RestoreBackupResponse, RuntimeConfig,
+    SlowQueryListResponse,
+};
+pub use agents::{AgentStats, AgentSummary};
+pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
 pub use error::{ClientError, Result};
-pub use admin::{
-    ClusterStatus, NodeInfo, NodeListResponse, IndexStats, IndexStatsResponse,
-    CacheStats, RuntimeConfig, BackupInfo, BackupListResponse,
-    CreateBackupRequest, CreateBackupResponse, RestoreBackupRequest, RestoreBackupResponse,
-    QuotaConfig, QuotaStatus, QuotaListResponse, SlowQueryListResponse,
-};
-pub use agents::{AgentSummary, AgentStats};
-pub use analytics::{AnalyticsOverview, LatencyAnalytics, ThroughputAnalytics, StorageAnalytics};
 pub use keys::{
-    CreateKeyRequest, CreateKeyResponse, KeyInfo, ListKeysResponse,
-    RotateKeyResponse, ApiKeyUsageResponse,
+    ApiKeyUsageResponse, CreateKeyRequest, CreateKeyResponse, KeyInfo, ListKeysResponse,
+    RotateKeyResponse,
 };
 pub use knowledge::{
-    KnowledgeGraphRequest, KnowledgeGraphResponse, KnowledgeNode, KnowledgeEdge,
-    FullKnowledgeGraphRequest, SummarizeRequest, SummarizeResponse,
-    DeduplicateRequest, DeduplicateResponse,
+    DeduplicateRequest, DeduplicateResponse, FullKnowledgeGraphRequest, KnowledgeEdge,
+    KnowledgeGraphRequest, KnowledgeGraphResponse, KnowledgeNode, SummarizeRequest,
+    SummarizeResponse,
 };
 pub use types::*;
 

@@ -1422,10 +1422,7 @@ pub enum RankBy {
     /// Max of multiple ranking functions
     Max(Vec<RankBy>),
     /// Product with weight
-    Product {
-        weight: f32,
-        ranking: Box<RankBy>,
-    },
+    Product { weight: f32, ranking: Box<RankBy> },
 }
 
 impl RankBy {
@@ -1569,7 +1566,11 @@ impl UnifiedQueryRequest {
     }
 
     /// Create a new unified query request with full-text BM25 search
-    pub fn fulltext_search(field: impl Into<String>, query: impl Into<String>, top_k: usize) -> Self {
+    pub fn fulltext_search(
+        field: impl Into<String>,
+        query: impl Into<String>,
+        top_k: usize,
+    ) -> Self {
         Self {
             rank_by: serde_json::json!([field.into(), "BM25", query.into()]),
             top_k,
@@ -1581,7 +1582,11 @@ impl UnifiedQueryRequest {
     }
 
     /// Create a new unified query request with attribute ordering
-    pub fn attribute_order(field: impl Into<String>, direction: SortDirection, top_k: usize) -> Self {
+    pub fn attribute_order(
+        field: impl Into<String>,
+        direction: SortDirection,
+        top_k: usize,
+    ) -> Self {
         let dir = match direction {
             SortDirection::Asc => "asc",
             SortDirection::Desc => "desc",
@@ -1691,7 +1696,6 @@ pub enum ExplainQueryType {
     /// Batch query execution
     BatchQuery,
 }
-
 
 /// Query explain request
 #[derive(Debug, Clone, Serialize, Deserialize)]
