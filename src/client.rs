@@ -106,6 +106,18 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
+    /// Create a new namespace
+    #[instrument(skip(self, request))]
+    pub async fn create_namespace(
+        &self,
+        namespace: &str,
+        request: CreateNamespaceRequest,
+    ) -> Result<NamespaceInfo> {
+        let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
     // ========================================================================
     // Vector Operations
     // ========================================================================
@@ -791,6 +803,92 @@ impl DakeraClient {
     }
 
     // ========================================================================
+    // Fetch by ID
+    // ========================================================================
+
+    /// Fetch vectors by their IDs
+    #[instrument(skip(self, request), fields(id_count = request.ids.len()))]
+    pub async fn fetch(&self, namespace: &str, request: FetchRequest) -> Result<FetchResponse> {
+        let url = format!("{}/v1/namespaces/{}/fetch", self.base_url, namespace);
+        debug!("Fetching {} vectors from {}", request.ids.len(), namespace);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Fetch vectors by IDs (convenience method)
+    #[instrument(skip(self))]
+    pub async fn fetch_by_ids(&self, namespace: &str, ids: &[&str]) -> Result<Vec<Vector>> {
+        let request = FetchRequest::new(ids.iter().map(|s| s.to_string()).collect());
+        self.fetch(namespace, request).await.map(|r| r.vectors)
+    }
+
+    // ========================================================================
+    // Text Auto-Embedding Operations
+    // ========================================================================
+
+    /// Upsert text documents with automatic server-side embedding generation
+    #[instrument(skip(self, request), fields(doc_count = request.documents.len()))]
+    pub async fn upsert_text(
+        &self,
+        namespace: &str,
+        request: UpsertTextRequest,
+    ) -> Result<TextUpsertResponse> {
+        let url = format!("{}/v1/namespaces/{}/upsert-text", self.base_url, namespace);
+        debug!(
+            "Upserting {} text documents to {}",
+            request.documents.len(),
+            namespace
+        );
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Query using natural language text with automatic server-side embedding
+    #[instrument(skip(self, request), fields(top_k = request.top_k))]
+    pub async fn query_text(
+        &self,
+        namespace: &str,
+        request: QueryTextRequest,
+    ) -> Result<TextQueryResponse> {
+        let url = format!("{}/v1/namespaces/{}/query-text", self.base_url, namespace);
+        debug!("Text query in {} for: {}", namespace, request.text);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Query text (convenience method)
+    #[instrument(skip(self))]
+    pub async fn query_text_simple(
+        &self,
+        namespace: &str,
+        text: &str,
+        top_k: u32,
+    ) -> Result<TextQueryResponse> {
+        self.query_text(namespace, QueryTextRequest::new(text, top_k))
+            .await
+    }
+
+    /// Execute multiple text queries with automatic embedding in a single request
+    #[instrument(skip(self, request), fields(query_count = request.queries.len()))]
+    pub async fn batch_query_text(
+        &self,
+        namespace: &str,
+        request: BatchQueryTextRequest,
+    ) -> Result<BatchQueryTextResponse> {
+        let url = format!(
+            "{}/v1/namespaces/{}/batch-query-text",
+            self.base_url, namespace
+        );
+        debug!(
+            "Batch text query in {} with {} queries",
+            namespace,
+            request.queries.len()
+        );
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
     // Private Helpers
     // ========================================================================
 
@@ -950,5 +1048,71 @@ mod tests {
         let req = HybridSearchRequest::new(vec![0.1], "test", 5).with_vector_weight(1.5); // Should be clamped to 1.0
 
         assert_eq!(req.vector_weight, 1.0);
+    }
+
+    #[test]
+    fn test_text_document_builder() {
+        let doc = TextDocument::new("doc1", "Hello world").with_ttl(3600);
+
+        assert_eq!(doc.id, "doc1");
+        assert_eq!(doc.text, "Hello world");
+        assert_eq!(doc.ttl_seconds, Some(3600));
+        assert!(doc.metadata.is_none());
+    }
+
+    #[test]
+    fn test_upsert_text_request_builder() {
+        let docs = vec![
+            TextDocument::new("doc1", "Hello"),
+            TextDocument::new("doc2", "World"),
+        ];
+        let req = UpsertTextRequest::new(docs).with_model(EmbeddingModel::BgeSmall);
+
+        assert_eq!(req.documents.len(), 2);
+        assert_eq!(req.model, Some(EmbeddingModel::BgeSmall));
+    }
+
+    #[test]
+    fn test_query_text_request_builder() {
+        let req = QueryTextRequest::new("semantic search query", 5)
+            .with_filter(serde_json::json!({"category": "docs"}))
+            .include_vectors(true)
+            .with_model(EmbeddingModel::E5Small);
+
+        assert_eq!(req.text, "semantic search query");
+        assert_eq!(req.top_k, 5);
+        assert!(req.filter.is_some());
+        assert!(req.include_vectors);
+        assert_eq!(req.model, Some(EmbeddingModel::E5Small));
+    }
+
+    #[test]
+    fn test_fetch_request_builder() {
+        let req = FetchRequest::new(vec!["id1".to_string(), "id2".to_string()]);
+
+        assert_eq!(req.ids.len(), 2);
+        assert!(req.include_values);
+        assert!(req.include_metadata);
+    }
+
+    #[test]
+    fn test_create_namespace_request_builder() {
+        let req = CreateNamespaceRequest::new()
+            .with_dimensions(384)
+            .with_index_type("hnsw");
+
+        assert_eq!(req.dimensions, Some(384));
+        assert_eq!(req.index_type.as_deref(), Some("hnsw"));
+    }
+
+    #[test]
+    fn test_batch_query_text_request() {
+        let req =
+            BatchQueryTextRequest::new(vec!["query one".to_string(), "query two".to_string()], 10);
+
+        assert_eq!(req.queries.len(), 2);
+        assert_eq!(req.top_k, 10);
+        assert!(!req.include_vectors);
+        assert!(req.model.is_none());
     }
 }
