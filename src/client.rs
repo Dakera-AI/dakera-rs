@@ -808,11 +808,7 @@ impl DakeraClient {
 
     /// Fetch vectors by their IDs
     #[instrument(skip(self, request), fields(id_count = request.ids.len()))]
-    pub async fn fetch(
-        &self,
-        namespace: &str,
-        request: FetchRequest,
-    ) -> Result<FetchResponse> {
+    pub async fn fetch(&self, namespace: &str, request: FetchRequest) -> Result<FetchResponse> {
         let url = format!("{}/v1/namespaces/{}/fetch", self.base_url, namespace);
         debug!("Fetching {} vectors from {}", request.ids.len(), namespace);
         let response = self.client.post(&url).json(&request).send().await?;
@@ -868,7 +864,8 @@ impl DakeraClient {
         text: &str,
         top_k: u32,
     ) -> Result<TextQueryResponse> {
-        self.query_text(namespace, QueryTextRequest::new(text, top_k)).await
+        self.query_text(namespace, QueryTextRequest::new(text, top_k))
+            .await
     }
 
     /// Execute multiple text queries with automatic embedding in a single request
@@ -1055,8 +1052,7 @@ mod tests {
 
     #[test]
     fn test_text_document_builder() {
-        let doc = TextDocument::new("doc1", "Hello world")
-            .with_ttl(3600);
+        let doc = TextDocument::new("doc1", "Hello world").with_ttl(3600);
 
         assert_eq!(doc.id, "doc1");
         assert_eq!(doc.text, "Hello world");
@@ -1111,10 +1107,8 @@ mod tests {
 
     #[test]
     fn test_batch_query_text_request() {
-        let req = BatchQueryTextRequest::new(
-            vec!["query one".to_string(), "query two".to_string()],
-            10,
-        );
+        let req =
+            BatchQueryTextRequest::new(vec!["query one".to_string(), "query two".to_string()], 10);
 
         assert_eq!(req.queries.len(), 2);
         assert_eq!(req.top_k, 10);

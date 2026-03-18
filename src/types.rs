@@ -2030,7 +2030,10 @@ pub struct UpsertTextRequest {
 impl UpsertTextRequest {
     /// Create a new upsert-text request.
     pub fn new(documents: Vec<TextDocument>) -> Self {
-        Self { documents, model: None }
+        Self {
+            documents,
+            model: None,
+        }
     }
 
     /// Set the embedding model.
