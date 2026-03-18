@@ -1960,3 +1960,296 @@ pub struct QueryExplainResponse {
     /// Raw query parameters
     pub query_params: QueryParams,
 }
+
+// ============================================================================
+// Text Auto-Embedding Types
+// ============================================================================
+
+/// Supported embedding models for text-based operations.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum EmbeddingModel {
+    /// MiniLM-L6 — Fast, good quality (384 dimensions)
+    #[default]
+    Minilm,
+    /// BGE-small — Balanced performance (384 dimensions)
+    BgeSmall,
+    /// E5-small — High quality (384 dimensions)
+    E5Small,
+}
+
+/// A text document to upsert with automatic embedding generation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextDocument {
+    /// Unique identifier for the document.
+    pub id: String,
+    /// Raw text content to be embedded.
+    pub text: String,
+    /// Optional metadata for the document.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Optional TTL in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<u64>,
+}
+
+impl TextDocument {
+    /// Create a new text document with the given ID and text.
+    pub fn new(id: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            text: text.into(),
+            metadata: None,
+            ttl_seconds: None,
+        }
+    }
+
+    /// Add metadata to this document.
+    pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Set a TTL on this document.
+    pub fn with_ttl(mut self, ttl_seconds: u64) -> Self {
+        self.ttl_seconds = Some(ttl_seconds);
+        self
+    }
+}
+
+/// Request to upsert text documents with automatic embedding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpsertTextRequest {
+    /// Documents to upsert.
+    pub documents: Vec<TextDocument>,
+    /// Embedding model to use (default: minilm).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<EmbeddingModel>,
+}
+
+impl UpsertTextRequest {
+    /// Create a new upsert-text request.
+    pub fn new(documents: Vec<TextDocument>) -> Self {
+        Self { documents, model: None }
+    }
+
+    /// Set the embedding model.
+    pub fn with_model(mut self, model: EmbeddingModel) -> Self {
+        self.model = Some(model);
+        self
+    }
+}
+
+/// Response from a text upsert operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextUpsertResponse {
+    /// Number of documents upserted.
+    pub upserted_count: u64,
+    /// Approximate number of tokens processed.
+    pub tokens_processed: u64,
+    /// Embedding model used.
+    pub model: String,
+    /// Time spent generating embeddings in milliseconds.
+    pub embedding_time_ms: u64,
+}
+
+/// A single text search result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextSearchResult {
+    /// Document ID.
+    pub id: String,
+    /// Similarity score.
+    pub score: f32,
+    /// Original text (if `include_text` was true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Document metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Vector values (if `include_vectors` was true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector: Option<Vec<f32>>,
+}
+
+/// Request to query using natural language text with automatic embedding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryTextRequest {
+    /// Query text.
+    pub text: String,
+    /// Number of results to return.
+    pub top_k: u32,
+    /// Optional metadata filter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<serde_json::Value>,
+    /// Whether to include the original text in results.
+    pub include_text: bool,
+    /// Whether to include vectors in results.
+    pub include_vectors: bool,
+    /// Embedding model to use (default: minilm).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<EmbeddingModel>,
+}
+
+impl QueryTextRequest {
+    /// Create a new text query request.
+    pub fn new(text: impl Into<String>, top_k: u32) -> Self {
+        Self {
+            text: text.into(),
+            top_k,
+            filter: None,
+            include_text: true,
+            include_vectors: false,
+            model: None,
+        }
+    }
+
+    /// Add a metadata filter.
+    pub fn with_filter(mut self, filter: serde_json::Value) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    /// Set whether to include the original text in results.
+    pub fn include_text(mut self, include: bool) -> Self {
+        self.include_text = include;
+        self
+    }
+
+    /// Set whether to include vectors in results.
+    pub fn include_vectors(mut self, include: bool) -> Self {
+        self.include_vectors = include;
+        self
+    }
+
+    /// Set the embedding model.
+    pub fn with_model(mut self, model: EmbeddingModel) -> Self {
+        self.model = Some(model);
+        self
+    }
+}
+
+/// Response from a text query operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextQueryResponse {
+    /// Search results.
+    pub results: Vec<TextSearchResult>,
+    /// Embedding model used.
+    pub model: String,
+    /// Time spent generating the query embedding in milliseconds.
+    pub embedding_time_ms: u64,
+    /// Time spent searching in milliseconds.
+    pub search_time_ms: u64,
+}
+
+/// Request to execute multiple text queries with automatic embedding in a single call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchQueryTextRequest {
+    /// Text queries.
+    pub queries: Vec<String>,
+    /// Number of results per query.
+    pub top_k: u32,
+    /// Optional metadata filter applied to all queries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<serde_json::Value>,
+    /// Whether to include vectors in results.
+    pub include_vectors: bool,
+    /// Embedding model to use (default: minilm).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<EmbeddingModel>,
+}
+
+impl BatchQueryTextRequest {
+    /// Create a new batch text query request.
+    pub fn new(queries: Vec<String>, top_k: u32) -> Self {
+        Self {
+            queries,
+            top_k,
+            filter: None,
+            include_vectors: false,
+            model: None,
+        }
+    }
+}
+
+/// Response from a batch text query operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchQueryTextResponse {
+    /// Results for each query (in the same order as the request).
+    pub results: Vec<Vec<TextSearchResult>>,
+    /// Embedding model used.
+    pub model: String,
+    /// Time spent generating all embeddings in milliseconds.
+    pub embedding_time_ms: u64,
+    /// Time spent on all searches in milliseconds.
+    pub search_time_ms: u64,
+}
+
+// ============================================================================
+// Fetch by ID Types
+// ============================================================================
+
+/// Request to fetch vectors by their IDs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchRequest {
+    /// IDs of vectors to fetch.
+    pub ids: Vec<String>,
+    /// Whether to include vector values.
+    pub include_values: bool,
+    /// Whether to include metadata.
+    pub include_metadata: bool,
+}
+
+impl FetchRequest {
+    /// Create a new fetch request.
+    pub fn new(ids: Vec<String>) -> Self {
+        Self {
+            ids,
+            include_values: true,
+            include_metadata: true,
+        }
+    }
+}
+
+/// Response from a fetch-by-ID operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchResponse {
+    /// Fetched vectors.
+    pub vectors: Vec<Vector>,
+}
+
+// ============================================================================
+// Namespace Management Types
+// ============================================================================
+
+/// Request to create a new namespace.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CreateNamespaceRequest {
+    /// Vector dimensions (inferred from first upsert if omitted).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<u32>,
+    /// Index type (e.g. "hnsw", "flat").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_type: Option<String>,
+    /// Arbitrary namespace metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, serde_json::Value>>,
+}
+
+impl CreateNamespaceRequest {
+    /// Create a minimal request (server picks sensible defaults).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the vector dimensions.
+    pub fn with_dimensions(mut self, dimensions: u32) -> Self {
+        self.dimensions = Some(dimensions);
+        self
+    }
+
+    /// Set the index type.
+    pub fn with_index_type(mut self, index_type: impl Into<String>) -> Self {
+        self.index_type = Some(index_type.into());
+        self
+    }
+}
