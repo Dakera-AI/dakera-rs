@@ -31,7 +31,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-dakera-client = "0.2"
+dakera-client = "0.3"
 ```
 
 ## Quick Start
@@ -110,7 +110,7 @@ Enable the `grpc` feature for high-performance gRPC communication with connectio
 
 ```toml
 [dependencies]
-dakera-client = { version = "0.2", features = ["grpc"] }
+dakera-client = { version = "0.3", features = ["grpc"] }
 ```
 
 ```rust
@@ -154,7 +154,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) | MCP server for AI agents |
 | [dakera-cli](https://github.com/dakera-ai/dakera-cli) | Command-line interface |
 | [dakera-dashboard](https://github.com/dakera-ai/dakera-dashboard) | Admin web UI |
-| [dakera-cortex](https://github.com/dakera-ai/dakera-cortex) | Embedding and intelligence layer |
 | [dakera-deploy](https://github.com/dakera-ai/dakera-deploy) | Deployment configurations |
 | [dakera-docs](https://github.com/dakera-ai/dakera-docs) | Documentation and API reference |
 
