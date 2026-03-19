@@ -1074,34 +1074,30 @@ impl DakeraClient {
                 match chunk {
                     Ok(bytes) => {
                         remaining.push_str(&String::from_utf8_lossy(&bytes));
-                        loop {
-                            if let Some(pos) = remaining.find('\n') {
-                                let raw = &remaining[..pos];
-                                let line = raw.trim_end_matches('\r').to_string();
-                                remaining = remaining[pos + 1..].to_string();
+                        while let Some(pos) = remaining.find('\n') {
+                            let raw = &remaining[..pos];
+                            let line = raw.trim_end_matches('\r').to_string();
+                            remaining = remaining[pos + 1..].to_string();
 
-                                if line.starts_with(':') {
-                                    // SSE comment / heartbeat — skip
-                                } else if let Some(data) = line.strip_prefix("data:") {
-                                    data_lines.push(data.trim_start().to_string());
-                                } else if line.is_empty() {
-                                    if !data_lines.is_empty() {
-                                        let payload = data_lines.join("\n");
-                                        data_lines.clear();
-                                        let result =
-                                            serde_json::from_str::<crate::events::DakeraEvent>(
-                                                &payload,
-                                            )
-                                            .map_err(|e| ClientError::Json(e));
-                                        if tx.send(result).await.is_err() {
-                                            return; // receiver dropped
-                                        }
+                            if line.starts_with(':') {
+                                // SSE comment / heartbeat — skip
+                            } else if let Some(data) = line.strip_prefix("data:") {
+                                data_lines.push(data.trim_start().to_string());
+                            } else if line.is_empty() {
+                                if !data_lines.is_empty() {
+                                    let payload = data_lines.join("\n");
+                                    data_lines.clear();
+                                    let result =
+                                        serde_json::from_str::<crate::events::DakeraEvent>(
+                                            &payload,
+                                        )
+                                        .map_err(ClientError::Json);
+                                    if tx.send(result).await.is_err() {
+                                        return; // receiver dropped
                                     }
-                                } else {
-                                    // Unrecognised field (e.g. "event:") — ignore
                                 }
                             } else {
-                                break;
+                                // Unrecognised field (e.g. "event:") — ignore
                             }
                         }
                     }

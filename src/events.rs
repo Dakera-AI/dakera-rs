@@ -51,10 +51,7 @@ pub enum VectorMutationOp {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DakeraEvent {
     /// A new namespace was created.
-    NamespaceCreated {
-        namespace: String,
-        dimension: usize,
-    },
+    NamespaceCreated { namespace: String, dimension: usize },
 
     /// A namespace was deleted.
     NamespaceDeleted { namespace: String },
