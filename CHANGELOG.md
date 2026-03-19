@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-19
+
+### Added
+- `fetch()` / `fetch_by_ids()` — retrieve vectors by ID (`POST /v1/namespaces/{ns}/fetch`)
+- `upsert_text()` — upsert text documents with automatic server-side embedding
+- `query_text()` / `query_text_simple()` — natural language queries with auto-embedding
+- `batch_query_text()` — batch text queries in a single request
+- New types: `FetchRequest`, `FetchResponse`, `UpsertTextRequest`, `TextUpsertResponse`,
+  `QueryTextRequest`, `TextQueryResponse`, `BatchQueryTextRequest`, `BatchQueryTextResponse`,
+  `TextDocument`, `EmbeddingModel`
+
+### Changed
+- Full API parity with Python, JS, and Go SDKs
+
 ## [0.2.0] - 2025-06-15
 
 ### Added
