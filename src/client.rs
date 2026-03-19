@@ -985,6 +985,138 @@ impl DakeraClientBuilder {
     }
 }
 
+// ============================================================================
+// SSE Streaming (CE-1)
+// ============================================================================
+
+impl DakeraClient {
+    /// Subscribe to namespace-scoped SSE events.
+    ///
+    /// Opens a long-lived connection to `GET /v1/namespaces/{namespace}/events`
+    /// and returns a [`tokio::sync::mpsc::Receiver`] that yields
+    /// [`DakeraEvent`] results as they arrive.  The background task exits when
+    /// the server closes the stream or the receiver is dropped.
+    ///
+    /// Requires a Read-scoped API key.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use dakera_client::DakeraClient;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = DakeraClient::new("http://localhost:3000")?;
+    ///     let mut rx = client.stream_namespace_events("my-ns").await?;
+    ///     while let Some(result) = rx.recv().await {
+    ///         println!("{:?}", result?);
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn stream_namespace_events(
+        &self,
+        namespace: &str,
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::events::DakeraEvent>>> {
+        let url = format!(
+            "{}/v1/namespaces/{}/events",
+            self.base_url,
+            urlencoding::encode(namespace)
+        );
+        self.stream_sse(url).await
+    }
+
+    /// Subscribe to the global SSE event stream (all namespaces).
+    ///
+    /// Opens a long-lived connection to `GET /ops/events` and returns a
+    /// [`tokio::sync::mpsc::Receiver`] that yields [`DakeraEvent`] results.
+    ///
+    /// Requires an Admin-scoped API key.
+    pub async fn stream_global_events(
+        &self,
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::events::DakeraEvent>>> {
+        let url = format!("{}/ops/events", self.base_url);
+        self.stream_sse(url).await
+    }
+
+    /// Low-level SSE streaming helper.
+    async fn stream_sse(
+        &self,
+        url: String,
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::events::DakeraEvent>>> {
+        use futures_util::StreamExt;
+
+        let response = self
+            .client
+            .get(&url)
+            .header("Accept", "text/event-stream")
+            .header("Cache-Control", "no-cache")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(ClientError::Server {
+                status,
+                message: body,
+            });
+        }
+
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+
+        tokio::spawn(async move {
+            let mut byte_stream = response.bytes_stream();
+            let mut remaining = String::new();
+            let mut data_lines: Vec<String> = Vec::new();
+
+            while let Some(chunk) = byte_stream.next().await {
+                match chunk {
+                    Ok(bytes) => {
+                        remaining.push_str(&String::from_utf8_lossy(&bytes));
+                        loop {
+                            if let Some(pos) = remaining.find('\n') {
+                                let raw = &remaining[..pos];
+                                let line = raw.trim_end_matches('\r').to_string();
+                                remaining = remaining[pos + 1..].to_string();
+
+                                if line.starts_with(':') {
+                                    // SSE comment / heartbeat — skip
+                                } else if let Some(data) = line.strip_prefix("data:") {
+                                    data_lines.push(data.trim_start().to_string());
+                                } else if line.is_empty() {
+                                    if !data_lines.is_empty() {
+                                        let payload = data_lines.join("\n");
+                                        data_lines.clear();
+                                        let result =
+                                            serde_json::from_str::<crate::events::DakeraEvent>(
+                                                &payload,
+                                            )
+                                            .map_err(|e| ClientError::Json(e));
+                                        if tx.send(result).await.is_err() {
+                                            return; // receiver dropped
+                                        }
+                                    }
+                                } else {
+                                    // Unrecognised field (e.g. "event:") — ignore
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(ClientError::Http(e))).await;
+                        return;
+                    }
+                }
+            }
+        });
+
+        Ok(rx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

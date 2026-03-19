@@ -1,6 +1,6 @@
 [package]
 name = "dakera-client"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Rust client SDK for Dakera AI Agent Memory Platform"
 license = "MIT"
@@ -13,13 +13,17 @@ categories = ["database", "api-bindings"]
 
 [features]
 default = ["http-client"]
-http-client = ["dep:reqwest"]
+http-client = ["dep:reqwest", "dep:futures-util", "dep:urlencoding"]
 grpc = ["dep:tonic", "dep:prost", "dep:tower", "dep:http-body-util", "dep:bytes", "dep:http"]
 full = ["http-client", "grpc"]
 
 [dependencies]
 # HTTP client (minimal features to avoid missing vendor deps)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"], optional = true }
+
+# SSE streaming support (enabled with http-client feature)
+futures-util = { version = "0.3", optional = true }
+urlencoding = { version = "2.1", optional = true }
 
 # gRPC client
 tonic = { version = "0.12", optional = true }

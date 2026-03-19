@@ -78,6 +78,7 @@ pub mod analytics;
 #[cfg(feature = "http-client")]
 mod client;
 mod error;
+pub mod events;
 pub mod keys;
 pub mod knowledge;
 pub mod memory;
@@ -88,6 +89,8 @@ mod types;
 mod grpc_client;
 #[cfg(feature = "grpc")]
 mod grpc_proto;
+
+pub use events::{DakeraEvent, OpStatus, VectorMutationOp};
 
 pub use admin::{
     BackupInfo, BackupListResponse, CacheStats, ClusterStatus, CreateBackupRequest,
