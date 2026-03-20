@@ -2273,7 +2273,10 @@ pub struct ConfigureNamespaceRequest {
 impl ConfigureNamespaceRequest {
     /// Create a new configure-namespace request with the given dimension.
     pub fn new(dimension: usize) -> Self {
-        Self { dimension, distance: None }
+        Self {
+            dimension,
+            distance: None,
+        }
     }
 
     /// Set the distance metric.
