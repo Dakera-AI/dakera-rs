@@ -118,6 +118,22 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
+    /// Create or update a namespace configuration (upsert semantics — v0.6.0).
+    ///
+    /// Creates the namespace if it does not exist, or updates its distance-metric
+    /// configuration if it already exists.  Dimension changes are rejected to
+    /// prevent silent data corruption.  Requires `Scope::Write`.
+    #[instrument(skip(self, request), fields(namespace = %namespace))]
+    pub async fn configure_namespace(
+        &self,
+        namespace: &str,
+        request: ConfigureNamespaceRequest,
+    ) -> Result<ConfigureNamespaceResponse> {
+        let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
+        let response = self.client.put(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
     // ========================================================================
     // Vector Operations
     // ========================================================================

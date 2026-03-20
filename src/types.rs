@@ -2051,7 +2051,7 @@ pub struct TextUpsertResponse {
     /// Approximate number of tokens processed.
     pub tokens_processed: u64,
     /// Embedding model used.
-    pub model: String,
+    pub model: EmbeddingModel,
     /// Time spent generating embeddings in milliseconds.
     pub embedding_time_ms: u64,
 }
@@ -2137,7 +2137,7 @@ pub struct TextQueryResponse {
     /// Search results.
     pub results: Vec<TextSearchResult>,
     /// Embedding model used.
-    pub model: String,
+    pub model: EmbeddingModel,
     /// Time spent generating the query embedding in milliseconds.
     pub embedding_time_ms: u64,
     /// Time spent searching in milliseconds.
@@ -2180,7 +2180,7 @@ pub struct BatchQueryTextResponse {
     /// Results for each query (in the same order as the request).
     pub results: Vec<Vec<TextSearchResult>>,
     /// Embedding model used.
-    pub model: String,
+    pub model: EmbeddingModel,
     /// Time spent generating all embeddings in milliseconds.
     pub embedding_time_ms: u64,
     /// Time spent on all searches in milliseconds.
@@ -2255,4 +2255,43 @@ impl CreateNamespaceRequest {
         self.index_type = Some(index_type.into());
         self
     }
+}
+
+/// Request body for `PUT /v1/namespaces/:namespace` — upsert semantics (v0.6.0).
+///
+/// Creates the namespace if it does not exist, or updates its configuration
+/// if it already exists.  Requires `Scope::Write`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigureNamespaceRequest {
+    /// Vector dimension.  Required on first creation; must match on subsequent calls.
+    pub dimension: usize,
+    /// Distance metric (defaults to cosine when omitted).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distance: Option<DistanceMetric>,
+}
+
+impl ConfigureNamespaceRequest {
+    /// Create a new configure-namespace request with the given dimension.
+    pub fn new(dimension: usize) -> Self {
+        Self { dimension, distance: None }
+    }
+
+    /// Set the distance metric.
+    pub fn with_distance(mut self, distance: DistanceMetric) -> Self {
+        self.distance = Some(distance);
+        self
+    }
+}
+
+/// Response from `PUT /v1/namespaces/:namespace`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigureNamespaceResponse {
+    /// Namespace name.
+    pub namespace: String,
+    /// Vector dimension.
+    pub dimension: usize,
+    /// Distance metric in use.
+    pub distance: DistanceMetric,
+    /// `true` if the namespace was newly created; `false` if it already existed.
+    pub created: bool,
 }
