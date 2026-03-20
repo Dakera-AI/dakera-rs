@@ -4,7 +4,9 @@ use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use tracing::{debug, instrument};
 
-use crate::error::{ClientError, Result};
+use serde::Deserialize;
+
+use crate::error::{ClientError, Result, ServerErrorCode};
 use crate::types::*;
 
 /// Default timeout for requests
@@ -921,20 +923,52 @@ impl DakeraClient {
             let status_code = status.as_u16();
             let text = response.text().await.unwrap_or_default();
 
-            // Try to parse error message from JSON
-            let message = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                json.get("error")
-                    .and_then(|e| e.as_str())
-                    .unwrap_or(&text)
-                    .to_string()
-            } else {
-                text
-            };
+            #[derive(Deserialize)]
+            struct ErrorBody {
+                error: Option<String>,
+                code: Option<ServerErrorCode>,
+            }
 
-            Err(ClientError::Server {
-                status: status_code,
-                message,
-            })
+            let (message, code) =
+                if let Ok(body) = serde_json::from_str::<ErrorBody>(&text) {
+                    (
+                        body.error.unwrap_or_else(|| text.clone()),
+                        body.code,
+                    )
+                } else {
+                    (text, None)
+                };
+
+            match status_code {
+                401 => Err(ClientError::Server {
+                    status: 401,
+                    message,
+                    code,
+                }),
+                403 => Err(ClientError::Authorization {
+                    status: 403,
+                    message,
+                    code,
+                }),
+                404 => match &code {
+                    Some(ServerErrorCode::NamespaceNotFound) => {
+                        Err(ClientError::NamespaceNotFound(message))
+                    }
+                    Some(ServerErrorCode::VectorNotFound) => {
+                        Err(ClientError::VectorNotFound(message))
+                    }
+                    _ => Err(ClientError::Server {
+                        status: 404,
+                        message,
+                        code,
+                    }),
+                },
+                _ => Err(ClientError::Server {
+                    status: status_code,
+                    message,
+                    code,
+                }),
+            }
         }
     }
 }
