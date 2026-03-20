@@ -90,7 +90,7 @@ mod grpc_client;
 #[cfg(feature = "grpc")]
 mod grpc_proto;
 
-pub use events::{DakeraEvent, OpStatus, VectorMutationOp};
+pub use events::{DakeraEvent, MemoryEvent, OpStatus, VectorMutationOp};
 
 pub use admin::{
     BackupInfo, BackupListResponse, CacheStats, ClusterStatus, CreateBackupRequest,
@@ -108,9 +108,10 @@ pub use keys::{
     RotateKeyResponse,
 };
 pub use knowledge::{
-    DeduplicateRequest, DeduplicateResponse, FullKnowledgeGraphRequest, KnowledgeEdge,
-    KnowledgeGraphRequest, KnowledgeGraphResponse, KnowledgeNode, SummarizeRequest,
-    SummarizeResponse,
+    AgentNetworkEdge, AgentNetworkInfo, AgentNetworkNode, AgentNetworkStats,
+    CrossAgentNetworkRequest, CrossAgentNetworkResponse, DeduplicateRequest, DeduplicateResponse,
+    FullKnowledgeGraphRequest, KnowledgeEdge, KnowledgeGraphRequest, KnowledgeGraphResponse,
+    KnowledgeNode, SummarizeRequest, SummarizeResponse,
 };
 pub use types::*;
 

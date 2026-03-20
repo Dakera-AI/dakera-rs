@@ -109,6 +109,87 @@ pub struct DeduplicateResponse {
 }
 
 // ============================================================================
+// Cross-Agent Network Types (DASH-A)
+// ============================================================================
+
+/// Request to build a cross-agent knowledge network
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossAgentNetworkRequest {
+    /// Agent IDs to include; `None` means all agents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_ids: Option<Vec<String>>,
+    /// Minimum cosine similarity for cross-agent edges (default 0.3).
+    pub min_similarity: f32,
+    /// Maximum memory nodes returned per agent (default 50).
+    pub max_nodes_per_agent: usize,
+    /// Minimum importance score for included nodes (default 0.0).
+    pub min_importance: f32,
+    /// Maximum cross-agent edges in the response (default 200).
+    pub max_cross_edges: usize,
+}
+
+impl Default for CrossAgentNetworkRequest {
+    fn default() -> Self {
+        Self {
+            agent_ids: None,
+            min_similarity: 0.3,
+            max_nodes_per_agent: 50,
+            min_importance: 0.0,
+            max_cross_edges: 200,
+        }
+    }
+}
+
+/// Summary information about a single agent in the network
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentNetworkInfo {
+    pub agent_id: String,
+    pub memory_count: usize,
+    pub avg_importance: f32,
+}
+
+/// A memory node in the cross-agent network graph
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentNetworkNode {
+    pub id: String,
+    pub agent_id: String,
+    pub content: String,
+    pub importance: f32,
+    pub tags: Vec<String>,
+    pub memory_type: String,
+    /// Unix milliseconds.
+    pub created_at: u64,
+}
+
+/// A cross-agent similarity edge between two memory nodes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentNetworkEdge {
+    pub source: String,
+    pub target: String,
+    pub source_agent: String,
+    pub target_agent: String,
+    pub similarity: f32,
+}
+
+/// Aggregate statistics for the cross-agent network
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentNetworkStats {
+    pub total_agents: usize,
+    pub total_nodes: usize,
+    pub total_cross_edges: usize,
+    pub density: f32,
+}
+
+/// Response from the cross-agent network endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossAgentNetworkResponse {
+    pub agents: Vec<AgentNetworkInfo>,
+    pub nodes: Vec<AgentNetworkNode>,
+    pub edges: Vec<AgentNetworkEdge>,
+    pub stats: AgentNetworkStats,
+}
+
+// ============================================================================
 // Knowledge Graph Client Methods
 // ============================================================================
 
@@ -143,6 +224,19 @@ impl DakeraClient {
     /// Deduplicate memories
     pub async fn deduplicate(&self, request: DeduplicateRequest) -> Result<DeduplicateResponse> {
         let url = format!("{}/v1/knowledge/deduplicate", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Build a cross-agent knowledge network (DASH-A).
+    ///
+    /// Calls `POST /v1/knowledge/network/cross-agent` (Admin scope) and returns
+    /// a graph of memory nodes and cross-agent similarity edges.
+    pub async fn cross_agent_network(
+        &self,
+        request: CrossAgentNetworkRequest,
+    ) -> Result<CrossAgentNetworkResponse> {
+        let url = format!("{}/v1/knowledge/network/cross-agent", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }

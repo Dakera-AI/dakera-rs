@@ -93,6 +93,27 @@ pub enum DakeraEvent {
     StreamLagged { dropped: u64, hint: String },
 }
 
+/// A memory lifecycle event received from the `GET /v1/events/stream` SSE endpoint (DASH-B).
+///
+/// Use [`DakeraClient::stream_memory_events`] to subscribe.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEvent {
+    pub event_type: String,
+    pub agent_id: String,
+    /// Unix milliseconds.
+    pub timestamp: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub importance: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
 impl DakeraEvent {
     /// Returns the SSE `event` type string for this event variant.
     pub fn event_type(&self) -> &'static str {
