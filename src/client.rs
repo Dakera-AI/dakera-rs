@@ -816,6 +816,7 @@ impl DakeraClient {
             Err(ClientError::Server {
                 status,
                 message: text,
+                code: None,
             })
         }
     }
@@ -929,15 +930,11 @@ impl DakeraClient {
                 code: Option<ServerErrorCode>,
             }
 
-            let (message, code) =
-                if let Ok(body) = serde_json::from_str::<ErrorBody>(&text) {
-                    (
-                        body.error.unwrap_or_else(|| text.clone()),
-                        body.code,
-                    )
-                } else {
-                    (text, None)
-                };
+            let (message, code) = if let Ok(body) = serde_json::from_str::<ErrorBody>(&text) {
+                (body.error.unwrap_or_else(|| text.clone()), body.code)
+            } else {
+                (text, None)
+            };
 
             match status_code {
                 401 => Err(ClientError::Server {
@@ -1125,6 +1122,7 @@ impl DakeraClient {
             return Err(ClientError::Server {
                 status,
                 message: body,
+                code: None,
             });
         }
 
