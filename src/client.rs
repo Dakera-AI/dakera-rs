@@ -1039,11 +1039,29 @@ impl DakeraClient {
         self.stream_sse(url).await
     }
 
-    /// Low-level SSE streaming helper.
-    async fn stream_sse(
+    /// Subscribe to the memory lifecycle SSE event stream (DASH-B).
+    ///
+    /// Opens a long-lived connection to `GET /v1/events/stream` and returns a
+    /// [`tokio::sync::mpsc::Receiver`] that yields [`MemoryEvent`] results as
+    /// they arrive.  The background task exits when the server closes the stream
+    /// or the receiver is dropped.
+    ///
+    /// Requires a Read-scoped API key.
+    pub async fn stream_memory_events(
+        &self,
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::events::MemoryEvent>>> {
+        let url = format!("{}/v1/events/stream", self.base_url);
+        self.stream_sse(url).await
+    }
+
+    /// Low-level generic SSE streaming helper.
+    async fn stream_sse<T>(
         &self,
         url: String,
-    ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::events::DakeraEvent>>> {
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<T>>>
+    where
+        T: serde::de::DeserializeOwned + Send + 'static,
+    {
         use futures_util::StreamExt;
 
         let response = self
@@ -1087,10 +1105,7 @@ impl DakeraClient {
                                 if !data_lines.is_empty() {
                                     let payload = data_lines.join("\n");
                                     data_lines.clear();
-                                    let result =
-                                        serde_json::from_str::<crate::events::DakeraEvent>(
-                                            &payload,
-                                        )
+                                    let result = serde_json::from_str::<T>(&payload)
                                         .map_err(ClientError::Json);
                                     if tx.send(result).await.is_err() {
                                         return; // receiver dropped
