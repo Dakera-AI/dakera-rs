@@ -187,6 +187,9 @@ pub struct CrossAgentNetworkResponse {
     pub nodes: Vec<AgentNetworkNode>,
     pub edges: Vec<AgentNetworkEdge>,
     pub stats: AgentNetworkStats,
+    /// Total number of memory nodes in the network (added in server v0.6.2).
+    #[serde(default)]
+    pub node_count: usize,
 }
 
 // ============================================================================
