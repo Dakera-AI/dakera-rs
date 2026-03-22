@@ -4,6 +4,34 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ============================================================================
+// Retry & Timeout Configuration
+// ============================================================================
+
+/// Configuration for request retry behavior with exponential backoff.
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    /// Maximum number of retry attempts (default: 3).
+    pub max_retries: u32,
+    /// Base delay before the first retry (default: 100ms).
+    pub base_delay: std::time::Duration,
+    /// Maximum delay between retries (default: 60s).
+    pub max_delay: std::time::Duration,
+    /// Whether to add random jitter to backoff delay (default: true).
+    pub jitter: bool,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            base_delay: std::time::Duration::from_millis(100),
+            max_delay: std::time::Duration::from_secs(60),
+            jitter: true,
+        }
+    }
+}
+
+// ============================================================================
 // Health & Status Types
 // ============================================================================
 

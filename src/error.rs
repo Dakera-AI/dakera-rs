@@ -87,6 +87,13 @@ pub enum ClientError {
     /// Timeout
     #[error("Request timeout")]
     Timeout,
+
+    /// Rate limit exceeded (HTTP 429)
+    #[error("Rate limit exceeded — retry after {retry_after:?}")]
+    RateLimitExceeded {
+        /// Value of the `Retry-After` response header in seconds, if present.
+        retry_after: Option<u64>,
+    },
 }
 
 impl ClientError {
@@ -100,6 +107,7 @@ impl ClientError {
             ClientError::Server { status, .. } => *status >= 500,
             ClientError::Connection(_) => true,
             ClientError::Timeout => true,
+            ClientError::RateLimitExceeded { .. } => true,
             _ => false,
         }
     }

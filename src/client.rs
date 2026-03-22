@@ -12,13 +12,16 @@ use crate::types::*;
 /// Default timeout for requests
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
-/// Dakeraclient for interacting with the vector database
+/// Dakera client for interacting with the vector database
 #[derive(Debug, Clone)]
 pub struct DakeraClient {
     /// HTTP client
     pub(crate) client: Client,
     /// Base URL of the Dakera server
     pub(crate) base_url: String,
+    /// Retry configuration (wired into API call sites in a follow-up; suppressed until then)
+    #[allow(dead_code)]
+    pub(crate) retry_config: RetryConfig,
 }
 
 impl DakeraClient {
@@ -922,7 +925,17 @@ impl DakeraClient {
             Ok(response.json().await?)
         } else {
             let status_code = status.as_u16();
+            // Extract Retry-After before consuming response
+            let retry_after = response
+                .headers()
+                .get("Retry-After")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok());
             let text = response.text().await.unwrap_or_default();
+
+            if status_code == 429 {
+                return Err(ClientError::RateLimitExceeded { retry_after });
+            }
 
             #[derive(Deserialize)]
             struct ErrorBody {
@@ -968,6 +981,59 @@ impl DakeraClient {
             }
         }
     }
+
+    /// Execute a fallible async operation with retry logic and exponential backoff.
+    ///
+    /// Retries on transient errors (5xx, rate-limit, connection/timeout).
+    /// Respects the `Retry-After` header when the server returns HTTP 429.
+    /// Does NOT retry on 4xx client errors (except 429).
+    ///
+    /// NOTE: API call-site wiring is deferred to a follow-up (infrastructure PR).
+    #[allow(dead_code)]
+    pub(crate) async fn execute_with_retry<F, Fut, T>(&self, f: F) -> Result<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let rc = &self.retry_config;
+
+        for attempt in 0..rc.max_retries {
+            match f().await {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    let is_last = attempt == rc.max_retries - 1;
+                    if is_last || !e.is_retryable() {
+                        return Err(e);
+                    }
+
+                    let wait = match &e {
+                        ClientError::RateLimitExceeded {
+                            retry_after: Some(secs),
+                        } => Duration::from_secs(*secs),
+                        _ => {
+                            let base_ms = rc.base_delay.as_millis() as f64;
+                            let backoff_ms = base_ms * 2f64.powi(attempt as i32);
+                            let capped_ms = backoff_ms.min(rc.max_delay.as_millis() as f64);
+                            let final_ms = if rc.jitter {
+                                // Simple deterministic jitter: vary between 50% and 150%
+                                let seed = (attempt as u64).wrapping_mul(6364136223846793005);
+                                let factor = 0.5 + (seed % 1000) as f64 / 1000.0;
+                                capped_ms * factor
+                            } else {
+                                capped_ms
+                            };
+                            Duration::from_millis(final_ms as u64)
+                        }
+                    };
+
+                    tokio::time::sleep(wait).await;
+                }
+            }
+        }
+
+        // Unreachable: the loop always returns on the last attempt
+        Err(ClientError::Config("retry loop exhausted".to_string()))
+    }
 }
 
 /// Builder for DakeraClient
@@ -975,6 +1041,8 @@ impl DakeraClient {
 pub struct DakeraClientBuilder {
     base_url: String,
     timeout: Duration,
+    connect_timeout: Option<Duration>,
+    retry_config: RetryConfig,
     user_agent: Option<String>,
 }
 
@@ -984,6 +1052,8 @@ impl DakeraClientBuilder {
         Self {
             base_url: base_url.into(),
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+            connect_timeout: None,
+            retry_config: RetryConfig::default(),
             user_agent: None,
         }
     }
@@ -997,6 +1067,24 @@ impl DakeraClientBuilder {
     /// Set the request timeout in seconds
     pub fn timeout_secs(mut self, secs: u64) -> Self {
         self.timeout = Duration::from_secs(secs);
+        self
+    }
+
+    /// Set the connection establishment timeout (defaults to `timeout`).
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        self.connect_timeout = Some(timeout);
+        self
+    }
+
+    /// Set fine-grained retry configuration.
+    pub fn retry_config(mut self, config: RetryConfig) -> Self {
+        self.retry_config = config;
+        self
+    }
+
+    /// Set the maximum number of retry attempts.
+    pub fn max_retries(mut self, max_retries: u32) -> Self {
+        self.retry_config.max_retries = max_retries;
         self
     }
 
@@ -1022,13 +1110,20 @@ impl DakeraClientBuilder {
             .user_agent
             .unwrap_or_else(|| format!("dakera-client/{}", env!("CARGO_PKG_VERSION")));
 
+        let connect_timeout = self.connect_timeout.unwrap_or(self.timeout);
+
         let client = Client::builder()
             .timeout(self.timeout)
+            .connect_timeout(connect_timeout)
             .user_agent(user_agent)
             .build()
             .map_err(|e| ClientError::Config(e.to_string()))?;
 
-        Ok(DakeraClient { client, base_url })
+        Ok(DakeraClient {
+            client,
+            base_url,
+            retry_config: self.retry_config,
+        })
     }
 }
 
@@ -1302,5 +1397,161 @@ mod tests {
         assert_eq!(req.top_k, 10);
         assert!(!req.include_vectors);
         assert!(req.model.is_none());
+    }
+
+    // =========================================================================
+    // RetryConfig tests
+    // =========================================================================
+
+    #[test]
+    fn test_retry_config_defaults() {
+        let rc = RetryConfig::default();
+        assert_eq!(rc.max_retries, 3);
+        assert_eq!(rc.base_delay, Duration::from_millis(100));
+        assert_eq!(rc.max_delay, Duration::from_secs(60));
+        assert!(rc.jitter);
+    }
+
+    #[test]
+    fn test_builder_connect_timeout() {
+        let client = DakeraClient::builder("http://localhost:3000")
+            .connect_timeout(Duration::from_secs(5))
+            .timeout_secs(30)
+            .build()
+            .unwrap();
+        // Client was built successfully with separate connect timeout
+        assert!(client.base_url.starts_with("http"));
+    }
+
+    #[test]
+    fn test_builder_max_retries() {
+        let client = DakeraClient::builder("http://localhost:3000")
+            .max_retries(5)
+            .build()
+            .unwrap();
+        assert_eq!(client.retry_config.max_retries, 5);
+    }
+
+    #[test]
+    fn test_builder_retry_config() {
+        let rc = RetryConfig {
+            max_retries: 7,
+            base_delay: Duration::from_millis(200),
+            max_delay: Duration::from_secs(30),
+            jitter: false,
+        };
+        let client = DakeraClient::builder("http://localhost:3000")
+            .retry_config(rc)
+            .build()
+            .unwrap();
+        assert_eq!(client.retry_config.max_retries, 7);
+        assert!(!client.retry_config.jitter);
+    }
+
+    #[test]
+    fn test_rate_limit_error_retryable() {
+        let e = ClientError::RateLimitExceeded { retry_after: None };
+        assert!(e.is_retryable());
+    }
+
+    #[test]
+    fn test_rate_limit_error_with_retry_after_zero() {
+        // retry_after: Some(0) should still be Some, not treated as missing
+        let e = ClientError::RateLimitExceeded {
+            retry_after: Some(0),
+        };
+        assert!(e.is_retryable());
+        if let ClientError::RateLimitExceeded {
+            retry_after: Some(secs),
+        } = &e
+        {
+            assert_eq!(*secs, 0u64);
+        } else {
+            panic!("unexpected variant");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retry_succeeds_immediately() {
+        let client = DakeraClient::builder("http://localhost:3000")
+            .max_retries(3)
+            .build()
+            .unwrap();
+
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let cc = call_count.clone();
+        let result = client
+            .execute_with_retry(|| {
+                let cc = cc.clone();
+                async move {
+                    cc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok::<u32, ClientError>(42)
+                }
+            })
+            .await;
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retry_no_retry_on_4xx() {
+        let client = DakeraClient::builder("http://localhost:3000")
+            .max_retries(3)
+            .build()
+            .unwrap();
+
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let cc = call_count.clone();
+        let result = client
+            .execute_with_retry(|| {
+                let cc = cc.clone();
+                async move {
+                    cc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err::<u32, ClientError>(ClientError::Server {
+                        status: 400,
+                        message: "bad request".to_string(),
+                        code: None,
+                    })
+                }
+            })
+            .await;
+        assert!(result.is_err());
+        // Should not retry on 4xx
+        assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retry_retries_on_5xx() {
+        let client = DakeraClient::builder("http://localhost:3000")
+            .retry_config(RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(0),
+                max_delay: Duration::from_millis(0),
+                jitter: false,
+            })
+            .build()
+            .unwrap();
+
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let cc = call_count.clone();
+        let result = client
+            .execute_with_retry(|| {
+                let cc = cc.clone();
+                async move {
+                    let n = cc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if n < 2 {
+                        Err::<u32, ClientError>(ClientError::Server {
+                            status: 503,
+                            message: "unavailable".to_string(),
+                            code: None,
+                        })
+                    } else {
+                        Ok(99)
+                    }
+                }
+            })
+            .await;
+        assert_eq!(result.unwrap(), 99);
+        assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
 }
