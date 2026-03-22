@@ -113,6 +113,10 @@ pub use knowledge::{
     FullKnowledgeGraphRequest, KnowledgeEdge, KnowledgeGraphRequest, KnowledgeGraphResponse,
     KnowledgeNode, SummarizeRequest, SummarizeResponse,
 };
+pub use memory::{
+    BatchForgetRequest, BatchForgetResponse, BatchMemoryFilter, BatchRecallRequest,
+    BatchRecallResponse,
+};
 pub use types::*;
 
 // gRPC exports
