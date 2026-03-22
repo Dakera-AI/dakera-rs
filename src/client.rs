@@ -1594,7 +1594,10 @@ mod tests {
             .with_limit(50);
         assert_eq!(req.agent_id, "agent-1");
         assert_eq!(req.limit, 50);
-        assert_eq!(req.filter.tags.as_deref(), Some(["qa".to_string()].as_slice()));
+        assert_eq!(
+            req.filter.tags.as_deref(),
+            Some(["qa".to_string()].as_slice())
+        );
         assert_eq!(req.filter.min_importance, Some(0.7));
     }
 
@@ -1602,7 +1605,9 @@ mod tests {
     fn test_batch_recall_request_serialization() {
         use crate::memory::{BatchMemoryFilter, BatchRecallRequest};
         let filter = BatchMemoryFilter::default().with_min_importance(0.5);
-        let req = BatchRecallRequest::new("agent-1").with_filter(filter).with_limit(25);
+        let req = BatchRecallRequest::new("agent-1")
+            .with_filter(filter)
+            .with_limit(25);
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["agent_id"], "agent-1");
         assert_eq!(json["limit"], 25);
