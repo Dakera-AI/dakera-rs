@@ -19,7 +19,8 @@ pub struct DakeraClient {
     pub(crate) client: Client,
     /// Base URL of the Dakera server
     pub(crate) base_url: String,
-    /// Retry configuration
+    /// Retry configuration (wired into API call sites in a follow-up; suppressed until then)
+    #[allow(dead_code)]
     pub(crate) retry_config: RetryConfig,
 }
 
@@ -986,6 +987,9 @@ impl DakeraClient {
     /// Retries on transient errors (5xx, rate-limit, connection/timeout).
     /// Respects the `Retry-After` header when the server returns HTTP 429.
     /// Does NOT retry on 4xx client errors (except 429).
+    ///
+    /// NOTE: API call-site wiring is deferred to a follow-up (infrastructure PR).
+    #[allow(dead_code)]
     pub(crate) async fn execute_with_retry<F, Fut, T>(&self, f: F) -> Result<T>
     where
         F: Fn() -> Fut,
