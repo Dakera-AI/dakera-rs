@@ -1570,4 +1570,130 @@ mod tests {
         assert_eq!(result.unwrap(), 99);
         assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
+
+    // =========================================================================
+    // CE-2: Batch Recall / Forget (v0.7.0)
+    // =========================================================================
+
+    #[test]
+    fn test_batch_recall_request_new() {
+        use crate::memory::BatchRecallRequest;
+        let req = BatchRecallRequest::new("agent-1");
+        assert_eq!(req.agent_id, "agent-1");
+        assert_eq!(req.limit, 100);
+    }
+
+    #[test]
+    fn test_batch_recall_request_builder() {
+        use crate::memory::{BatchMemoryFilter, BatchRecallRequest};
+        let filter = BatchMemoryFilter::default()
+            .with_tags(vec!["qa".to_string()])
+            .with_min_importance(0.7);
+        let req = BatchRecallRequest::new("agent-1")
+            .with_filter(filter)
+            .with_limit(50);
+        assert_eq!(req.agent_id, "agent-1");
+        assert_eq!(req.limit, 50);
+        assert_eq!(req.filter.tags.as_deref(), Some(["qa".to_string()].as_slice()));
+        assert_eq!(req.filter.min_importance, Some(0.7));
+    }
+
+    #[test]
+    fn test_batch_recall_request_serialization() {
+        use crate::memory::{BatchMemoryFilter, BatchRecallRequest};
+        let filter = BatchMemoryFilter::default().with_min_importance(0.5);
+        let req = BatchRecallRequest::new("agent-1").with_filter(filter).with_limit(25);
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["agent_id"], "agent-1");
+        assert_eq!(json["limit"], 25);
+        assert_eq!(json["filter"]["min_importance"], 0.5);
+    }
+
+    #[test]
+    fn test_batch_forget_request_new() {
+        use crate::memory::{BatchForgetRequest, BatchMemoryFilter};
+        let filter = BatchMemoryFilter::default().with_min_importance(0.1);
+        let req = BatchForgetRequest::new("agent-1", filter);
+        assert_eq!(req.agent_id, "agent-1");
+        assert_eq!(req.filter.min_importance, Some(0.1));
+    }
+
+    #[test]
+    fn test_batch_forget_request_serialization() {
+        use crate::memory::{BatchForgetRequest, BatchMemoryFilter};
+        let filter = BatchMemoryFilter {
+            created_before: Some(1_700_000_000),
+            ..Default::default()
+        };
+        let req = BatchForgetRequest::new("agent-1", filter);
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["agent_id"], "agent-1");
+        assert_eq!(json["filter"]["created_before"], 1_700_000_000u64);
+    }
+
+    #[test]
+    fn test_batch_recall_response_deserialization() {
+        use crate::memory::BatchRecallResponse;
+        let json = serde_json::json!({
+            "memories": [],
+            "total": 42,
+            "filtered": 7
+        });
+        let resp: BatchRecallResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(resp.total, 42);
+        assert_eq!(resp.filtered, 7);
+        assert!(resp.memories.is_empty());
+    }
+
+    #[test]
+    fn test_batch_forget_response_deserialization() {
+        use crate::memory::BatchForgetResponse;
+        let json = serde_json::json!({ "deleted_count": 13 });
+        let resp: BatchForgetResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(resp.deleted_count, 13);
+    }
+
+    // =========================================================================
+    // OPS-1: RateLimitHeaders (v0.7.0)
+    // =========================================================================
+
+    #[test]
+    fn test_rate_limit_headers_default_all_none() {
+        use crate::types::RateLimitHeaders;
+        let rl = RateLimitHeaders {
+            limit: None,
+            remaining: None,
+            reset: None,
+            quota_used: None,
+            quota_limit: None,
+        };
+        assert!(rl.limit.is_none());
+        assert!(rl.remaining.is_none());
+        assert!(rl.reset.is_none());
+        assert!(rl.quota_used.is_none());
+        assert!(rl.quota_limit.is_none());
+    }
+
+    #[test]
+    fn test_rate_limit_headers_populated() {
+        use crate::types::RateLimitHeaders;
+        let rl = RateLimitHeaders {
+            limit: Some(1000),
+            remaining: Some(750),
+            reset: Some(1_700_000_060),
+            quota_used: Some(500),
+            quota_limit: Some(10_000),
+        };
+        assert_eq!(rl.limit, Some(1000));
+        assert_eq!(rl.remaining, Some(750));
+        assert_eq!(rl.reset, Some(1_700_000_060));
+        assert_eq!(rl.quota_used, Some(500));
+        assert_eq!(rl.quota_limit, Some(10_000));
+    }
+
+    #[test]
+    fn test_last_rate_limit_headers_initially_none() {
+        let client = DakeraClient::new("http://localhost:3000").unwrap();
+        assert!(client.last_rate_limit_headers().is_none());
+    }
 }
