@@ -1,6 +1,7 @@
 //! Dakera client implementation
 
 use reqwest::{Client, StatusCode};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{debug, instrument};
 
@@ -22,6 +23,8 @@ pub struct DakeraClient {
     /// Retry configuration (wired into API call sites in a follow-up; suppressed until then)
     #[allow(dead_code)]
     pub(crate) retry_config: RetryConfig,
+    /// OPS-1: last seen rate-limit headers (shared across clones)
+    pub(crate) last_rate_limit: Arc<Mutex<Option<RateLimitHeaders>>>,
 }
 
 impl DakeraClient {
@@ -914,12 +917,24 @@ impl DakeraClient {
     // Private Helpers
     // ========================================================================
 
+    /// Rate-limit headers from the most recent API response (OPS-1).
+    ///
+    /// Returns `None` until the first successful request has been made.
+    pub fn last_rate_limit_headers(&self) -> Option<RateLimitHeaders> {
+        self.last_rate_limit.lock().ok()?.clone()
+    }
+
     /// Handle response and deserialize JSON
     pub(crate) async fn handle_response<T: serde::de::DeserializeOwned>(
         &self,
         response: reqwest::Response,
     ) -> Result<T> {
         let status = response.status();
+
+        // OPS-1: capture rate-limit headers before consuming the response body
+        if let Ok(mut guard) = self.last_rate_limit.lock() {
+            *guard = Some(RateLimitHeaders::from_response(&response));
+        }
 
         if status.is_success() {
             Ok(response.json().await?)
@@ -1123,6 +1138,7 @@ impl DakeraClientBuilder {
             client,
             base_url,
             retry_config: self.retry_config,
+            last_rate_limit: Arc::new(Mutex::new(None)),
         })
     }
 }

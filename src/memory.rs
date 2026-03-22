@@ -326,6 +326,140 @@ pub struct FeedbackResponse {
 }
 
 // ============================================================================
+// CE-2: Batch Recall / Forget Types
+// ============================================================================
+
+/// Filter predicates for batch memory operations (CE-2).
+///
+/// All fields are optional.  For [`BatchForgetRequest`] at least one must be
+/// set (server-side safety guard).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BatchMemoryFilter {
+    /// Restrict to memories that carry **all** listed tags.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    /// Minimum importance (inclusive).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_importance: Option<f32>,
+    /// Maximum importance (inclusive).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_importance: Option<f32>,
+    /// Only memories created at or after this Unix timestamp (seconds).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_after: Option<u64>,
+    /// Only memories created before or at this Unix timestamp (seconds).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_before: Option<u64>,
+    /// Restrict to a specific memory type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_type: Option<MemoryType>,
+    /// Restrict to memories from a specific session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
+impl BatchMemoryFilter {
+    /// Convenience: filter by tags.
+    pub fn with_tags(mut self, tags: Vec<String>) -> Self {
+        self.tags = Some(tags);
+        self
+    }
+
+    /// Convenience: filter by minimum importance.
+    pub fn with_min_importance(mut self, min: f32) -> Self {
+        self.min_importance = Some(min);
+        self
+    }
+
+    /// Convenience: filter by maximum importance.
+    pub fn with_max_importance(mut self, max: f32) -> Self {
+        self.max_importance = Some(max);
+        self
+    }
+
+    /// Convenience: filter by session.
+    pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+}
+
+/// Request body for `POST /v1/memories/recall/batch`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchRecallRequest {
+    /// Agent whose memory namespace to search.
+    pub agent_id: String,
+    /// Filter predicates to apply.
+    #[serde(default)]
+    pub filter: BatchMemoryFilter,
+    /// Maximum number of results to return (default: 100).
+    #[serde(default = "default_batch_limit")]
+    pub limit: usize,
+}
+
+fn default_batch_limit() -> usize {
+    100
+}
+
+impl BatchRecallRequest {
+    /// Create a new batch recall request for an agent.
+    pub fn new(agent_id: impl Into<String>) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            filter: BatchMemoryFilter::default(),
+            limit: 100,
+        }
+    }
+
+    /// Set filter predicates.
+    pub fn with_filter(mut self, filter: BatchMemoryFilter) -> Self {
+        self.filter = filter;
+        self
+    }
+
+    /// Set result limit.
+    pub fn with_limit(mut self, limit: usize) -> Self {
+        self.limit = limit;
+        self
+    }
+}
+
+/// Response from `POST /v1/memories/recall/batch`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchRecallResponse {
+    pub memories: Vec<RecalledMemory>,
+    /// Total memories in the agent namespace.
+    pub total: usize,
+    /// Number of memories that passed the filter.
+    pub filtered: usize,
+}
+
+/// Request body for `DELETE /v1/memories/forget/batch`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchForgetRequest {
+    /// Agent whose memory namespace to purge from.
+    pub agent_id: String,
+    /// Filter predicates — **at least one must be set** (server safety guard).
+    pub filter: BatchMemoryFilter,
+}
+
+impl BatchForgetRequest {
+    /// Create a new batch forget request with the given filter.
+    pub fn new(agent_id: impl Into<String>, filter: BatchMemoryFilter) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            filter,
+        }
+    }
+}
+
+/// Response from `DELETE /v1/memories/forget/batch`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchForgetResponse {
+    pub deleted_count: usize,
+}
+
+// ============================================================================
 // Memory Client Methods
 // ============================================================================
 
@@ -527,6 +661,60 @@ impl DakeraClient {
     pub async fn session_memories(&self, session_id: &str) -> Result<RecallResponse> {
         let url = format!("{}/v1/sessions/{}/memories", self.base_url, session_id);
         let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
+    // CE-2: Batch Recall / Forget
+    // ========================================================================
+
+    /// Bulk-recall memories using filter predicates (CE-2).
+    ///
+    /// Uses `POST /v1/memories/recall/batch` — no embedding required.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use dakera_client::{DakeraClient, memory::{BatchRecallRequest, BatchMemoryFilter}};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = DakeraClient::new("http://localhost:3000")?;
+    ///
+    /// let filter = BatchMemoryFilter::default().with_min_importance(0.7);
+    /// let req = BatchRecallRequest::new("agent-1").with_filter(filter).with_limit(50);
+    /// let resp = client.batch_recall(req).await?;
+    /// println!("Found {} memories", resp.filtered);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn batch_recall(&self, request: BatchRecallRequest) -> Result<BatchRecallResponse> {
+        let url = format!("{}/v1/memories/recall/batch", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Bulk-delete memories using filter predicates (CE-2).
+    ///
+    /// Uses `DELETE /v1/memories/forget/batch`.  The server requires at least
+    /// one filter predicate to be set as a safety guard.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use dakera_client::{DakeraClient, memory::{BatchForgetRequest, BatchMemoryFilter}};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = DakeraClient::new("http://localhost:3000")?;
+    ///
+    /// let filter = BatchMemoryFilter::default().with_min_importance(0.0).with_max_importance(0.2);
+    /// let resp = client.batch_forget(BatchForgetRequest::new("agent-1", filter)).await?;
+    /// println!("Deleted {} memories", resp.deleted_count);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn batch_forget(&self, request: BatchForgetRequest) -> Result<BatchForgetResponse> {
+        let url = format!("{}/v1/memories/forget/batch", self.base_url);
+        let response = self.client.delete(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 }

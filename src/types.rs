@@ -32,6 +32,47 @@ impl Default for RetryConfig {
 }
 
 // ============================================================================
+// OPS-1: Rate-Limit Headers
+// ============================================================================
+
+/// Rate-limit and quota headers present on every API response (OPS-1).
+///
+/// Fields are `None` when the server does not include the header (e.g.
+/// non-namespaced endpoints where quota does not apply).
+#[derive(Debug, Clone, Default)]
+pub struct RateLimitHeaders {
+    /// `X-RateLimit-Limit` — max requests allowed in the current window.
+    pub limit: Option<u64>,
+    /// `X-RateLimit-Remaining` — requests left in the current window.
+    pub remaining: Option<u64>,
+    /// `X-RateLimit-Reset` — Unix timestamp (seconds) when the window resets.
+    pub reset: Option<u64>,
+    /// `X-Quota-Used` — namespace vectors / storage consumed.
+    pub quota_used: Option<u64>,
+    /// `X-Quota-Limit` — namespace quota ceiling.
+    pub quota_limit: Option<u64>,
+}
+
+impl RateLimitHeaders {
+    /// Parse rate-limit headers from a `reqwest::Response`.
+    pub fn from_response(response: &reqwest::Response) -> Self {
+        let headers = response.headers();
+        fn parse(h: &reqwest::header::HeaderMap, name: &str) -> Option<u64> {
+            h.get(name)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse().ok())
+        }
+        Self {
+            limit: parse(headers, "X-RateLimit-Limit"),
+            remaining: parse(headers, "X-RateLimit-Remaining"),
+            reset: parse(headers, "X-RateLimit-Reset"),
+            quota_used: parse(headers, "X-Quota-Used"),
+            quota_limit: parse(headers, "X-Quota-Limit"),
+        }
+    }
+}
+
+// ============================================================================
 // Health & Status Types
 // ============================================================================
 
