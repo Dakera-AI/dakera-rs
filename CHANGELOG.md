@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-03-22
+
+### Added
+- `BatchMemoryFilter` / `BatchRecallRequest` / `BatchRecallResponse` / `BatchForgetRequest` /
+  `BatchForgetResponse` — typed models for batch memory operations
+- `DakeraClient::batch_recall()` — `POST /v1/memories/recall/batch` — recall memories for
+  multiple agents in a single request
+- `DakeraClient::batch_forget()` — `DELETE /v1/memories/forget/batch` — forget memories for
+  multiple agents in a single request
+- `RateLimitHeaders` struct with `from_response()` constructor + `last_rate_limit_headers()`
+  accessor — exposes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+
+## [0.7.0] - 2026-03-22
+
+### Added
+- `RetryConfig` struct with `max_retries`, `base_delay`, `max_delay`, and `jitter` fields
+- `ClientOptions.retry_backoff` (`Option<RetryConfig>`) — overrides `max_retries` when set
+- `ClientOptions.connect_timeout` — sets TCP dial timeout independently of overall request timeout
+- HTTP 429 responses respect the `Retry-After` header; falls back to exponential backoff
+- 5xx responses retried up to `max_retries` times; 4xx (except 429) never retried
+
 ## [0.6.2] - 2026-03-21
 
 ### Added
