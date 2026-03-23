@@ -356,7 +356,7 @@ async fn test_store_memory_with_expires_at_includes_field() {
         ))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"id": "mem_1", "agent_id": "agent-1", "content": "test", "memory_type": "episodic", "importance": 0.5, "created_at": 1700000000}"#)
+        .with_body(r#"{"memory_id": "mem_1", "agent_id": "agent-1", "namespace": "default"}"#)
         .create_async()
         .await;
 
@@ -379,7 +379,7 @@ async fn test_store_memory_without_expires_at_omits_field() {
         ))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"id": "mem_1", "agent_id": "agent-1", "content": "test", "memory_type": "episodic", "importance": 0.5, "created_at": 1700000000}"#)
+        .with_body(r#"{"memory_id": "mem_1", "agent_id": "agent-1", "namespace": "default"}"#)
         .create_async()
         .await;
 
