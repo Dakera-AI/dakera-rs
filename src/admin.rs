@@ -187,6 +187,31 @@ pub struct RuntimeConfig {
     pub rate_limit_enabled: bool,
     pub rate_limit_rps: u32,
     pub query_timeout_ms: u64,
+    /// Whether AutoPilot background tasks (dedup + consolidation) are enabled
+    #[serde(default = "default_true")]
+    pub autopilot_enabled: bool,
+    /// Cosine-similarity threshold for AutoPilot deduplication (0.0–1.0)
+    #[serde(default = "default_dedup_threshold")]
+    pub autopilot_dedup_threshold: f32,
+    /// How often AutoPilot deduplication runs (hours)
+    #[serde(default = "default_dedup_interval")]
+    pub autopilot_dedup_interval_hours: u64,
+    /// How often AutoPilot consolidation runs (hours)
+    #[serde(default = "default_consolidation_interval")]
+    pub autopilot_consolidation_interval_hours: u64,
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_dedup_threshold() -> f32 {
+    0.93
+}
+fn default_dedup_interval() -> u64 {
+    6
+}
+fn default_consolidation_interval() -> u64 {
+    12
 }
 
 /// Update configuration response
@@ -363,6 +388,117 @@ pub struct RestoreBackupResponse {
     pub duration_seconds: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+// ============================================================================
+// AutoPilot Types (PILOT-1 / PILOT-2 / PILOT-3)
+// ============================================================================
+
+/// AutoPilot configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoPilotConfig {
+    pub enabled: bool,
+    pub dedup_threshold: f32,
+    pub dedup_interval_hours: u64,
+    pub consolidation_interval_hours: u64,
+}
+
+/// Result snapshot from a deduplication cycle
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DedupResultSnapshot {
+    pub namespaces_processed: usize,
+    pub memories_scanned: usize,
+    pub duplicates_removed: usize,
+}
+
+/// Result snapshot from a consolidation cycle
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsolidationResultSnapshot {
+    pub namespaces_processed: usize,
+    pub memories_scanned: usize,
+    pub clusters_merged: usize,
+    pub memories_consolidated: usize,
+}
+
+/// PILOT-1: AutoPilot status response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoPilotStatusResponse {
+    pub config: AutoPilotConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_dedup_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_consolidation_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_dedup: Option<DedupResultSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_consolidation: Option<ConsolidationResultSnapshot>,
+    pub total_dedup_removed: u64,
+    pub total_consolidated: u64,
+}
+
+/// PILOT-2: AutoPilot configuration update request (all fields optional)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AutoPilotConfigRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dedup_threshold: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dedup_interval_hours: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consolidation_interval_hours: Option<u64>,
+}
+
+/// PILOT-2: AutoPilot configuration update response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoPilotConfigResponse {
+    pub success: bool,
+    pub config: AutoPilotConfig,
+    pub message: String,
+}
+
+/// PILOT-3: Trigger action
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoPilotTriggerAction {
+    Dedup,
+    Consolidate,
+    All,
+}
+
+/// PILOT-3: Trigger request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoPilotTriggerRequest {
+    pub action: AutoPilotTriggerAction,
+}
+
+/// Dedup result returned by a manual trigger
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoPilotDedupResult {
+    pub namespaces_processed: usize,
+    pub memories_scanned: usize,
+    pub duplicates_removed: usize,
+}
+
+/// Consolidation result returned by a manual trigger
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoPilotConsolidationResult {
+    pub namespaces_processed: usize,
+    pub memories_scanned: usize,
+    pub clusters_merged: usize,
+    pub memories_consolidated: usize,
+}
+
+/// PILOT-3: Trigger response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoPilotTriggerResponse {
+    pub success: bool,
+    pub action: AutoPilotTriggerAction,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dedup: Option<AutoPilotDedupResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consolidation: Option<AutoPilotConsolidationResult>,
+    pub message: String,
 }
 
 // ============================================================================
@@ -670,6 +806,43 @@ impl DakeraClient {
     pub async fn ttl_stats(&self) -> Result<TtlStatsResponse> {
         let url = format!("{}/admin/ttl/stats", self.base_url);
         let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ====================================================================
+    // AutoPilot Management (PILOT-1 / PILOT-2 / PILOT-3)
+    // ====================================================================
+
+    /// Get AutoPilot status: current config and last-run statistics (PILOT-1)
+    pub async fn autopilot_status(&self) -> Result<AutoPilotStatusResponse> {
+        let url = format!("{}/admin/autopilot/status", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Update AutoPilot configuration at runtime (PILOT-2)
+    ///
+    /// All fields are optional — omit any field to keep its current value.
+    pub async fn autopilot_update_config(
+        &self,
+        request: AutoPilotConfigRequest,
+    ) -> Result<AutoPilotConfigResponse> {
+        let url = format!("{}/admin/autopilot/config", self.base_url);
+        let response = self.client.put(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Manually trigger an AutoPilot dedup or consolidation cycle (PILOT-3)
+    ///
+    /// Use `AutoPilotTriggerAction::Dedup`, `::Consolidate`, or `::All`.
+    /// The cycle runs synchronously and returns inline results.
+    pub async fn autopilot_trigger(
+        &self,
+        action: AutoPilotTriggerAction,
+    ) -> Result<AutoPilotTriggerResponse> {
+        let url = format!("{}/admin/autopilot/trigger", self.base_url);
+        let request = AutoPilotTriggerRequest { action };
+        let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 }
