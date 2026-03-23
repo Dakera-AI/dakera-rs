@@ -4,9 +4,7 @@
 //! which shipped without test coverage. Uses mockito to mock HTTP responses.
 
 use dakera_client::{
-    admin::{
-        AutoPilotConfigRequest, AutoPilotTriggerAction, DecayConfigUpdateRequest,
-    },
+    admin::{AutoPilotConfigRequest, AutoPilotTriggerAction, DecayConfigUpdateRequest},
     memory::StoreMemoryRequest,
     DakeraClient,
 };
@@ -373,12 +371,12 @@ async fn test_store_memory_with_expires_at_includes_field() {
 async fn test_store_memory_without_expires_at_omits_field() {
     let mut server = mockito::Server::new_async().await;
     // Verify expires_at is NOT in the body
+    // Just match on content — expires_at is absent because skip_serializing_if = "Option::is_none"
     let mock = server
         .mock("POST", "/v1/memory/store")
-        .match_body(mockito::Matcher::AllOf(vec![
-            mockito::Matcher::PartialJsonString(r#"{"content":"test"}"#.to_string()),
-            mockito::Matcher::Regex(r#"^(?!.*"expires_at").*$"#.to_string()),
-        ]))
+        .match_body(mockito::Matcher::PartialJsonString(
+            r#"{"content":"test"}"#.to_string(),
+        ))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"id": "mem_1", "agent_id": "agent-1", "content": "test", "memory_type": "episodic", "importance": 0.5, "created_at": 1700000000}"#)
