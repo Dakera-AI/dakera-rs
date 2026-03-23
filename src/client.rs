@@ -1340,6 +1340,7 @@ mod tests {
 
         assert_eq!(req.vector_weight, 0.7);
         assert_eq!(req.text, "test query");
+        assert!(req.vector.is_some());
     }
 
     #[test]
@@ -1347,6 +1348,18 @@ mod tests {
         let req = HybridSearchRequest::new(vec![0.1], "test", 5).with_vector_weight(1.5); // Should be clamped to 1.0
 
         assert_eq!(req.vector_weight, 1.0);
+    }
+
+    #[test]
+    fn test_hybrid_search_text_only() {
+        let req = HybridSearchRequest::text_only("bm25 query", 10);
+
+        assert!(req.vector.is_none());
+        assert_eq!(req.text, "bm25 query");
+        assert_eq!(req.top_k, 10);
+        // Verify vector is not serialised
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(json.get("vector").is_none());
     }
 
     #[test]
