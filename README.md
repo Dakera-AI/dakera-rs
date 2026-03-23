@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust: 1.70+](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 
-Rust client SDK for [Dakera](https://dakera.ai) — high-performance vector database for AI agent memory.
+Rust client SDK for [Dakera](https://dakera.ai) — an AI agent memory platform.
 
 ## Features
 
@@ -147,7 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Repository | Description |
 |------------|-------------|
-| [dakera](https://github.com/dakera-ai/dakera) | Core vector database engine |
+| [dakera](https://github.com/dakera-ai/dakera) | Core AI agent memory engine |
 | [dakera-py](https://github.com/dakera-ai/dakera-py) | Python SDK |
 | [dakera-js](https://github.com/dakera-ai/dakera-js) | JavaScript/TypeScript SDK |
 | [dakera-go](https://github.com/dakera-ai/dakera-go) | Go SDK |
