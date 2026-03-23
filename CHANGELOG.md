@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-03-23
+
+### Changed
+- Bumped to match core v0.8.1 release. No code changes — `HybridSearchRequest.vector` was already
+  `Option<Vec<f32>>` with correct endpoint `/v1/namespaces/{ns}/hybrid`. Version sync only.
+
 ## [0.8.0] - 2026-03-23
 
 ### Changed
