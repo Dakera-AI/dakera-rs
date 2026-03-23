@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-03-23
+
+### Added
+- `DakeraEvent::Connected { timestamp }` — new variant for the SSE `connected` handshake event
+  emitted on stream subscription by all SSE endpoints (core DAK-720).
+- `MemoryEvent`: SSE `connected` handshake event now deserialises correctly. The `type` JSON key
+  is accepted as an alias for `event_type`, and `agent_id` defaults to `""` when absent.
+  Callers receive a `MemoryEvent { event_type: "connected", agent_id: "", timestamp }`.
+- `StoreMemoryRequest.expires_at` — optional explicit expiry Unix timestamp (seconds). Takes
+  precedence over `ttl_seconds` when both are set. Use `StoreMemoryRequest::with_expires_at(ts)`
+  (builder method already in `memory.rs`) (core DECAY-3 / DAK-740).
+
+### Changed
+- `MemoryEvent.event_type` — now `#[serde(alias = "type", default)]` to handle the `connected`
+  event JSON shape without breaking existing callers.
+- `MemoryEvent.agent_id` — now `#[serde(default)]`; empty string for `connected` events.
+
 ## [0.8.1] - 2026-03-23
 
 ### Changed
