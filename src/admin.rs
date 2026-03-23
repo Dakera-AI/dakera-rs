@@ -502,6 +502,69 @@ pub struct AutoPilotTriggerResponse {
 }
 
 // ============================================================================
+// Decay Engine Types (DECAY-1 / DECAY-2)
+// ============================================================================
+
+/// DECAY-1: Current decay configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecayConfigResponse {
+    /// Decay strategy: "exponential", "linear", or "step"
+    pub strategy: String,
+    /// Half-life in hours
+    pub half_life_hours: f64,
+    /// Minimum importance threshold; memories below are hard-deleted on next cycle
+    pub min_importance: f32,
+}
+
+/// DECAY-1: Runtime configuration update request (all fields optional)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DecayConfigUpdateRequest {
+    /// Decay strategy: "exponential", "linear", or "step"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
+    /// Half-life in hours (must be > 0)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub half_life_hours: Option<f64>,
+    /// Minimum importance threshold 0.0–1.0
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_importance: Option<f32>,
+}
+
+/// DECAY-1: Runtime configuration update response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecayConfigUpdateResponse {
+    pub success: bool,
+    pub config: DecayConfigResponse,
+    pub message: String,
+}
+
+/// DECAY-2: Stats from a single decay cycle
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LastDecayCycleStats {
+    pub namespaces_processed: usize,
+    pub memories_processed: usize,
+    pub memories_decayed: usize,
+    pub memories_deleted: usize,
+}
+
+/// DECAY-2: Decay activity counters and last-cycle snapshot
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecayStatsResponse {
+    /// Total memories whose importance was lowered by decay (all-time)
+    pub total_decayed: u64,
+    /// Total memories hard-deleted by decay or TTL expiry (all-time)
+    pub total_deleted: u64,
+    /// Unix timestamp of the last decay cycle (None if never run)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_run_at: Option<u64>,
+    /// Number of decay cycles completed since startup
+    pub cycles_run: u64,
+    /// Stats from the most recent decay cycle (None if never run)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_cycle: Option<LastDecayCycleStats>,
+}
+
+// ============================================================================
 // TTL Types
 // ============================================================================
 
@@ -843,6 +906,44 @@ impl DakeraClient {
         let url = format!("{}/admin/autopilot/trigger", self.base_url);
         let request = AutoPilotTriggerRequest { action };
         let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ====================================================================
+    // Decay Engine Management (DECAY-1 / DECAY-2)
+    // ====================================================================
+
+    /// Get current decay engine configuration (DECAY-1).
+    ///
+    /// Returns the active strategy, half-life, and minimum importance threshold.
+    /// Requires Admin scope.
+    pub async fn decay_config(&self) -> Result<DecayConfigResponse> {
+        let url = format!("{}/admin/decay/config", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Update decay engine configuration at runtime (DECAY-1).
+    ///
+    /// Changes take effect on the next decay cycle — no restart required.
+    /// All fields are optional; omit any to keep its current value.
+    /// Requires Admin scope.
+    pub async fn decay_update_config(
+        &self,
+        request: DecayConfigUpdateRequest,
+    ) -> Result<DecayConfigUpdateResponse> {
+        let url = format!("{}/admin/decay/config", self.base_url);
+        let response = self.client.put(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Get decay activity counters and last-cycle snapshot (DECAY-2).
+    ///
+    /// Returns cumulative totals (memories decayed/deleted, cycles run) and
+    /// per-cycle statistics from the most recent run. Requires Admin scope.
+    pub async fn decay_stats(&self) -> Result<DecayStatsResponse> {
+        let url = format!("{}/admin/decay/stats", self.base_url);
+        let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 }

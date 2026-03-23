@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-03-23
+
+### Added
+- `StoreMemoryRequest`: new `ttl_seconds: Option<u64>` and `expires_at: Option<u64>` fields
+  with corresponding builder methods `with_ttl()` and `with_expires_at()` (DECAY-3).
+  `expires_at` takes precedence over `ttl_seconds`; memory is hard-deleted on expiry.
+- `DecayConfigResponse`, `DecayConfigUpdateRequest`, `DecayConfigUpdateResponse` types (DECAY-1)
+- `LastDecayCycleStats`, `DecayStatsResponse` types (DECAY-2)
+- `DakeraClient::decay_config()` — `GET /admin/decay/config` — current strategy, half-life,
+  and min-importance threshold (DECAY-1). Requires Admin scope.
+- `DakeraClient::decay_update_config()` — `PUT /admin/decay/config` — live config update with
+  no restart required (DECAY-1). All fields optional.
+- `DakeraClient::decay_stats()` — `GET /admin/decay/stats` — cumulative counters and
+  last-cycle snapshot (DECAY-2). Requires Admin scope.
+
 ## [0.7.2] - 2026-03-23
 
 ### Added

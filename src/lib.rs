@@ -97,8 +97,10 @@ pub use admin::{
     AutoPilotDedupResult, AutoPilotStatusResponse, AutoPilotTriggerAction, AutoPilotTriggerRequest,
     AutoPilotTriggerResponse, BackupInfo, BackupListResponse, CacheStats, ClusterStatus,
     ConsolidationResultSnapshot, CreateBackupRequest, CreateBackupResponse, DedupResultSnapshot,
-    IndexStats, IndexStatsResponse, NodeInfo, NodeListResponse, QuotaConfig, QuotaListResponse,
-    QuotaStatus, RestoreBackupRequest, RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse,
+    DecayConfigResponse, DecayConfigUpdateRequest, DecayConfigUpdateResponse, DecayStatsResponse,
+    LastDecayCycleStats, IndexStats, IndexStatsResponse, NodeInfo, NodeListResponse, QuotaConfig,
+    QuotaListResponse, QuotaStatus, RestoreBackupRequest, RestoreBackupResponse, RuntimeConfig,
+    SlowQueryListResponse,
 };
 pub use agents::{AgentStats, AgentSummary};
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
