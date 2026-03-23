@@ -37,6 +37,15 @@ pub struct StoreMemoryRequest {
     pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    /// Optional TTL in seconds. The memory is hard-deleted after this many
+    /// seconds from creation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<u64>,
+    /// Optional explicit expiry as a Unix timestamp (seconds). Takes precedence
+    /// over `ttl_seconds` when both are set. The memory is hard-deleted by the
+    /// decay engine on expiry (DECAY-3).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
 }
 
 fn default_importance() -> f32 {
@@ -54,6 +63,8 @@ impl StoreMemoryRequest {
             tags: Vec::new(),
             session_id: None,
             metadata: None,
+            ttl_seconds: None,
+            expires_at: None,
         }
     }
 
@@ -84,6 +95,20 @@ impl StoreMemoryRequest {
     /// Set metadata
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = Some(metadata);
+        self
+    }
+
+    /// Set TTL in seconds. The memory is hard-deleted after this many seconds
+    /// from creation.
+    pub fn with_ttl(mut self, ttl_seconds: u64) -> Self {
+        self.ttl_seconds = Some(ttl_seconds);
+        self
+    }
+
+    /// Set an explicit expiry Unix timestamp (seconds). Takes precedence over
+    /// `ttl_seconds` when both are set (DECAY-3).
+    pub fn with_expires_at(mut self, expires_at: u64) -> Self {
+        self.expires_at = Some(expires_at);
         self
     }
 }
