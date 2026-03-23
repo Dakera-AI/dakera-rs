@@ -574,11 +574,15 @@ pub struct FullTextStats {
 // Hybrid Search Types
 // ============================================================================
 
-/// Hybrid search request combining vector and full-text search
+/// Hybrid search request combining vector and full-text search.
+///
+/// When `vector` is `None` the server falls back to BM25-only full-text search.
+/// When provided, results are blended with vector similarity according to `vector_weight`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HybridSearchRequest {
-    /// Query vector
-    pub vector: Vec<f32>,
+    /// Optional query vector. Omit for BM25-only search.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector: Option<Vec<f32>>,
     /// Text query
     pub text: String,
     /// Number of results to return
@@ -596,10 +600,21 @@ fn default_vector_weight() -> f32 {
 }
 
 impl HybridSearchRequest {
-    /// Create a new hybrid search request
+    /// Create a new hybrid search request with a query vector (hybrid mode).
     pub fn new(vector: Vec<f32>, text: impl Into<String>, top_k: u32) -> Self {
         Self {
-            vector,
+            vector: Some(vector),
+            text: text.into(),
+            top_k,
+            vector_weight: 0.5,
+            filter: None,
+        }
+    }
+
+    /// Create a BM25-only full-text search request (no vector required).
+    pub fn text_only(text: impl Into<String>, top_k: u32) -> Self {
+        Self {
+            vector: None,
             text: text.into(),
             top_k,
             vector_weight: 0.5,

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-23
+
+### Changed
+- `HybridSearchRequest.vector` is now `Option<Vec<f32>>` (was `Vec<f32>`). The field is omitted
+  from the JSON payload when `None`, causing the server to fall back to BM25-only full-text search.
+  Existing callers using `HybridSearchRequest::new(vector, ...)` continue to work unchanged.
+
+### Added
+- `HybridSearchRequest::text_only(text, top_k)` — convenience constructor for BM25-only search
+  without a query vector. (core v0.8.0 / dakera-mcp PR#20)
+
 ## [0.7.3] - 2026-03-23
 
 ### Added
