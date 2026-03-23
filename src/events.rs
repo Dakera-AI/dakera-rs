@@ -91,14 +91,37 @@ pub enum DakeraEvent {
     /// Subscriber fell too far behind — some events were dropped.
     /// Reconnect to resume the stream.
     StreamLagged { dropped: u64, hint: String },
+
+    /// Emitted immediately on stream subscription to confirm the connection is live.
+    ///
+    /// Clients can use this to distinguish *connected-and-idle* from *not-yet-connected*.
+    Connected {
+        /// Unix milliseconds when the connection was confirmed.
+        timestamp: u64,
+    },
 }
 
 /// A memory lifecycle event received from the `GET /v1/events/stream` SSE endpoint (DASH-B).
 ///
+/// The `event_type` field identifies the operation:
+/// - `connected` — emitted immediately on subscription; `agent_id` will be an empty string
+/// - `stored` — a memory was stored (content, importance, tags present)
+/// - `recalled` — a memory was recalled
+/// - `forgotten` — a memory was deleted
+/// - `consolidated` — memories were merged
+/// - `importance_updated` — importance score changed
+/// - `session_started` / `session_ended` — agent session lifecycle
+/// - `stream_lagged` — consumer fell behind; some events were dropped
+///
 /// Use [`DakeraClient::stream_memory_events`] to subscribe.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEvent {
+    /// Event type. The `connected` handshake event uses the JSON `"type"` key
+    /// rather than `"event_type"` — the SDK normalises this automatically.
+    #[serde(alias = "type", default)]
     pub event_type: String,
+    /// Agent that owns the memory. Empty string for `connected` handshake events.
+    #[serde(default)]
     pub agent_id: String,
     /// Unix milliseconds.
     pub timestamp: u64,
@@ -124,6 +147,7 @@ impl DakeraEvent {
             DakeraEvent::JobProgress { .. } => "job_progress",
             DakeraEvent::VectorsMutated { .. } => "vectors_mutated",
             DakeraEvent::StreamLagged { .. } => "stream_lagged",
+            DakeraEvent::Connected { .. } => "connected",
         }
     }
 }
