@@ -14,6 +14,16 @@ use crate::DakeraClient;
 // Cluster Types
 // ============================================================================
 
+/// Ops stats response — Read-scoped; works with read-only API keys
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpsStats {
+    pub version: String,
+    pub total_vectors: u64,
+    pub namespace_count: u64,
+    pub uptime_seconds: u64,
+    pub timestamp: u64,
+}
+
 /// Cluster status response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusterStatus {
@@ -610,6 +620,15 @@ impl DakeraClient {
     // ====================================================================
     // Cluster Management
     // ====================================================================
+
+    /// Get server stats (version, total_vectors, namespace_count, uptime_seconds, timestamp).
+    ///
+    /// Requires Read scope — works with read-only API keys, unlike `cluster_status`.
+    pub async fn ops_stats(&self) -> Result<OpsStats> {
+        let url = format!("{}/v1/ops/stats", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
 
     /// Get cluster status overview
     pub async fn cluster_status(&self) -> Result<ClusterStatus> {

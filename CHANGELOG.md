@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-03-25
+
+### Added
+- `DakeraClient::ops_stats()` — new Read-scoped endpoint `GET /v1/ops/stats` returns `OpsStats`
+  (`version`, `total_vectors`, `namespace_count`, `uptime_seconds`, `timestamp`). Works with
+  read-only API keys; use instead of `cluster_status()` when Admin scope is unavailable
+  (core DAK-852).
+- `OpsStats` struct re-exported from the crate root.
+
+> **Note:** v0.8.4 was a Python-only security patch (urllib3 CVE) and was not released for
+> this crate. This release jumps from v0.8.3 to v0.8.5 to realign all SDKs at the same version.
+
 ## [0.8.2] - 2026-03-23
 
 ### Added
