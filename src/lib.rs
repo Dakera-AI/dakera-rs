@@ -95,7 +95,7 @@ pub use events::{DakeraEvent, MemoryEvent, OpStatus, VectorMutationOp};
 pub use admin::{
     AutoPilotConfig, AutoPilotConfigRequest, AutoPilotConfigResponse, AutoPilotConsolidationResult,
     AutoPilotDedupResult, AutoPilotStatusResponse, AutoPilotTriggerAction, AutoPilotTriggerRequest,
-    AutoPilotTriggerResponse, BackupInfo, BackupListResponse, CacheStats, ClusterStatus,
+    AutoPilotTriggerResponse, BackupInfo, BackupListResponse, CacheStats, ClusterStatus, OpsStats,
     ConsolidationResultSnapshot, CreateBackupRequest, CreateBackupResponse, DecayConfigResponse,
     DecayConfigUpdateRequest, DecayConfigUpdateResponse, DecayStatsResponse, DedupResultSnapshot,
     IndexStats, IndexStatsResponse, LastDecayCycleStats, NodeInfo, NodeListResponse, QuotaConfig,
