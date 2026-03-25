@@ -22,6 +22,7 @@ pub struct OpsStats {
     pub namespace_count: u64,
     pub uptime_seconds: u64,
     pub timestamp: u64,
+    pub state: String,
 }
 
 /// Cluster status response
