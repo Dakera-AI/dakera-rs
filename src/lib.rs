@@ -95,12 +95,12 @@ pub use events::{DakeraEvent, MemoryEvent, OpStatus, VectorMutationOp};
 pub use admin::{
     AutoPilotConfig, AutoPilotConfigRequest, AutoPilotConfigResponse, AutoPilotConsolidationResult,
     AutoPilotDedupResult, AutoPilotStatusResponse, AutoPilotTriggerAction, AutoPilotTriggerRequest,
-    AutoPilotTriggerResponse, BackupInfo, BackupListResponse, CacheStats, ClusterStatus, OpsStats,
+    AutoPilotTriggerResponse, BackupInfo, BackupListResponse, CacheStats, ClusterStatus,
     ConsolidationResultSnapshot, CreateBackupRequest, CreateBackupResponse, DecayConfigResponse,
     DecayConfigUpdateRequest, DecayConfigUpdateResponse, DecayStatsResponse, DedupResultSnapshot,
-    IndexStats, IndexStatsResponse, LastDecayCycleStats, NodeInfo, NodeListResponse, QuotaConfig,
-    QuotaListResponse, QuotaStatus, RestoreBackupRequest, RestoreBackupResponse, RuntimeConfig,
-    SlowQueryListResponse,
+    IndexStats, IndexStatsResponse, LastDecayCycleStats, NodeInfo, NodeListResponse, OpsStats,
+    QuotaConfig, QuotaListResponse, QuotaStatus, RestoreBackupRequest, RestoreBackupResponse,
+    RuntimeConfig, SlowQueryListResponse,
 };
 pub use agents::{AgentStats, AgentSummary};
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
