@@ -955,10 +955,7 @@ impl DakeraClient {
     ///
     /// Sends `GET /v1/memory/entities/{memory_id}`.
     #[instrument(skip(self))]
-    pub async fn memory_entities(
-        &self,
-        memory_id: &str,
-    ) -> Result<MemoryEntitiesResponse> {
+    pub async fn memory_entities(&self, memory_id: &str) -> Result<MemoryEntitiesResponse> {
         let url = format!("{}/v1/memory/entities/{}", self.base_url, memory_id);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
