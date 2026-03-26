@@ -1871,4 +1871,126 @@ mod tests {
         let actual = format!("{}/v1/memory/entities/{}", client.base_url, memory_id);
         assert_eq!(actual, expected);
     }
+
+    // ========================================================================
+    // INT-1 Memory Feedback Loop tests
+    // ========================================================================
+
+    #[test]
+    fn test_feedback_signal_serialization() {
+        use crate::types::FeedbackSignal;
+        let upvote = serde_json::to_value(FeedbackSignal::Upvote).unwrap();
+        assert_eq!(upvote, serde_json::json!("upvote"));
+        let downvote = serde_json::to_value(FeedbackSignal::Downvote).unwrap();
+        assert_eq!(downvote, serde_json::json!("downvote"));
+        let flag = serde_json::to_value(FeedbackSignal::Flag).unwrap();
+        assert_eq!(flag, serde_json::json!("flag"));
+    }
+
+    #[test]
+    fn test_feedback_signal_deserialization() {
+        use crate::types::FeedbackSignal;
+        let signal: FeedbackSignal = serde_json::from_str("\"upvote\"").unwrap();
+        assert_eq!(signal, FeedbackSignal::Upvote);
+        let signal: FeedbackSignal = serde_json::from_str("\"positive\"").unwrap();
+        assert_eq!(signal, FeedbackSignal::Positive);
+    }
+
+    #[test]
+    fn test_feedback_response_deserialization() {
+        use crate::types::{FeedbackResponse, FeedbackSignal};
+        let json = serde_json::json!({
+            "memory_id": "mem-abc",
+            "new_importance": 0.92,
+            "signal": "upvote"
+        });
+        let resp: FeedbackResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(resp.memory_id, "mem-abc");
+        assert!((resp.new_importance - 0.92).abs() < f32::EPSILON);
+        assert_eq!(resp.signal, FeedbackSignal::Upvote);
+    }
+
+    #[test]
+    fn test_feedback_history_response_deserialization() {
+        use crate::types::{FeedbackHistoryResponse, FeedbackSignal};
+        let json = serde_json::json!({
+            "memory_id": "mem-abc",
+            "entries": [
+                {"signal": "upvote", "timestamp": 1774000000_u64, "old_importance": 0.5, "new_importance": 0.575},
+                {"signal": "downvote", "timestamp": 1774001000_u64, "old_importance": 0.575, "new_importance": 0.489}
+            ]
+        });
+        let resp: FeedbackHistoryResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(resp.memory_id, "mem-abc");
+        assert_eq!(resp.entries.len(), 2);
+        assert_eq!(resp.entries[0].signal, FeedbackSignal::Upvote);
+        assert_eq!(resp.entries[1].signal, FeedbackSignal::Downvote);
+    }
+
+    #[test]
+    fn test_agent_feedback_summary_deserialization() {
+        use crate::types::AgentFeedbackSummary;
+        let json = serde_json::json!({
+            "agent_id": "agent-1",
+            "upvotes": 42_u64,
+            "downvotes": 7_u64,
+            "flags": 2_u64,
+            "total_feedback": 51_u64,
+            "health_score": 0.78
+        });
+        let summary: AgentFeedbackSummary = serde_json::from_value(json).unwrap();
+        assert_eq!(summary.agent_id, "agent-1");
+        assert_eq!(summary.upvotes, 42);
+        assert_eq!(summary.total_feedback, 51);
+        assert!((summary.health_score - 0.78).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_feedback_health_response_deserialization() {
+        use crate::types::FeedbackHealthResponse;
+        let json = serde_json::json!({
+            "agent_id": "agent-1",
+            "health_score": 0.78,
+            "memory_count": 120_usize,
+            "avg_importance": 0.72
+        });
+        let health: FeedbackHealthResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(health.agent_id, "agent-1");
+        assert!((health.health_score - 0.78).abs() < f32::EPSILON);
+        assert_eq!(health.memory_count, 120);
+    }
+
+    #[test]
+    fn test_memory_feedback_body_serialization() {
+        use crate::types::{FeedbackSignal, MemoryFeedbackBody};
+        let body = MemoryFeedbackBody {
+            agent_id: "agent-1".to_string(),
+            signal: FeedbackSignal::Flag,
+        };
+        let json = serde_json::to_value(body).unwrap();
+        assert_eq!(json["agent_id"], "agent-1");
+        assert_eq!(json["signal"], "flag");
+    }
+
+    #[test]
+    fn test_feedback_memory_url_pattern() {
+        let client = DakeraClient::new("http://localhost:3000").unwrap();
+        let memory_id = "mem-abc";
+        let expected_post = "http://localhost:3000/v1/memories/mem-abc/feedback";
+        let actual_post = format!("{}/v1/memories/{}/feedback", client.base_url, memory_id);
+        assert_eq!(actual_post, expected_post);
+
+        let expected_patch = "http://localhost:3000/v1/memories/mem-abc/importance";
+        let actual_patch = format!("{}/v1/memories/{}/importance", client.base_url, memory_id);
+        assert_eq!(actual_patch, expected_patch);
+    }
+
+    #[test]
+    fn test_feedback_health_url_pattern() {
+        let client = DakeraClient::new("http://localhost:3000").unwrap();
+        let agent_id = "agent-1";
+        let expected = "http://localhost:3000/v1/feedback/health?agent_id=agent-1";
+        let actual = format!("{}/v1/feedback/health?agent_id={}", client.base_url, agent_id);
+        assert_eq!(actual, expected);
+    }
 }

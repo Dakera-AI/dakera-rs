@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::types::{
-    EdgeType, GraphExport, GraphLinkRequest, GraphLinkResponse, GraphOptions, GraphPath,
-    MemoryGraph,
+    AgentFeedbackSummary, EdgeType, FeedbackHealthResponse, FeedbackHistoryResponse,
+    FeedbackResponse, FeedbackSignal, GraphExport, GraphLinkRequest, GraphLinkResponse,
+    GraphOptions, GraphPath, MemoryFeedbackBody, MemoryImportancePatch, MemoryGraph,
 };
 use crate::DakeraClient;
 
@@ -347,9 +348,9 @@ pub struct FeedbackRequest {
     pub relevance_score: Option<f32>,
 }
 
-/// Response from feedback
+/// Response from legacy feedback endpoint (POST /v1/agents/:id/memories/feedback)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FeedbackResponse {
+pub struct LegacyFeedbackResponse {
     pub status: String,
     pub updated_importance: Option<f32>,
 }
@@ -628,9 +629,97 @@ impl DakeraClient {
         &self,
         agent_id: &str,
         request: FeedbackRequest,
-    ) -> Result<FeedbackResponse> {
+    ) -> Result<LegacyFeedbackResponse> {
         let url = format!("{}/v1/agents/{}/memories/feedback", self.base_url, agent_id);
         let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
+    // Memory Feedback Loop — INT-1
+    // ========================================================================
+
+    /// Submit upvote/downvote/flag feedback on a memory (INT-1).
+    ///
+    /// # Arguments
+    /// * `memory_id` – The memory to give feedback on.
+    /// * `agent_id` – The agent that owns the memory.
+    /// * `signal` – [`FeedbackSignal`] value: `Upvote`, `Downvote`, or `Flag`.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use dakera_client::{DakeraClient, FeedbackSignal};
+    /// # async fn example(client: &DakeraClient) -> dakera_client::Result<()> {
+    /// let resp = client.feedback_memory("mem-abc", "agent-1", FeedbackSignal::Upvote).await?;
+    /// println!("new importance: {}", resp.new_importance);
+    /// # Ok(()) }
+    /// ```
+    pub async fn feedback_memory(
+        &self,
+        memory_id: &str,
+        agent_id: &str,
+        signal: FeedbackSignal,
+    ) -> Result<FeedbackResponse> {
+        let url = format!("{}/v1/memories/{}/feedback", self.base_url, memory_id);
+        let body = MemoryFeedbackBody {
+            agent_id: agent_id.to_string(),
+            signal,
+        };
+        let response = self.client.post(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Get the full feedback history for a memory (INT-1).
+    pub async fn get_memory_feedback_history(
+        &self,
+        memory_id: &str,
+    ) -> Result<FeedbackHistoryResponse> {
+        let url = format!("{}/v1/memories/{}/feedback", self.base_url, memory_id);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Get aggregate feedback counts and health score for an agent (INT-1).
+    pub async fn get_agent_feedback_summary(
+        &self,
+        agent_id: &str,
+    ) -> Result<AgentFeedbackSummary> {
+        let url = format!("{}/v1/agents/{}/feedback/summary", self.base_url, agent_id);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Directly override a memory's importance score (INT-1).
+    ///
+    /// # Arguments
+    /// * `memory_id` – The memory to update.
+    /// * `agent_id` – The agent that owns the memory.
+    /// * `importance` – New importance value (0.0–1.0).
+    pub async fn patch_memory_importance(
+        &self,
+        memory_id: &str,
+        agent_id: &str,
+        importance: f32,
+    ) -> Result<FeedbackResponse> {
+        let url = format!("{}/v1/memories/{}/importance", self.base_url, memory_id);
+        let body = MemoryImportancePatch {
+            agent_id: agent_id.to_string(),
+            importance,
+        };
+        let response = self.client.patch(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Get overall feedback health score for an agent (INT-1).
+    ///
+    /// The health score is the mean importance of all non-expired memories (0.0–1.0).
+    /// A higher score indicates a healthier, more relevant memory store.
+    pub async fn get_feedback_health(
+        &self,
+        agent_id: &str,
+    ) -> Result<FeedbackHealthResponse> {
+        let url = format!("{}/v1/feedback/health?agent_id={}", self.base_url, agent_id);
+        let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 

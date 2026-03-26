@@ -2551,3 +2551,87 @@ pub struct MemoryEntitiesResponse {
     pub memory_id: String,
     pub entities: Vec<ExtractedEntity>,
 }
+
+// ============================================================================
+// Memory Feedback Loop (INT-1)
+// ============================================================================
+
+/// Feedback signal for memory active learning (INT-1).
+///
+/// - `upvote`: Boost importance ×1.15, capped at 1.0.
+/// - `downvote`: Penalise importance ×0.85, floor 0.0.
+/// - `flag`: Mark as irrelevant — sets `decay_flag=true`, no immediate importance change.
+/// - `positive`: Backward-compatible alias for `upvote`.
+/// - `negative`: Backward-compatible alias for `downvote`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FeedbackSignal {
+    Upvote,
+    Downvote,
+    Flag,
+    Positive,
+    Negative,
+}
+
+/// A single recorded feedback event stored in memory metadata (INT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedbackHistoryEntry {
+    pub signal: FeedbackSignal,
+    /// Unix timestamp (seconds) when feedback was submitted.
+    pub timestamp: u64,
+    pub old_importance: f32,
+    pub new_importance: f32,
+}
+
+/// Request body for `POST /v1/memories/:id/feedback` (INT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryFeedbackBody {
+    pub agent_id: String,
+    pub signal: FeedbackSignal,
+}
+
+/// Request body for `PATCH /v1/memories/:id/importance` (INT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryImportancePatch {
+    pub agent_id: String,
+    pub importance: f32,
+}
+
+/// Response from `POST /v1/memories/:id/feedback` and `PATCH /v1/memories/:id/importance` (INT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedbackResponse {
+    pub memory_id: String,
+    /// New importance score after the feedback was applied (0.0–1.0).
+    pub new_importance: f32,
+    pub signal: FeedbackSignal,
+}
+
+/// Response from `GET /v1/memories/:id/feedback` (INT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedbackHistoryResponse {
+    pub memory_id: String,
+    /// Ordered list of feedback events (oldest first, capped at 100).
+    pub entries: Vec<FeedbackHistoryEntry>,
+}
+
+/// Response from `GET /v1/agents/:id/feedback/summary` (INT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentFeedbackSummary {
+    pub agent_id: String,
+    pub upvotes: u64,
+    pub downvotes: u64,
+    pub flags: u64,
+    pub total_feedback: u64,
+    /// Weighted-average importance across all non-expired memories (0.0–1.0).
+    pub health_score: f32,
+}
+
+/// Response from `GET /v1/feedback/health` (INT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedbackHealthResponse {
+    pub agent_id: String,
+    /// Mean importance of all non-expired memories (0.0–1.0). Higher = healthier.
+    pub health_score: f32,
+    pub memory_count: usize,
+    pub avg_importance: f32,
+}
