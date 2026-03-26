@@ -111,7 +111,9 @@ impl DakeraClient {
         &self,
         agent_id: &str,
         tags: Option<Vec<String>>,
-    ) -> crate::error::Result<tokio::sync::mpsc::Receiver<crate::error::Result<crate::events::MemoryEvent>>> {
+    ) -> crate::error::Result<
+        tokio::sync::mpsc::Receiver<crate::error::Result<crate::events::MemoryEvent>>,
+    > {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let client = self.clone();
         let agent_id = agent_id.to_owned();
