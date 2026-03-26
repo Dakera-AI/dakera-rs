@@ -204,7 +204,10 @@ impl DakeraClient {
         namespace: &str,
         key_id: &str,
     ) -> Result<KeySuccessResponse> {
-        let url = format!("{}/v1/namespaces/{}/keys/{}", self.base_url, namespace, key_id);
+        let url = format!(
+            "{}/v1/namespaces/{}/keys/{}",
+            self.base_url, namespace, key_id
+        );
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
