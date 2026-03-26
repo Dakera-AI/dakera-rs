@@ -2388,7 +2388,7 @@ pub struct ConfigureNamespaceResponse {
 // ============================================================================
 
 /// Edge type for memory knowledge graph relationships (CE-5).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeType {
     /// Cosine similarity ≥ 0.85 — two memories are semantically similar.
@@ -2398,13 +2398,8 @@ pub enum EdgeType {
     /// Temporal ordering — source was created before target.
     Precedes,
     /// Explicit user/agent-created link.
+    #[default]
     LinkedBy,
-}
-
-impl Default for EdgeType {
-    fn default() -> Self {
-        EdgeType::LinkedBy
-    }
 }
 
 /// A directed edge in the memory knowledge graph.
