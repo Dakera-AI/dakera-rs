@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-26
+
+### Added
+- **Memory Knowledge Graph API (SDK-9 / CE-5 pre-impl):**
+  - `DakeraClient::memory_graph(memory_id, depth, types)` — returns the graph of memories
+    connected to `memory_id` (`GET /v1/memories/{id}/graph`). Depth and edge-type filters
+    are optional.
+  - `DakeraClient::memory_path(source_id, target_id)` — shortest path between two memory
+    nodes (`GET /v1/memories/{id}/path`).
+  - `DakeraClient::memory_link(source_id, target_id, edge_type)` — create a directed edge
+    between two memories (`POST /v1/memories/{id}/links`).
+  - `DakeraClient::agent_graph_export(agent_id, format)` — export the full memory graph for
+    an agent as JSON or CSV (`GET /v1/agents/{id}/graph/export`).
+  - New types: `EdgeType`, `GraphEdge`, `GraphNode`, `MemoryGraph`, `GraphPath`,
+    `GraphLinkResponse`, `GraphExport` — all re-exported from the crate root.
+  - **Note:** requires server CE-5 for end-to-end functionality; unit tests use mocked
+    responses and pass fully against the current server (server CE-5 / DAK-1002).
+- **Real-time memory event streaming (SDK-10):**
+  - `DakeraClient::subscribe_agent_events(agent_id, tag_filter, reconnect)` — async stream
+    yielding `MemoryEvent` from `GET /v1/events/stream`. Supports tag-based filtering and
+    optional auto-reconnect. Skips the `connected` handshake event automatically.
+
 ## [0.8.6] - 2026-03-25
 
 ### Changed
