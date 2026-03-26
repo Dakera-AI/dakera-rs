@@ -6,7 +6,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::types::{EdgeType, GraphExport, GraphLinkRequest, GraphLinkResponse, GraphOptions, GraphPath, MemoryGraph};
+use crate::types::{
+    EdgeType, GraphExport, GraphLinkRequest, GraphLinkResponse, GraphOptions, GraphPath,
+    MemoryGraph,
+};
 use crate::DakeraClient;
 
 // ============================================================================
@@ -662,7 +665,13 @@ impl DakeraClient {
         if let Some(types) = &options.types {
             let type_strs: Vec<String> = types
                 .iter()
-                .map(|t| serde_json::to_value(t).unwrap().as_str().unwrap_or("").to_string())
+                .map(|t| {
+                    serde_json::to_value(t)
+                        .unwrap()
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string()
+                })
                 .collect();
             if !type_strs.is_empty() {
                 url.push_str(&format!("&types={}", type_strs.join(",")));
