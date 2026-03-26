@@ -6,6 +6,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+use crate::types::{
+    EdgeType, GraphExport, GraphLinkRequest, GraphLinkResponse, GraphOptions, GraphPath,
+    MemoryGraph,
+};
 use crate::DakeraClient;
 
 // ============================================================================
@@ -627,6 +631,119 @@ impl DakeraClient {
     ) -> Result<FeedbackResponse> {
         let url = format!("{}/v1/agents/{}/memories/feedback", self.base_url, agent_id);
         let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
+    // Memory Knowledge Graph Operations (CE-5 / SDK-9)
+    // ========================================================================
+
+    /// Traverse the knowledge graph from a memory node.
+    ///
+    /// Requires CE-5 (Memory Knowledge Graph) on the server.
+    ///
+    /// # Arguments
+    /// * `memory_id` – Root memory ID to start traversal from.
+    /// * `options` – Traversal options (depth, edge type filters).
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use dakera_client::{DakeraClient, GraphOptions};
+    /// # async fn example(client: &DakeraClient) -> dakera_client::Result<()> {
+    /// let graph = client.memory_graph("mem-abc", GraphOptions::new().depth(2)).await?;
+    /// println!("{} nodes, {} edges", graph.nodes.len(), graph.edges.len());
+    /// # Ok(()) }
+    /// ```
+    pub async fn memory_graph(
+        &self,
+        memory_id: &str,
+        options: GraphOptions,
+    ) -> Result<MemoryGraph> {
+        let mut url = format!("{}/v1/memories/{}/graph", self.base_url, memory_id);
+        let depth = options.depth.unwrap_or(1);
+        url.push_str(&format!("?depth={}", depth));
+        if let Some(types) = &options.types {
+            let type_strs: Vec<String> = types
+                .iter()
+                .map(|t| {
+                    serde_json::to_value(t)
+                        .unwrap()
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .collect();
+            if !type_strs.is_empty() {
+                url.push_str(&format!("&types={}", type_strs.join(",")));
+            }
+        }
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Find the shortest path between two memories in the knowledge graph.
+    ///
+    /// Requires CE-5 (Memory Knowledge Graph) on the server.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use dakera_client::DakeraClient;
+    /// # async fn example(client: &DakeraClient) -> dakera_client::Result<()> {
+    /// let path = client.memory_path("mem-abc", "mem-xyz").await?;
+    /// println!("{} hops: {:?}", path.hops, path.path);
+    /// # Ok(()) }
+    /// ```
+    pub async fn memory_path(&self, source_id: &str, target_id: &str) -> Result<GraphPath> {
+        let url = format!(
+            "{}/v1/memories/{}/path?target={}",
+            self.base_url,
+            source_id,
+            urlencoding::encode(target_id)
+        );
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Create an explicit edge between two memories.
+    ///
+    /// Requires CE-5 (Memory Knowledge Graph) on the server.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use dakera_client::{DakeraClient, EdgeType};
+    /// # async fn example(client: &DakeraClient) -> dakera_client::Result<()> {
+    /// let resp = client.memory_link("mem-abc", "mem-xyz", EdgeType::LinkedBy).await?;
+    /// println!("Created edge: {}", resp.edge.id);
+    /// # Ok(()) }
+    /// ```
+    pub async fn memory_link(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        edge_type: EdgeType,
+    ) -> Result<GraphLinkResponse> {
+        let url = format!("{}/v1/memories/{}/links", self.base_url, source_id);
+        let request = GraphLinkRequest {
+            target_id: target_id.to_string(),
+            edge_type,
+        };
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Export the full knowledge graph for an agent.
+    ///
+    /// Requires CE-5 (Memory Knowledge Graph) on the server.
+    ///
+    /// # Arguments
+    /// * `agent_id` – Agent whose graph to export.
+    /// * `format` – Export format: `"json"` (default), `"graphml"`, or `"csv"`.
+    pub async fn agent_graph_export(&self, agent_id: &str, format: &str) -> Result<GraphExport> {
+        let url = format!(
+            "{}/v1/agents/{}/graph/export?format={}",
+            self.base_url, agent_id, format
+        );
+        let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
