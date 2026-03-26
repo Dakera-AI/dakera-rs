@@ -2382,3 +2382,144 @@ pub struct ConfigureNamespaceResponse {
     /// `true` if the namespace was newly created; `false` if it already existed.
     pub created: bool,
 }
+
+// ============================================================================
+// Memory Knowledge Graph Types (CE-5 / SDK-9)
+// ============================================================================
+
+/// Edge type for memory knowledge graph relationships (CE-5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EdgeType {
+    /// Cosine similarity ≥ 0.85 — two memories are semantically similar.
+    RelatedTo,
+    /// Both memories reference the same named entity (CE-4 tags).
+    SharesEntity,
+    /// Temporal ordering — source was created before target.
+    Precedes,
+    /// Explicit user/agent-created link.
+    LinkedBy,
+}
+
+impl Default for EdgeType {
+    fn default() -> Self {
+        EdgeType::LinkedBy
+    }
+}
+
+/// A directed edge in the memory knowledge graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphEdge {
+    /// Unique edge identifier.
+    pub id: String,
+    /// Source memory ID.
+    pub source_id: String,
+    /// Target memory ID.
+    pub target_id: String,
+    /// Relationship type between the two memories.
+    pub edge_type: EdgeType,
+    /// Edge weight (0.0–1.0). For `RelatedTo` this is the cosine similarity score.
+    pub weight: f64,
+    /// Unix timestamp of edge creation.
+    pub created_at: i64,
+}
+
+/// A node (memory) in the knowledge graph traversal result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphNode {
+    /// Memory identifier.
+    pub memory_id: String,
+    /// First 200 characters of memory content.
+    pub content_preview: String,
+    /// Memory importance score.
+    pub importance: f64,
+    /// Traversal depth from the root node (root = 0).
+    pub depth: u32,
+}
+
+/// Graph traversal result from `GET /v1/memories/{id}/graph`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryGraph {
+    /// The root memory ID from which traversal started.
+    pub root_id: String,
+    /// Maximum traversal depth used.
+    pub depth: u32,
+    /// All memory nodes reachable within the requested depth.
+    pub nodes: Vec<GraphNode>,
+    /// All edges connecting the returned nodes.
+    pub edges: Vec<GraphEdge>,
+}
+
+/// Shortest path between two memories from `GET /v1/memories/{id}/path`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphPath {
+    /// Starting memory ID.
+    pub source_id: String,
+    /// Destination memory ID.
+    pub target_id: String,
+    /// Ordered list of memory IDs from source to target (inclusive).
+    pub path: Vec<String>,
+    /// Number of edges traversed (`path.len() - 1`). `-1` if no path exists.
+    pub hops: i32,
+    /// Edges along the path, in traversal order.
+    pub edges: Vec<GraphEdge>,
+}
+
+/// Request body for `POST /v1/memories/{id}/links`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphLinkRequest {
+    /// Target memory ID to link to.
+    pub target_id: String,
+    /// Edge type — must be `LinkedBy` for explicit links.
+    pub edge_type: EdgeType,
+}
+
+/// Response from `POST /v1/memories/{id}/links`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphLinkResponse {
+    /// The newly created edge.
+    pub edge: GraphEdge,
+}
+
+/// Agent graph export from `GET /v1/agents/{id}/graph/export`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphExport {
+    /// Agent whose graph was exported.
+    pub agent_id: String,
+    /// Export format: `json`, `graphml`, or `csv`.
+    pub format: String,
+    /// Serialised graph in the requested format.
+    pub data: String,
+    /// Total number of memory nodes in the export.
+    pub node_count: u64,
+    /// Total number of edges in the export.
+    pub edge_count: u64,
+}
+
+/// Options for [`DakeraClient::memory_graph`].
+#[derive(Debug, Clone, Default)]
+pub struct GraphOptions {
+    /// Maximum traversal depth (default: 1, max: 3).
+    pub depth: Option<u32>,
+    /// Filter by edge types. `None` returns all types.
+    pub types: Option<Vec<EdgeType>>,
+}
+
+impl GraphOptions {
+    /// Create default options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set traversal depth.
+    pub fn depth(mut self, depth: u32) -> Self {
+        self.depth = Some(depth);
+        self
+    }
+
+    /// Filter by edge types.
+    pub fn types(mut self, types: Vec<EdgeType>) -> Self {
+        self.types = Some(types);
+        self
+    }
+}
