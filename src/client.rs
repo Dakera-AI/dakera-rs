@@ -914,6 +914,54 @@ impl DakeraClient {
     }
 
     // ========================================================================
+    // CE-4: GLiNER Entity Extraction
+    // ========================================================================
+
+    /// Configure namespace-level entity extraction settings (CE-4).
+    ///
+    /// Sends `PATCH /v1/namespaces/{namespace}/config` with the provided
+    /// [`NamespaceNerConfig`].
+    #[instrument(skip(self, config))]
+    pub async fn configure_namespace_ner(
+        &self,
+        namespace: &str,
+        config: NamespaceNerConfig,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/v1/namespaces/{}/config", self.base_url, namespace);
+        let response = self.client.patch(&url).json(&config).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Extract entities from arbitrary text using the GLiNER pipeline (CE-4).
+    ///
+    /// Sends `POST /v1/memories/extract` with the supplied text and optional
+    /// entity type list.
+    #[instrument(skip(self, text, entity_types))]
+    pub async fn extract_entities(
+        &self,
+        text: &str,
+        entity_types: Option<Vec<String>>,
+    ) -> Result<EntityExtractionResponse> {
+        let url = format!("{}/v1/memories/extract", self.base_url);
+        let body = serde_json::json!({
+            "text": text,
+            "entity_types": entity_types,
+        });
+        let response = self.client.post(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Retrieve entity tags associated with a stored memory (CE-4).
+    ///
+    /// Sends `GET /v1/memory/entities/{memory_id}`.
+    #[instrument(skip(self))]
+    pub async fn memory_entities(&self, memory_id: &str) -> Result<MemoryEntitiesResponse> {
+        let url = format!("{}/v1/memory/entities/{}", self.base_url, memory_id);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
     // Private Helpers
     // ========================================================================
 
@@ -1713,5 +1761,114 @@ mod tests {
     fn test_last_rate_limit_headers_initially_none() {
         let client = DakeraClient::new("http://localhost:3000").unwrap();
         assert!(client.last_rate_limit_headers().is_none());
+    }
+
+    // =========================================================================
+    // CE-4: GLiNER Entity Extraction
+    // =========================================================================
+
+    #[test]
+    fn test_namespace_ner_config_default() {
+        use crate::types::NamespaceNerConfig;
+        let cfg = NamespaceNerConfig::default();
+        assert!(!cfg.extract_entities);
+        assert!(cfg.entity_types.is_none());
+    }
+
+    #[test]
+    fn test_namespace_ner_config_serialization_skip_none() {
+        use crate::types::NamespaceNerConfig;
+        let cfg = NamespaceNerConfig {
+            extract_entities: true,
+            entity_types: None,
+        };
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert_eq!(json["extract_entities"], true);
+        // entity_types should be omitted when None
+        assert!(json.get("entity_types").is_none());
+    }
+
+    #[test]
+    fn test_namespace_ner_config_serialization_with_types() {
+        use crate::types::NamespaceNerConfig;
+        let cfg = NamespaceNerConfig {
+            extract_entities: true,
+            entity_types: Some(vec!["PERSON".to_string(), "ORG".to_string()]),
+        };
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert_eq!(json["extract_entities"], true);
+        assert_eq!(json["entity_types"][0], "PERSON");
+        assert_eq!(json["entity_types"][1], "ORG");
+    }
+
+    #[test]
+    fn test_extracted_entity_deserialization() {
+        use crate::types::ExtractedEntity;
+        let json = serde_json::json!({
+            "entity_type": "PERSON",
+            "value": "Alice",
+            "score": 0.95
+        });
+        let entity: ExtractedEntity = serde_json::from_value(json).unwrap();
+        assert_eq!(entity.entity_type, "PERSON");
+        assert_eq!(entity.value, "Alice");
+        assert!((entity.score - 0.95).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_entity_extraction_response_deserialization() {
+        use crate::types::EntityExtractionResponse;
+        let json = serde_json::json!({
+            "entities": [
+                { "entity_type": "PERSON", "value": "Bob", "score": 0.9 },
+                { "entity_type": "ORG",    "value": "Acme", "score": 0.87 }
+            ]
+        });
+        let resp: EntityExtractionResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(resp.entities.len(), 2);
+        assert_eq!(resp.entities[0].entity_type, "PERSON");
+        assert_eq!(resp.entities[1].value, "Acme");
+    }
+
+    #[test]
+    fn test_memory_entities_response_deserialization() {
+        use crate::types::MemoryEntitiesResponse;
+        let json = serde_json::json!({
+            "memory_id": "mem-abc-123",
+            "entities": [
+                { "entity_type": "LOC", "value": "London", "score": 0.88 }
+            ]
+        });
+        let resp: MemoryEntitiesResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(resp.memory_id, "mem-abc-123");
+        assert_eq!(resp.entities.len(), 1);
+        assert_eq!(resp.entities[0].entity_type, "LOC");
+        assert_eq!(resp.entities[0].value, "London");
+    }
+
+    #[test]
+    fn test_configure_namespace_ner_url_pattern() {
+        // Verify the client is constructable and base_url is correct
+        let client = DakeraClient::new("http://localhost:3000").unwrap();
+        let expected = "http://localhost:3000/v1/namespaces/my-ns/config";
+        let actual = format!("{}/v1/namespaces/{}/config", client.base_url, "my-ns");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_extract_entities_url_pattern() {
+        let client = DakeraClient::new("http://localhost:3000").unwrap();
+        let expected = "http://localhost:3000/v1/memories/extract";
+        let actual = format!("{}/v1/memories/extract", client.base_url);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_memory_entities_url_pattern() {
+        let client = DakeraClient::new("http://localhost:3000").unwrap();
+        let memory_id = "mem-xyz-789";
+        let expected = "http://localhost:3000/v1/memory/entities/mem-xyz-789";
+        let actual = format!("{}/v1/memory/entities/{}", client.base_url, memory_id);
+        assert_eq!(actual, expected);
     }
 }

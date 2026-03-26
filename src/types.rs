@@ -2518,3 +2518,36 @@ impl GraphOptions {
         self
     }
 }
+
+// ============================================================================
+// CE-4: GLiNER Entity Extraction Types
+// ============================================================================
+
+/// Configuration for namespace-level entity extraction (CE-4).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NamespaceNerConfig {
+    pub extract_entities: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_types: Option<Vec<String>>,
+}
+
+/// A single extracted entity from GLiNER or rule-based pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedEntity {
+    pub entity_type: String,
+    pub value: String,
+    pub score: f64,
+}
+
+/// Response from POST /v1/memories/extract
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityExtractionResponse {
+    pub entities: Vec<ExtractedEntity>,
+}
+
+/// Response from GET /v1/memory/entities/:id
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEntitiesResponse {
+    pub memory_id: String,
+    pub entities: Vec<ExtractedEntity>,
+}
