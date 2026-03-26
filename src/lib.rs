@@ -108,8 +108,9 @@ pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, Throu
 pub use client::{DakeraClient, DakeraClientBuilder};
 pub use error::{ClientError, Result};
 pub use keys::{
-    ApiKeyUsageResponse, CreateKeyRequest, CreateKeyResponse, KeyInfo, ListKeysResponse,
-    RotateKeyResponse,
+    ApiKeyUsageResponse, CreateKeyRequest, CreateKeyResponse, CreateNamespaceKeyRequest,
+    CreateNamespaceKeyResponse, KeyInfo, ListKeysResponse, ListNamespaceKeysResponse,
+    NamespaceKeyInfo, NamespaceKeyUsageResponse, RotateKeyResponse,
 };
 pub use knowledge::{
     AgentNetworkEdge, AgentNetworkInfo, AgentNetworkNode, AgentNetworkStats,
