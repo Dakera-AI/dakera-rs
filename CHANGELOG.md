@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-03-26
+
+### Added
+- **Memory Feedback Loop (INT-1):**
+  - `DakeraClient::feedback_memory(memory_id, agent_id, signal, note)` — submit feedback
+    (upvote/downvote/flag) for a memory (`POST /v1/memories/{id}/feedback`). Returns
+    `FeedbackResponse`.
+  - `DakeraClient::patch_memory_importance(memory_id, agent_id, importance)` — directly set a
+    memory's importance score (`PATCH /v1/memories/{id}/importance`). Returns `FeedbackResponse`.
+  - `DakeraClient::get_memory_feedback_history(memory_id)` — retrieve all feedback events for a
+    memory (`GET /v1/memories/{id}/feedback/history`). Returns `FeedbackHistoryResponse`.
+  - `DakeraClient::get_agent_feedback_summary(agent_id)` — aggregate feedback counts and health
+    score for an agent (`GET /v1/agents/{id}/feedback/summary`). Returns `AgentFeedbackSummary`.
+  - `DakeraClient::get_feedback_health(agent_id)` — health score (mean importance of non-expired
+    memories) for an agent (`GET /v1/feedback/health`). Returns `FeedbackHealthResponse`.
+  - New types: `FeedbackSignal` (enum: `Upvote` / `Downvote` / `Flag`), `FeedbackResponse`,
+    `FeedbackHistoryEntry`, `FeedbackHistoryResponse`, `MemoryFeedbackBody`,
+    `MemoryImportancePatch`, `AgentFeedbackSummary`, `FeedbackHealthResponse` — all re-exported
+    from the crate root.
+  - Note: `LegacyFeedbackResponse` replaces the old `FeedbackResponse` from CE-4 entity
+    extraction to avoid the name collision.
+
 ## [0.9.0] - 2026-03-26
 
 ### Added
