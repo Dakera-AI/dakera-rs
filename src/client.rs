@@ -1990,7 +1990,10 @@ mod tests {
         let client = DakeraClient::new("http://localhost:3000").unwrap();
         let agent_id = "agent-1";
         let expected = "http://localhost:3000/v1/feedback/health?agent_id=agent-1";
-        let actual = format!("{}/v1/feedback/health?agent_id={}", client.base_url, agent_id);
+        let actual = format!(
+            "{}/v1/feedback/health?agent_id={}",
+            client.base_url, agent_id
+        );
         assert_eq!(actual, expected);
     }
 }

@@ -9,7 +9,7 @@ use crate::error::Result;
 use crate::types::{
     AgentFeedbackSummary, EdgeType, FeedbackHealthResponse, FeedbackHistoryResponse,
     FeedbackResponse, FeedbackSignal, GraphExport, GraphLinkRequest, GraphLinkResponse,
-    GraphOptions, GraphPath, MemoryFeedbackBody, MemoryImportancePatch, MemoryGraph,
+    GraphOptions, GraphPath, MemoryFeedbackBody, MemoryGraph, MemoryImportancePatch,
 };
 use crate::DakeraClient;
 
@@ -680,10 +680,7 @@ impl DakeraClient {
     }
 
     /// Get aggregate feedback counts and health score for an agent (INT-1).
-    pub async fn get_agent_feedback_summary(
-        &self,
-        agent_id: &str,
-    ) -> Result<AgentFeedbackSummary> {
+    pub async fn get_agent_feedback_summary(&self, agent_id: &str) -> Result<AgentFeedbackSummary> {
         let url = format!("{}/v1/agents/{}/feedback/summary", self.base_url, agent_id);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
@@ -714,10 +711,7 @@ impl DakeraClient {
     ///
     /// The health score is the mean importance of all non-expired memories (0.0–1.0).
     /// A higher score indicates a healthier, more relevant memory store.
-    pub async fn get_feedback_health(
-        &self,
-        agent_id: &str,
-    ) -> Result<FeedbackHealthResponse> {
+    pub async fn get_feedback_health(&self, agent_id: &str) -> Result<FeedbackHealthResponse> {
         let url = format!("{}/v1/feedback/health?agent_id={}", self.base_url, agent_id);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
