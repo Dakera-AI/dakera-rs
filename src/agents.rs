@@ -79,6 +79,87 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
+    /// Subscribe to real-time memory lifecycle events for a specific agent.
+    ///
+    /// Opens a long-lived connection to `GET /v1/events/stream` and returns a
+    /// [`tokio::sync::mpsc::Receiver`] that yields [`MemoryEvent`] results filtered
+    /// to the given `agent_id`.  An optional `tags` list further restricts events
+    /// to those whose tags have at least one overlap with the filter.
+    ///
+    /// The background task reconnects automatically on stream error.  It exits
+    /// when the returned receiver is dropped.
+    ///
+    /// Requires a Read-scoped API key.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use dakera_client::DakeraClient;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = DakeraClient::new("http://localhost:3000")?;
+    ///     let mut rx = client.subscribe_agent_events("my-bot", None).await?;
+    ///     while let Some(result) = rx.recv().await {
+    ///         let event = result?;
+    ///         println!("{}: {:?}", event.event_type, event.memory_id);
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn subscribe_agent_events(
+        &self,
+        agent_id: &str,
+        tags: Option<Vec<String>>,
+    ) -> crate::error::Result<tokio::sync::mpsc::Receiver<crate::error::Result<crate::events::MemoryEvent>>> {
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        let client = self.clone();
+        let agent_id = agent_id.to_owned();
+
+        tokio::spawn(async move {
+            loop {
+                match client.stream_memory_events().await {
+                    Err(_) => {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    Ok(mut inner_rx) => {
+                        while let Some(result) = inner_rx.recv().await {
+                            match result {
+                                Err(e) => {
+                                    // Send the error but don't kill the reconnect loop.
+                                    let _ = tx.send(Err(e)).await;
+                                    break;
+                                }
+                                Ok(event) => {
+                                    if event.event_type == "connected" {
+                                        continue;
+                                    }
+                                    if event.agent_id != agent_id {
+                                        continue;
+                                    }
+                                    if let Some(ref filter_tags) = tags {
+                                        let event_tags = event.tags.as_deref().unwrap_or(&[]);
+                                        if !filter_tags.iter().any(|t| event_tags.contains(t)) {
+                                            continue;
+                                        }
+                                    }
+                                    if tx.send(Ok(event)).await.is_err() {
+                                        return; // Receiver dropped — exit.
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Reconnect after a short delay.
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        });
+
+        Ok(rx)
+    }
+
     /// Get sessions for an agent
     pub async fn agent_sessions(
         &self,
