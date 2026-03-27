@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-03-27
+
+### Added
+- **Namespace-scoped API Keys (SEC-1):**
+  - `DakeraClient::create_namespace_key(namespace, name, expires_in_days)` —
+    create a scoped API key (`POST /v1/namespaces/{ns}/keys`). Returns
+    `CreateNamespaceKeyResponse`. The raw key is shown **only once**.
+  - `DakeraClient::list_namespace_keys(namespace)` — list all API keys for a
+    namespace (`GET /v1/namespaces/{ns}/keys`). Returns `ListNamespaceKeysResponse`.
+  - `DakeraClient::delete_namespace_key(namespace, key_id)` — revoke a namespace
+    API key (`DELETE /v1/namespaces/{ns}/keys/{key_id}`). Returns
+    `KeySuccessResponse`.
+  - `DakeraClient::get_namespace_key_usage(namespace, key_id)` — usage stats for
+    a key (`GET /v1/namespaces/{ns}/keys/{key_id}/usage`). Returns
+    `NamespaceKeyUsageResponse`.
+  - New types: `CreateNamespaceKeyRequest`, `CreateNamespaceKeyResponse`,
+    `NamespaceKeyInfo`, `ListNamespaceKeysResponse`, `NamespaceKeyUsageResponse`,
+    `KeySuccessResponse` — all re-exported from the crate root.
+
 ## [0.9.1] - 2026-03-26
 
 ### Added
