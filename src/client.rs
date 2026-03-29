@@ -1045,6 +1045,63 @@ impl DakeraClient {
         }
     }
 
+    /// Handle response and return raw text body (for non-JSON endpoints like /v1/ops/metrics).
+    pub(crate) async fn handle_text_response(&self, response: reqwest::Response) -> Result<String> {
+        let status = response.status();
+
+        // OPS-1: capture rate-limit headers before consuming the response body
+        if let Ok(mut guard) = self.last_rate_limit.lock() {
+            *guard = Some(RateLimitHeaders::from_response(&response));
+        }
+
+        let retry_after = response
+            .headers()
+            .get("Retry-After")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok());
+        let text = response.text().await.unwrap_or_default();
+
+        if status.is_success() {
+            return Ok(text);
+        }
+
+        let status_code = status.as_u16();
+
+        if status_code == 429 {
+            return Err(ClientError::RateLimitExceeded { retry_after });
+        }
+
+        #[derive(Deserialize)]
+        struct ErrorBody {
+            error: Option<String>,
+            code: Option<ServerErrorCode>,
+        }
+
+        let (message, code) = if let Ok(body) = serde_json::from_str::<ErrorBody>(&text) {
+            (body.error.unwrap_or_else(|| text.clone()), body.code)
+        } else {
+            (text, None)
+        };
+
+        match status_code {
+            401 => Err(ClientError::Server {
+                status: 401,
+                message,
+                code,
+            }),
+            403 => Err(ClientError::Authorization {
+                status: 403,
+                message,
+                code,
+            }),
+            _ => Err(ClientError::Server {
+                status: status_code,
+                message,
+                code,
+            }),
+        }
+    }
+
     /// Execute a fallible async operation with retry logic and exponential backoff.
     ///
     /// Retries on transient errors (5xx, rate-limit, connection/timeout).
