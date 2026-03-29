@@ -631,6 +631,16 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
+    /// Get Prometheus metrics in text exposition format (INFRA-3).
+    ///
+    /// Requires Admin scope. Returns the raw Prometheus text exposition
+    /// format string suitable for scraping by a Prometheus server.
+    pub async fn ops_metrics(&self) -> Result<String> {
+        let url = format!("{}/v1/ops/metrics", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_text_response(response).await
+    }
+
     /// Get cluster status overview
     pub async fn cluster_status(&self) -> Result<ClusterStatus> {
         let url = format!("{}/admin/cluster/status", self.base_url);
