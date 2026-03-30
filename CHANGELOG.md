@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-03-30
+
+### Added
+- **Memory Import/Export (DX-1):**
+  - `DakeraClient::import_memories(data, format, agent_id?, namespace?)` — import
+    memories from Mem0, Zep, JSONL, or CSV (`POST /v1/import`). Returns
+    `MemoryImportResponse`.
+  - `DakeraClient::export_memories(format, agent_id?, namespace?, limit?)` — export
+    memories in a portable format (`GET /v1/export`). Returns `MemoryExportResponse`.
+  - New types: `MemoryImportResponse`, `MemoryExportResponse`.
+- **Business-Event Audit Log (OBS-1):**
+  - `DakeraClient::list_audit_events(query)` — paginated audit log query
+    (`GET /v1/audit`). Returns `AuditListResponse`.
+  - `DakeraClient::stream_audit_events(agent_id?, event_type?)` — live SSE stream
+    of audit events (`GET /v1/audit/stream`). Returns
+    `Receiver<Result<DakeraEvent>>`.
+  - `DakeraClient::export_audit(format, agent_id?, event_type?, from?, to?)` —
+    bulk export audit entries (`POST /v1/audit/export`). Returns
+    `AuditExportResponse`.
+  - New types: `AuditEvent`, `AuditListResponse`, `AuditExportResponse`, `AuditQuery`.
+- **DBSCAN Adaptive Consolidation (CE-6):** `ConsolidateRequest` now has an
+  optional `config: Option<ConsolidationConfig>` field for algorithm selection
+  (`"dbscan"` or `"greedy"`) and DBSCAN parameter tuning. `ConsolidateResponse`
+  includes an optional `log: Vec<ConsolidationLogEntry>`.
+  New types: `ConsolidationConfig`, `ConsolidationLogEntry`.
+- **External Extraction Providers (EXT-1):**
+  - `DakeraClient::extract_text(text, namespace?, provider?, model?)` — extract
+    entities from text (`POST /v1/extract`). Providers: `gliner` (bundled),
+    `openai`, `anthropic`, `openrouter`, `ollama`. Returns `ExtractionResult`.
+  - `DakeraClient::list_extract_providers()` — list available providers
+    (`GET /v1/extract/providers`). Returns `Vec<ExtractionProviderInfo>`.
+  - `DakeraClient::configure_namespace_extractor(namespace, provider, model?)` —
+    set namespace default extractor (`PATCH /v1/namespaces/{ns}/extractor`).
+  - New types: `ExtractionResult`, `ExtractionProviderInfo`.
+- **Redis Health (OPS-3):** `ClusterStatus` gains `redis_healthy: Option<bool>`.
+- **Cluster Env Aliases (DIST-1):** Documented `DAKERA_CLUSTER_NODE_ID`,
+  `SEED_NODES`, `BIND_ADDR` server environment variables.
+- **Memory Encryption (SEC-3):** Server supports AES-256-GCM at-rest encryption
+  via `DAKERA_ENCRYPTION_KEY` — transparent to SDK clients.
+
+## [0.9.3] - 2026-03-29
+
 ### Added
 - **Prometheus Metrics (INFRA-3):** `DakeraClient::ops_metrics()` — returns the
   raw Prometheus text exposition format string from `GET /v1/ops/metrics` (Admin

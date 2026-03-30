@@ -320,8 +320,31 @@ pub struct UpdateImportanceRequest {
     pub importance: f32,
 }
 
-/// Request to consolidate memories
+/// DBSCAN algorithm config for adaptive consolidation (CE-6).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsolidationConfig {
+    /// Clustering algorithm: `"dbscan"` (default) or `"greedy"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub algorithm: Option<String>,
+    /// Minimum cluster samples for DBSCAN.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_samples: Option<u32>,
+    /// Epsilon distance parameter for DBSCAN.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eps: Option<f32>,
+}
+
+/// One step in the consolidation execution log (CE-6).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsolidationLogEntry {
+    pub step: String,
+    pub memories_before: usize,
+    pub memories_after: usize,
+    pub duration_ms: f64,
+}
+
+/// Request to consolidate memories
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConsolidateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_type: Option<String>,
@@ -329,6 +352,9 @@ pub struct ConsolidateRequest {
     pub threshold: Option<f32>,
     #[serde(default)]
     pub dry_run: bool,
+    /// Optional DBSCAN algorithm configuration (CE-6).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<ConsolidationConfig>,
 }
 
 /// Response from consolidation
@@ -337,6 +363,113 @@ pub struct ConsolidateResponse {
     pub consolidated_count: usize,
     pub removed_count: usize,
     pub new_memories: Vec<String>,
+    /// Step-by-step consolidation log (CE-6, optional).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub log: Vec<ConsolidationLogEntry>,
+}
+
+// ============================================================================
+// DX-1: Memory Import / Export
+// ============================================================================
+
+/// Response from `POST /v1/import` (DX-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryImportResponse {
+    pub imported_count: usize,
+    pub skipped_count: usize,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
+/// Response from `GET /v1/export` (DX-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryExportResponse {
+    pub data: Vec<serde_json::Value>,
+    pub format: String,
+    pub count: usize,
+}
+
+// ============================================================================
+// OBS-1: Business-Event Audit Log
+// ============================================================================
+
+/// A single business-event entry from the audit log (OBS-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub id: String,
+    pub event_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    pub timestamp: u64,
+    #[serde(default)]
+    pub details: serde_json::Value,
+}
+
+/// Response from `GET /v1/audit` (OBS-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditListResponse {
+    pub events: Vec<AuditEvent>,
+    pub total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+/// Response from `POST /v1/audit/export` (OBS-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditExportResponse {
+    pub data: String,
+    pub format: String,
+    pub count: usize,
+}
+
+/// Query parameters for the audit log (OBS-1).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AuditQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+// ============================================================================
+// EXT-1: External Extraction Providers
+// ============================================================================
+
+/// Result from `POST /v1/extract` (EXT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionResult {
+    pub entities: Vec<serde_json::Value>,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub duration_ms: f64,
+}
+
+/// Metadata for an available extraction provider (EXT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionProviderInfo {
+    pub name: String,
+    pub available: bool,
+    #[serde(default)]
+    pub models: Vec<String>,
+}
+
+/// Response from `GET /v1/extract/providers` (EXT-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ExtractProvidersResponse {
+    List(Vec<ExtractionProviderInfo>),
+    Object { providers: Vec<ExtractionProviderInfo> },
 }
 
 /// Request for memory feedback
@@ -940,6 +1073,198 @@ impl DakeraClient {
     pub async fn batch_forget(&self, request: BatchForgetRequest) -> Result<BatchForgetResponse> {
         let url = format!("{}/v1/memories/forget/batch", self.base_url);
         let response = self.client.delete(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
+    // DX-1: Memory Import / Export
+    // ========================================================================
+
+    /// Import memories from an external format (DX-1).
+    ///
+    /// Supported formats: `"jsonl"`, `"mem0"`, `"zep"`, `"csv"`.
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = dakera_client::DakeraClient::new("http://localhost:3000")?;
+    /// let data = serde_json::json!([{"content": "hello", "agent_id": "agent-1"}]);
+    /// let resp = client.import_memories(data, "jsonl", None, None).await?;
+    /// println!("Imported {} memories", resp.imported_count);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn import_memories(
+        &self,
+        data: serde_json::Value,
+        format: &str,
+        agent_id: Option<&str>,
+        namespace: Option<&str>,
+    ) -> Result<MemoryImportResponse> {
+        let mut body = serde_json::json!({"data": data, "format": format});
+        if let Some(aid) = agent_id {
+            body["agent_id"] = serde_json::Value::String(aid.to_string());
+        }
+        if let Some(ns) = namespace {
+            body["namespace"] = serde_json::Value::String(ns.to_string());
+        }
+        let url = format!("{}/v1/import", self.base_url);
+        let response = self.client.post(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Export memories in a portable format (DX-1).
+    ///
+    /// Supported formats: `"jsonl"`, `"mem0"`, `"zep"`, `"csv"`.
+    pub async fn export_memories(
+        &self,
+        format: &str,
+        agent_id: Option<&str>,
+        namespace: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<MemoryExportResponse> {
+        let mut params = vec![("format", format.to_string())];
+        if let Some(aid) = agent_id {
+            params.push(("agent_id", aid.to_string()));
+        }
+        if let Some(ns) = namespace {
+            params.push(("namespace", ns.to_string()));
+        }
+        if let Some(l) = limit {
+            params.push(("limit", l.to_string()));
+        }
+        let url = format!("{}/v1/export", self.base_url);
+        let response = self.client.get(&url).query(&params).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
+    // OBS-1: Business-Event Audit Log
+    // ========================================================================
+
+    /// List paginated audit log entries (OBS-1).
+    pub async fn list_audit_events(
+        &self,
+        query: AuditQuery,
+    ) -> Result<AuditListResponse> {
+        let url = format!("{}/v1/audit", self.base_url);
+        let response = self.client.get(&url).query(&query).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Stream live audit events via SSE (OBS-1).
+    ///
+    /// Returns a [`tokio::sync::mpsc::Receiver`] that yields [`DakeraEvent`] results.
+    pub async fn stream_audit_events(
+        &self,
+        agent_id: Option<&str>,
+        event_type: Option<&str>,
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::events::DakeraEvent>>> {
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(aid) = agent_id {
+            params.push(("agent_id", aid.to_string()));
+        }
+        if let Some(et) = event_type {
+            params.push(("event_type", et.to_string()));
+        }
+        let base = format!("{}/v1/audit/stream", self.base_url);
+        let url = if params.is_empty() {
+            base
+        } else {
+            let qs = params
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+                .collect::<Vec<_>>()
+                .join("&");
+            format!("{}?{}", base, qs)
+        };
+        self.stream_sse(url).await
+    }
+
+    /// Bulk-export audit log entries (OBS-1).
+    pub async fn export_audit(
+        &self,
+        format: &str,
+        agent_id: Option<&str>,
+        event_type: Option<&str>,
+        from_ts: Option<u64>,
+        to_ts: Option<u64>,
+    ) -> Result<AuditExportResponse> {
+        let mut body = serde_json::json!({"format": format});
+        if let Some(aid) = agent_id {
+            body["agent_id"] = serde_json::Value::String(aid.to_string());
+        }
+        if let Some(et) = event_type {
+            body["event_type"] = serde_json::Value::String(et.to_string());
+        }
+        if let Some(f) = from_ts {
+            body["from"] = serde_json::Value::Number(f.into());
+        }
+        if let Some(t) = to_ts {
+            body["to"] = serde_json::Value::Number(t.into());
+        }
+        let url = format!("{}/v1/audit/export", self.base_url);
+        let response = self.client.post(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
+    // EXT-1: External Extraction Providers
+    // ========================================================================
+
+    /// Extract entities from text using a pluggable provider (EXT-1).
+    ///
+    /// Provider hierarchy: per-request > namespace default > GLiNER (bundled).
+    /// Supported providers: `"gliner"`, `"openai"`, `"anthropic"`, `"openrouter"`, `"ollama"`.
+    pub async fn extract_text(
+        &self,
+        text: &str,
+        namespace: Option<&str>,
+        provider: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<ExtractionResult> {
+        let mut body = serde_json::json!({"text": text});
+        if let Some(ns) = namespace {
+            body["namespace"] = serde_json::Value::String(ns.to_string());
+        }
+        if let Some(p) = provider {
+            body["provider"] = serde_json::Value::String(p.to_string());
+        }
+        if let Some(m) = model {
+            body["model"] = serde_json::Value::String(m.to_string());
+        }
+        let url = format!("{}/v1/extract", self.base_url);
+        let response = self.client.post(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// List available extraction providers and their models (EXT-1).
+    pub async fn list_extract_providers(&self) -> Result<Vec<ExtractionProviderInfo>> {
+        let url = format!("{}/v1/extract/providers", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        let result: ExtractProvidersResponse = self.handle_response(response).await?;
+        Ok(match result {
+            ExtractProvidersResponse::List(v) => v,
+            ExtractProvidersResponse::Object { providers } => providers,
+        })
+    }
+
+    /// Set the default extraction provider for a namespace (EXT-1).
+    pub async fn configure_namespace_extractor(
+        &self,
+        namespace: &str,
+        provider: &str,
+        model: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let mut body = serde_json::json!({"provider": provider});
+        if let Some(m) = model {
+            body["model"] = serde_json::Value::String(m.to_string());
+        }
+        let url = format!(
+            "{}/v1/namespaces/{}/extractor",
+            self.base_url,
+            urlencoding::encode(namespace)
+        );
+        let response = self.client.patch(&url).json(&body).send().await?;
         self.handle_response(response).await
     }
 }
