@@ -138,6 +138,9 @@ pub use memory::{
     MemoryExportResponse,
     // DX-1: Memory Import / Export
     MemoryImportResponse,
+    // SEC-3: AES-256-GCM Encryption Key Rotation
+    RotateEncryptionKeyRequest,
+    RotateEncryptionKeyResponse,
 };
 pub use types::*;
 
