@@ -474,6 +474,29 @@ pub enum ExtractProvidersResponse {
     },
 }
 
+// ============================================================================
+// SEC-3: AES-256-GCM Encryption Key Rotation
+// ============================================================================
+
+/// Request body for `POST /v1/admin/encryption/rotate-key` (SEC-3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotateEncryptionKeyRequest {
+    /// New passphrase or 64-char hex key to rotate to.
+    pub new_key: String,
+    /// If set, rotate only memories in this namespace. Omit to rotate all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+}
+
+/// Response from `POST /v1/admin/encryption/rotate-key` (SEC-3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotateEncryptionKeyResponse {
+    pub rotated: usize,
+    pub skipped: usize,
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+}
+
 /// Request for memory feedback
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedbackRequest {
@@ -1264,6 +1287,35 @@ impl DakeraClient {
             urlencoding::encode(namespace)
         );
         let response = self.client.patch(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // SEC-3: AES-256-GCM Encryption Key Rotation
+    // =========================================================================
+
+    /// Re-encrypt all memory content blobs with a new AES-256-GCM key (SEC-3).
+    ///
+    /// After this call the new key is active in the running process.
+    /// The operator must update `DAKERA_ENCRYPTION_KEY` and restart to make
+    /// the rotation durable across restarts.
+    ///
+    /// Requires Admin scope.
+    ///
+    /// # Arguments
+    /// * `new_key` - New passphrase or 64-char hex key.
+    /// * `namespace` - If `Some`, rotate only this namespace. `None` rotates all.
+    pub async fn rotate_encryption_key(
+        &self,
+        new_key: &str,
+        namespace: Option<&str>,
+    ) -> Result<RotateEncryptionKeyResponse> {
+        let body = RotateEncryptionKeyRequest {
+            new_key: new_key.to_string(),
+            namespace: namespace.map(|s| s.to_string()),
+        };
+        let url = format!("{}/v1/admin/encryption/rotate-key", self.base_url);
+        let response = self.client.post(&url).json(&body).send().await?;
         self.handle_response(response).await
     }
 }
