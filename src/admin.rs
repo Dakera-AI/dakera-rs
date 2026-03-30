@@ -35,6 +35,9 @@ pub struct ClusterStatus {
     pub namespace_count: u64,
     pub version: String,
     pub timestamp: u64,
+    /// Redis connectivity status (OPS-3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redis_healthy: Option<bool>,
 }
 
 /// Node information

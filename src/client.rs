@@ -1318,7 +1318,10 @@ impl DakeraClient {
     }
 
     /// Low-level generic SSE streaming helper.
-    async fn stream_sse<T>(&self, url: String) -> Result<tokio::sync::mpsc::Receiver<Result<T>>>
+    pub(crate) async fn stream_sse<T>(
+        &self,
+        url: String,
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<T>>>
     where
         T: serde::de::DeserializeOwned + Send + 'static,
     {

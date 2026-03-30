@@ -119,8 +119,25 @@ pub use knowledge::{
     KnowledgeNode, SummarizeRequest, SummarizeResponse,
 };
 pub use memory::{
-    BatchForgetRequest, BatchForgetResponse, BatchMemoryFilter, BatchRecallRequest,
+    // OBS-1: Business-Event Audit Log
+    AuditEvent,
+    AuditExportResponse,
+    AuditListResponse,
+    AuditQuery,
+    BatchForgetRequest,
+    BatchForgetResponse,
+    BatchMemoryFilter,
+    BatchRecallRequest,
     BatchRecallResponse,
+    // CE-6: DBSCAN Adaptive Consolidation
+    ConsolidationConfig,
+    ConsolidationLogEntry,
+    ExtractionProviderInfo,
+    // EXT-1: External Extraction Providers
+    ExtractionResult,
+    MemoryExportResponse,
+    // DX-1: Memory Import / Export
+    MemoryImportResponse,
 };
 pub use types::*;
 
