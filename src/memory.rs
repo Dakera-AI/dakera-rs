@@ -469,7 +469,9 @@ pub struct ExtractionProviderInfo {
 #[serde(untagged)]
 pub enum ExtractProvidersResponse {
     List(Vec<ExtractionProviderInfo>),
-    Object { providers: Vec<ExtractionProviderInfo> },
+    Object {
+        providers: Vec<ExtractionProviderInfo>,
+    },
 }
 
 /// Request for memory feedback
@@ -1142,10 +1144,7 @@ impl DakeraClient {
     // ========================================================================
 
     /// List paginated audit log entries (OBS-1).
-    pub async fn list_audit_events(
-        &self,
-        query: AuditQuery,
-    ) -> Result<AuditListResponse> {
+    pub async fn list_audit_events(&self, query: AuditQuery) -> Result<AuditListResponse> {
         let url = format!("{}/v1/audit", self.base_url);
         let response = self.client.get(&url).query(&query).send().await?;
         self.handle_response(response).await
