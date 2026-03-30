@@ -20,6 +20,8 @@ pub struct DakeraClient {
     pub(crate) client: Client,
     /// Base URL of the Dakera server
     pub(crate) base_url: String,
+    /// ODE-2: Base URL of the dakera-ode sidecar (optional)
+    pub(crate) ode_url: Option<String>,
     /// Retry configuration (wired into API call sites in a follow-up; suppressed until then)
     #[allow(dead_code)]
     pub(crate) retry_config: RetryConfig,
@@ -1156,10 +1158,54 @@ impl DakeraClient {
     }
 }
 
+// ============================================================================
+// ODE-2: GLiNER Entity Extraction (dakera-ode sidecar)
+// ============================================================================
+
+impl DakeraClient {
+    /// Extract named entities from text using the GLiNER sidecar (ODE-2).
+    ///
+    /// Calls `POST /ode/extract` on the dakera-ode sidecar. Requires
+    /// [`ode_url`][DakeraClientBuilder::ode_url] to be set on the builder.
+    ///
+    /// Unlike the CE-4 server-side NER, this method calls the dedicated GLiNER
+    /// sidecar and returns character offsets, model name, and processing time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClientError::Config`] if `ode_url` is not configured.
+    pub async fn ode_extract_entities(
+        &self,
+        req: ExtractEntitiesRequest,
+    ) -> Result<ExtractEntitiesResponse> {
+        let ode_url = self.ode_url.as_deref().ok_or_else(|| {
+            ClientError::Config(
+                "ode_url must be configured to use extract_entities(). \
+                 Call .ode_url(\"http://localhost:8080\") on the builder."
+                    .to_string(),
+            )
+        })?;
+        let url = format!("{}/ode/extract", ode_url);
+        let response = self.client.post(&url).json(&req).send().await?;
+        if response.status().is_success() {
+            Ok(response.json::<ExtractEntitiesResponse>().await?)
+        } else {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            Err(ClientError::Server {
+                status,
+                message: format!("ODE sidecar error: {}", body),
+                code: None,
+            })
+        }
+    }
+}
+
 /// Builder for DakeraClient
 #[derive(Debug)]
 pub struct DakeraClientBuilder {
     base_url: String,
+    ode_url: Option<String>,
     timeout: Duration,
     connect_timeout: Option<Duration>,
     retry_config: RetryConfig,
@@ -1171,11 +1217,20 @@ impl DakeraClientBuilder {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
+            ode_url: None,
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             connect_timeout: None,
             retry_config: RetryConfig::default(),
             user_agent: None,
         }
+    }
+
+    /// Set the base URL of the dakera-ode sidecar (ODE-2).
+    ///
+    /// Required to call [`DakeraClient::extract_entities`].
+    pub fn ode_url(mut self, ode_url: impl Into<String>) -> Self {
+        self.ode_url = Some(ode_url.into().trim_end_matches('/').to_string());
+        self
     }
 
     /// Set the request timeout
@@ -1242,6 +1297,7 @@ impl DakeraClientBuilder {
         Ok(DakeraClient {
             client,
             base_url,
+            ode_url: self.ode_url,
             retry_config: self.retry_config,
             last_rate_limit: Arc::new(Mutex::new(None)),
         })
@@ -2055,5 +2111,91 @@ mod tests {
             client.base_url, agent_id
         );
         assert_eq!(actual, expected);
+    }
+
+    // ODE-2 tests
+    #[test]
+    fn test_ode_extract_entities_requires_ode_url() {
+        // Client without ode_url should return Config error.
+        let client = DakeraClient::new("http://localhost:3000").unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(client.ode_extract_entities(ExtractEntitiesRequest {
+            content: "Alice lives in Paris.".to_string(),
+            agent_id: "agent-1".to_string(),
+            memory_id: None,
+            entity_types: None,
+        }));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ClientError::Config(_)));
+    }
+
+    #[test]
+    fn test_ode_extract_entities_url_built_from_ode_url() {
+        // Verify the ODE URL is used, not base_url.
+        let client = DakeraClient::builder("http://localhost:3000")
+            .ode_url("http://localhost:8080")
+            .build()
+            .unwrap();
+        assert_eq!(client.ode_url.as_deref(), Some("http://localhost:8080"));
+        let expected = "http://localhost:8080/ode/extract";
+        let actual = format!("{}/ode/extract", client.ode_url.as_deref().unwrap());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_extract_entities_request_serialization() {
+        let req = ExtractEntitiesRequest {
+            content: "Alice in Wonderland".to_string(),
+            agent_id: "agent-42".to_string(),
+            memory_id: Some("mem-001".to_string()),
+            entity_types: Some(vec!["person".to_string(), "location".to_string()]),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"content\":\"Alice in Wonderland\""));
+        assert!(json.contains("\"agent_id\":\"agent-42\""));
+        assert!(json.contains("\"memory_id\":\"mem-001\""));
+        assert!(json.contains("\"person\""));
+    }
+
+    #[test]
+    fn test_extract_entities_request_omits_none_fields() {
+        let req = ExtractEntitiesRequest {
+            content: "hello".to_string(),
+            agent_id: "a".to_string(),
+            memory_id: None,
+            entity_types: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("memory_id"));
+        assert!(!json.contains("entity_types"));
+    }
+
+    #[test]
+    fn test_ode_entity_deserialization() {
+        let json = r#"{"text":"Alice","label":"person","start":0,"end":5,"score":0.97}"#;
+        let entity: OdeEntity = serde_json::from_str(json).unwrap();
+        assert_eq!(entity.text, "Alice");
+        assert_eq!(entity.label, "person");
+        assert_eq!(entity.start, 0);
+        assert_eq!(entity.end, 5);
+        assert!((entity.score - 0.97).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_extract_entities_response_deserialization() {
+        let json = r#"{
+            "entities": [
+                {"text":"Alice","label":"person","start":0,"end":5,"score":0.97},
+                {"text":"Paris","label":"location","start":16,"end":21,"score":0.92}
+            ],
+            "model": "gliner-multi-v2.1",
+            "processing_time_ms": 34
+        }"#;
+        let resp: ExtractEntitiesResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.entities.len(), 2);
+        assert_eq!(resp.entities[0].text, "Alice");
+        assert_eq!(resp.model, "gliner-multi-v2.1");
+        assert_eq!(resp.processing_time_ms, 34);
     }
 }

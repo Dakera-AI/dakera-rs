@@ -2635,3 +2635,49 @@ pub struct FeedbackHealthResponse {
     pub memory_count: usize,
     pub avg_importance: f32,
 }
+
+// ============================================================================
+// ODE-2: GLiNER Entity Extraction (dakera-ode sidecar)
+// ============================================================================
+
+/// A single entity extracted by the GLiNER model (ODE-2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OdeEntity {
+    /// Span text as it appears in the input.
+    pub text: String,
+    /// Entity type label (e.g. `"person"`, `"organization"`).
+    pub label: String,
+    /// Start character offset (inclusive) within the input text.
+    pub start: usize,
+    /// End character offset (exclusive) within the input text.
+    pub end: usize,
+    /// Confidence score in the range [0, 1].
+    pub score: f32,
+}
+
+/// Request body for `POST /ode/extract` (ODE-2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractEntitiesRequest {
+    /// The text to extract entities from.
+    pub content: String,
+    /// Agent context for the extraction.
+    pub agent_id: String,
+    /// Optional memory ID to associate with the extraction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_id: Option<String>,
+    /// Optional list of entity type labels to extract.
+    /// When omitted the ODE sidecar uses its default set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_types: Option<Vec<String>>,
+}
+
+/// Response from `POST /ode/extract` on the ODE sidecar (ODE-2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractEntitiesResponse {
+    /// Extracted entities ordered by their start offset.
+    pub entities: Vec<OdeEntity>,
+    /// GLiNER model variant used for extraction.
+    pub model: String,
+    /// Wall-clock time taken by the ODE sidecar in milliseconds.
+    pub processing_time_ms: u64,
+}
