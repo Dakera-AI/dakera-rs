@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **COG-3: Proactive Memory Consolidation bindings:**
+  - `MemoryPolicy` struct gains four new optional fields:
+    - `consolidation_enabled: Option<bool>` — opt-in background DBSCAN deduplication (default: `false`).
+    - `consolidation_threshold: Option<f32>` — cosine-similarity epsilon (default: `0.92`).
+    - `consolidation_interval_hours: Option<u32>` — background job interval in hours (default: `24`).
+    - `consolidated_count: Option<u64>` — **read-only** lifetime merge count (server-managed; skipped on serialise).
+  - `MemoryPolicy::default()` initialises all four COG-3 fields with server defaults.
+
+## [0.9.9] - 2026-03-31
+
+### Added
 - **CE-7: Time-Window Recall bindings:**
   - `RecallRequest` gains two new optional fields: `since: Option<String>`
     and `until: Option<String>` (ISO-8601 timestamps).
