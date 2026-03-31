@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.8] - 2026-03-31
 
 ### Added
+- **COG-2: Associative Recall bindings:**
+  - `RecallRequest` gains two new fields: `include_associated: bool`
+    (default false) and `associated_memories_cap: Option<u32>`.
+  - New builder methods: `.with_associated()` and
+    `.with_associated_cap(cap)`.
+  - `RecallResponse` gains `associated_memories: Option<Vec<RecalledMemory>>`
+    — present when `include_associated` was set.
 - **COG-1: Cognitive Memory Lifecycle bindings:**
   - `get_memory_policy(namespace)` — retrieve the memory lifecycle policy
     (`GET /v1/namespaces/{namespace}/memory_policy`). Returns `MemoryPolicy`.
