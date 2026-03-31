@@ -1199,6 +1199,49 @@ impl DakeraClient {
             })
         }
     }
+
+    // ========================================================================
+    // COG-1: Per-namespace Memory Lifecycle Policy
+    // ========================================================================
+
+    /// Return the memory lifecycle policy for a namespace (COG-1).
+    ///
+    /// Sends `GET /v1/namespaces/{namespace}/memory_policy`.
+    ///
+    /// When no explicit policy has been configured the server returns the COG-1
+    /// defaults: working=4 h, episodic=30 d, semantic=365 d, procedural=730 d;
+    /// exponential/power_law/logarithmic/flat decay curves; SR factor 1.0.
+    #[instrument(skip(self))]
+    pub async fn get_memory_policy(&self, namespace: &str) -> Result<MemoryPolicy> {
+        let url = format!(
+            "{}/v1/namespaces/{}/memory_policy",
+            self.base_url,
+            urlencoding::encode(namespace)
+        );
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Set the memory lifecycle policy for a namespace (COG-1).
+    ///
+    /// Sends `PUT /v1/namespaces/{namespace}/memory_policy`.
+    ///
+    /// The policy is persisted and applied immediately to the decay engine.
+    /// Only populate the fields you want to override — all have safe defaults.
+    #[instrument(skip(self, policy))]
+    pub async fn set_memory_policy(
+        &self,
+        namespace: &str,
+        policy: MemoryPolicy,
+    ) -> Result<MemoryPolicy> {
+        let url = format!(
+            "{}/v1/namespaces/{}/memory_policy",
+            self.base_url,
+            urlencoding::encode(namespace)
+        );
+        let response = self.client.put(&url).json(&policy).send().await?;
+        self.handle_response(response).await
+    }
 }
 
 /// Builder for DakeraClient
