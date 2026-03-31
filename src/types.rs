@@ -2778,6 +2778,26 @@ pub struct MemoryPolicy {
     /// Base interval in seconds for spaced repetition TTL extension (default: 86 400 = 1 d).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spaced_repetition_base_interval_seconds: Option<u64>,
+
+    // Proactive consolidation (COG-3) -----------------------------------------
+    /// Enable background DBSCAN deduplication for this namespace (default: `false`).
+    /// When `true` the server merges semantically near-duplicate memories every
+    /// [`consolidation_interval_hours`](Self::consolidation_interval_hours) hours.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consolidation_enabled: Option<bool>,
+    /// DBSCAN epsilon — cosine-similarity threshold to consider two memories
+    /// duplicates (default: `0.92`; higher = only merge very close neighbours).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consolidation_threshold: Option<f32>,
+    /// How often (in hours) the background consolidation job runs (default: `24`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consolidation_interval_hours: Option<u32>,
+    /// **Read-only.** Lifetime count of memories merged by the consolidation engine.
+    /// The server manages this field; any value sent via [`set_memory_policy`] is ignored.
+    ///
+    /// [`set_memory_policy`]: crate::DakeraClient::set_memory_policy
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consolidated_count: Option<u64>,
 }
 
 impl Default for MemoryPolicy {
@@ -2793,6 +2813,10 @@ impl Default for MemoryPolicy {
             procedural_decay: Some("flat".to_string()),
             spaced_repetition_factor: Some(1.0),
             spaced_repetition_base_interval_seconds: Some(86_400),
+            consolidation_enabled: Some(false),
+            consolidation_threshold: Some(0.92),
+            consolidation_interval_hours: Some(24),
+            consolidated_count: Some(0),
         }
     }
 }
