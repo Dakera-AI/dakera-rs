@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KG-3: Deep Associative Recall bindings:**
+  - `RecalledMemory` gains `depth: Option<u8>` — the KG hop at which an associated memory was found (skipped on serialise when `None`).
+  - `RecallRequest` gains two new optional fields:
+    - `associated_memories_depth: Option<u8>` — KG traversal depth 1–3 (default: `1`).
+    - `associated_memories_min_weight: Option<f32>` — minimum KG edge weight (default: `0.0`).
+  - Builder methods `with_associated_depth(depth: u8)` (implies `include_associated = true`) and `with_associated_min_weight(weight: f32)`.
+  - Fully backward-compatible: omitting new fields retains depth-1 (COG-2) behaviour.
 - **COG-3: Proactive Memory Consolidation bindings:**
   - `MemoryPolicy` struct gains four new optional fields:
     - `consolidation_enabled: Option<bool>` — opt-in background DBSCAN deduplication (default: `false`).

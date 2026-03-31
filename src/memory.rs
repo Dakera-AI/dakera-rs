@@ -148,6 +148,12 @@ pub struct RecallRequest {
     /// COG-2: max associated memories to return (default: 10, max: 10)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub associated_memories_cap: Option<u32>,
+    /// KG-3: KG traversal depth 1–3 (default: 1); requires include_associated
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub associated_memories_depth: Option<u8>,
+    /// KG-3: minimum edge weight for KG traversal (default: 0.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub associated_memories_min_weight: Option<f32>,
     /// CE-7: only recall memories created at or after this ISO-8601 timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
@@ -173,6 +179,8 @@ impl RecallRequest {
             tags: Vec::new(),
             include_associated: false,
             associated_memories_cap: None,
+            associated_memories_depth: None,
+            associated_memories_min_weight: None,
             since: None,
             until: None,
         }
@@ -232,6 +240,19 @@ impl RecallRequest {
         self.until = Some(until.into());
         self
     }
+
+    /// KG-3: set KG traversal depth (1–3, default: 1); implies include_associated
+    pub fn with_associated_depth(mut self, depth: u8) -> Self {
+        self.include_associated = true;
+        self.associated_memories_depth = Some(depth);
+        self
+    }
+
+    /// KG-3: set minimum edge weight for KG traversal (default: 0.0)
+    pub fn with_associated_min_weight(mut self, weight: f32) -> Self {
+        self.associated_memories_min_weight = Some(weight);
+        self
+    }
 }
 
 /// A recalled memory
@@ -251,6 +272,9 @@ pub struct RecalledMemory {
     pub created_at: u64,
     pub last_accessed_at: u64,
     pub access_count: u32,
+    /// KG-3: hop depth at which this memory was found (only set on associated memories)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<u8>,
 }
 
 /// Recall response
@@ -258,7 +282,7 @@ pub struct RecalledMemory {
 pub struct RecallResponse {
     pub memories: Vec<RecalledMemory>,
     pub total_found: usize,
-    /// COG-2: KG depth-1 associated memories (only present when include_associated was true)
+    /// COG-2 / KG-3: KG associated memories at configurable depth (only present when include_associated was true)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub associated_memories: Option<Vec<RecalledMemory>>,
 }
