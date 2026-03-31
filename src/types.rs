@@ -2728,3 +2728,71 @@ pub struct KgExportResponse {
     /// All graph edges for the agent.
     pub edges: Vec<GraphEdge>,
 }
+
+// ============================================================================
+// COG-1: Cognitive Memory Lifecycle — per-namespace memory policy
+// ============================================================================
+
+/// Per-namespace memory lifecycle policy (COG-1).
+///
+/// Controls type-specific TTLs, decay curves, and spaced repetition behaviour.
+/// All fields have sensible defaults; only override what you need.
+///
+/// Used by [`DakeraClient::get_memory_policy`] and
+/// [`DakeraClient::set_memory_policy`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicy {
+    // Differential TTLs ------------------------------------------------------
+    /// Default TTL for `working` memories in seconds (default: 14 400 = 4 h).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_ttl_seconds: Option<u64>,
+    /// Default TTL for `episodic` memories in seconds (default: 2 592 000 = 30 d).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub episodic_ttl_seconds: Option<u64>,
+    /// Default TTL for `semantic` memories in seconds (default: 31 536 000 = 365 d).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_ttl_seconds: Option<u64>,
+    /// Default TTL for `procedural` memories in seconds (default: 63 072 000 = 730 d).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub procedural_ttl_seconds: Option<u64>,
+
+    // Decay curves ------------------------------------------------------------
+    /// Decay strategy for `working` memories (default: `"exponential"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_decay: Option<String>,
+    /// Decay strategy for `episodic` memories (default: `"power_law"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub episodic_decay: Option<String>,
+    /// Decay strategy for `semantic` memories (default: `"logarithmic"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_decay: Option<String>,
+    /// Decay strategy for `procedural` memories (default: `"flat"` — no decay).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub procedural_decay: Option<String>,
+
+    // Spaced repetition -------------------------------------------------------
+    /// TTL extension multiplier per recall hit (default: 1.0; set to 0.0 to disable).
+    /// Extension = `access_count × sr_factor × sr_base_interval_seconds`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spaced_repetition_factor: Option<f64>,
+    /// Base interval in seconds for spaced repetition TTL extension (default: 86 400 = 1 d).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spaced_repetition_base_interval_seconds: Option<u64>,
+}
+
+impl Default for MemoryPolicy {
+    fn default() -> Self {
+        Self {
+            working_ttl_seconds: Some(14_400),
+            episodic_ttl_seconds: Some(2_592_000),
+            semantic_ttl_seconds: Some(31_536_000),
+            procedural_ttl_seconds: Some(63_072_000),
+            working_decay: Some("exponential".to_string()),
+            episodic_decay: Some("power_law".to_string()),
+            semantic_decay: Some("logarithmic".to_string()),
+            procedural_decay: Some("flat".to_string()),
+            spaced_repetition_factor: Some(1.0),
+            spaced_repetition_base_interval_seconds: Some(86_400),
+        }
+    }
+}

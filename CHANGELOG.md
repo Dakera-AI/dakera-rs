@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-03-31
+
+### Added
+- **COG-1: Cognitive Memory Lifecycle bindings:**
+  - `get_memory_policy(namespace)` — retrieve the memory lifecycle policy
+    (`GET /v1/namespaces/{namespace}/memory_policy`). Returns `MemoryPolicy`.
+  - `set_memory_policy(namespace, policy)` — set the lifecycle policy
+    (`PUT /v1/namespaces/{namespace}/memory_policy`).
+  - New type: `MemoryPolicy` — `Option`-wrapped fields for type-specific TTLs,
+    per-type decay curves (`working_decay`, `episodic_decay`, `semantic_decay`,
+    `procedural_decay` — one of `"exponential"`, `"linear"`, `"step"`,
+    `"power_law"`, `"logarithmic"`, `"flat"`), and spaced repetition
+    (`spaced_repetition_factor`, `spaced_repetition_base_interval_seconds`).
+    Implements `Default` with COG-1 server defaults.
+
 ## [0.9.7] - 2026-03-31
 
 ### Added
