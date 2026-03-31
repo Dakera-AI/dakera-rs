@@ -141,6 +141,13 @@ pub struct RecallRequest {
     pub session_id: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// COG-2: traverse KG depth-1 from recalled memories and include
+    /// associatively linked memories in the response (default: false)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub include_associated: bool,
+    /// COG-2: max associated memories to return (default: 10, max: 10)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub associated_memories_cap: Option<u32>,
 }
 
 fn default_top_k() -> usize {
@@ -158,6 +165,8 @@ impl RecallRequest {
             min_importance: 0.0,
             session_id: None,
             tags: Vec::new(),
+            include_associated: false,
+            associated_memories_cap: None,
         }
     }
 
@@ -190,6 +199,19 @@ impl RecallRequest {
         self.tags = tags;
         self
     }
+
+    /// COG-2: include KG depth-1 associated memories in the response
+    pub fn with_associated(mut self) -> Self {
+        self.include_associated = true;
+        self
+    }
+
+    /// COG-2: set max associated memories cap (default: 10, max: 10)
+    pub fn with_associated_cap(mut self, cap: u32) -> Self {
+        self.include_associated = true;
+        self.associated_memories_cap = Some(cap);
+        self
+    }
 }
 
 /// A recalled memory
@@ -216,6 +238,9 @@ pub struct RecalledMemory {
 pub struct RecallResponse {
     pub memories: Vec<RecalledMemory>,
     pub total_found: usize,
+    /// COG-2: KG depth-1 associated memories (only present when include_associated was true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub associated_memories: Option<Vec<RecalledMemory>>,
 }
 
 /// Forget (delete) memories request
