@@ -148,6 +148,12 @@ pub struct RecallRequest {
     /// COG-2: max associated memories to return (default: 10, max: 10)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub associated_memories_cap: Option<u32>,
+    /// CE-7: only recall memories created at or after this ISO-8601 timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    /// CE-7: only recall memories created at or before this ISO-8601 timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
 }
 
 fn default_top_k() -> usize {
@@ -167,6 +173,8 @@ impl RecallRequest {
             tags: Vec::new(),
             include_associated: false,
             associated_memories_cap: None,
+            since: None,
+            until: None,
         }
     }
 
@@ -210,6 +218,18 @@ impl RecallRequest {
     pub fn with_associated_cap(mut self, cap: u32) -> Self {
         self.include_associated = true;
         self.associated_memories_cap = Some(cap);
+        self
+    }
+
+    /// CE-7: only recall memories created at or after this ISO-8601 timestamp
+    pub fn with_since(mut self, since: impl Into<String>) -> Self {
+        self.since = Some(since.into());
+        self
+    }
+
+    /// CE-7: only recall memories created at or before this ISO-8601 timestamp
+    pub fn with_until(mut self, until: impl Into<String>) -> Self {
+        self.until = Some(until.into());
         self
     }
 }
