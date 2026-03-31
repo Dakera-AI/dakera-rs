@@ -2681,3 +2681,50 @@ pub struct ExtractEntitiesResponse {
     /// Wall-clock time taken by the ODE sidecar in milliseconds.
     pub processing_time_ms: u64,
 }
+
+// ============================================================================
+// KG-2: Graph Query & Export — response types
+// ============================================================================
+
+/// Response from `GET /v1/knowledge/query` (KG-2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KgQueryResponse {
+    /// Agent whose graph was queried.
+    pub agent_id: String,
+    /// Number of unique memory node IDs referenced by the returned edges.
+    pub node_count: usize,
+    /// Number of edges returned.
+    pub edge_count: usize,
+    /// Matching edges, up to `limit`.
+    pub edges: Vec<GraphEdge>,
+}
+
+/// Response from `GET /v1/knowledge/path` (KG-2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KgPathResponse {
+    /// Agent whose graph was traversed.
+    pub agent_id: String,
+    /// Source memory ID.
+    pub from_id: String,
+    /// Target memory ID.
+    pub to_id: String,
+    /// Number of edges in the shortest path (0 if source == target).
+    pub hop_count: usize,
+    /// Ordered list of memory IDs from source to target (inclusive).
+    pub path: Vec<String>,
+}
+
+/// Response from `GET /v1/knowledge/export` with `format=json` (KG-2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KgExportResponse {
+    /// Agent whose graph was exported.
+    pub agent_id: String,
+    /// Export format used (`"json"` when this struct is deserialized).
+    pub format: String,
+    /// Total number of unique memory node IDs in the export.
+    pub node_count: usize,
+    /// Total number of edges in the export.
+    pub edge_count: usize,
+    /// All graph edges for the agent.
+    pub edges: Vec<GraphEdge>,
+}

@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+use crate::types::{KgExportResponse, KgPathResponse, KgQueryResponse};
 use crate::DakeraClient;
 
 // ============================================================================
@@ -241,6 +242,89 @@ impl DakeraClient {
     ) -> Result<CrossAgentNetworkResponse> {
         let url = format!("{}/v1/knowledge/network/cross-agent", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // KG-2: Graph Query & Export
+    // =========================================================================
+
+    /// Query the memory knowledge graph using a filter DSL (KG-2).
+    ///
+    /// Calls `GET /v1/knowledge/query`.
+    ///
+    /// # Arguments
+    /// - `agent_id` — agent whose graph to query.
+    /// - `root_id` — optional root memory ID for BFS traversal.
+    /// - `edge_type` — comma-separated edge types to filter (e.g. `"related_to,shares_entity"`).
+    /// - `min_weight` — minimum edge weight (0.0–1.0).
+    /// - `max_depth` — BFS depth when `root_id` is set (1–5, default 3).
+    /// - `limit` — maximum edges to return (default 100, max 1000).
+    pub async fn knowledge_query(
+        &self,
+        agent_id: &str,
+        root_id: Option<&str>,
+        edge_type: Option<&str>,
+        min_weight: Option<f32>,
+        max_depth: Option<u32>,
+        limit: Option<usize>,
+    ) -> Result<KgQueryResponse> {
+        let mut url = format!("{}/v1/knowledge/query?agent_id={}", self.base_url, agent_id);
+        if let Some(v) = root_id {
+            url.push_str(&format!("&root_id={}", v));
+        }
+        if let Some(v) = edge_type {
+            url.push_str(&format!("&edge_type={}", v));
+        }
+        if let Some(v) = min_weight {
+            url.push_str(&format!("&min_weight={}", v));
+        }
+        if let Some(v) = max_depth {
+            url.push_str(&format!("&max_depth={}", v));
+        }
+        if let Some(v) = limit {
+            url.push_str(&format!("&limit={}", v));
+        }
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Find the BFS shortest path between two memory IDs (KG-2).
+    ///
+    /// Calls `GET /v1/knowledge/path`.
+    ///
+    /// Returns an error if no path exists between the two memories.
+    pub async fn knowledge_path(
+        &self,
+        agent_id: &str,
+        from_id: &str,
+        to_id: &str,
+    ) -> Result<KgPathResponse> {
+        let url = format!(
+            "{}/v1/knowledge/path?agent_id={}&from={}&to={}",
+            self.base_url, agent_id, from_id, to_id
+        );
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Export the memory knowledge graph as JSON or GraphML (KG-2).
+    ///
+    /// Calls `GET /v1/knowledge/export`.
+    ///
+    /// For `format = "graphml"` the server returns `application/xml`. This
+    /// method deserializes JSON only — use a raw HTTP client for GraphML.
+    pub async fn knowledge_export(
+        &self,
+        agent_id: &str,
+        format: Option<&str>,
+    ) -> Result<KgExportResponse> {
+        let fmt = format.unwrap_or("json");
+        let url = format!(
+            "{}/v1/knowledge/export?agent_id={}&format={}",
+            self.base_url, agent_id, fmt
+        );
+        let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 }
