@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust: 1.70+](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 
-Rust client SDK for [Dakera](https://dakera.ai) — an AI agent memory platform.
+Official Rust SDK for [Dakera](https://dakera.ai) — the AI agent memory platform. Persistent, session-aware, cross-agent memory for your AI agents.
 
 ## Features
 
@@ -31,7 +31,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-dakera-client = "0.3"
+dakera-client = "0.9"
 ```
 
 ## Quick Start
