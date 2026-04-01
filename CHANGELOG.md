@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `consolidation_interval_hours: Option<u32>` — background job interval in hours (default: `24`).
     - `consolidated_count: Option<u64>` — **read-only** lifetime merge count (server-managed; skipped on serialise).
   - `MemoryPolicy::default()` initialises all four COG-3 fields with server defaults.
+- **SEC-5: Per-namespace rate limiting bindings:**
+  - `MemoryPolicy` struct gains three new optional fields:
+    - `rate_limit_enabled: Option<bool>` — opt-in per-namespace rate limiting (default: `false`).
+    - `rate_limit_stores_per_minute: Option<u32>` — max store ops/min; `None` = unlimited (default).
+    - `rate_limit_recalls_per_minute: Option<u32>` — max recall ops/min; `None` = unlimited (default).
+  - `MemoryPolicy::default()` sets `rate_limit_enabled: Some(false)` and the two limit fields to `None`.
+  - When a limit is exceeded the server returns HTTP 429; the existing `DakeraError::RateLimit` variant is returned.
 
 ## [0.9.9] - 2026-03-31
 
