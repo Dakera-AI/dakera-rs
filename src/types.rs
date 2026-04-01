@@ -2798,6 +2798,17 @@ pub struct MemoryPolicy {
     /// [`set_memory_policy`]: crate::DakeraClient::set_memory_policy
     #[serde(skip_serializing_if = "Option::is_none")]
     pub consolidated_count: Option<u64>,
+
+    // Per-namespace rate limiting (SEC-5) -----------------------------------------
+    /// Enable per-namespace store/recall rate limiting (default: `false`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit_enabled: Option<bool>,
+    /// Max store operations per minute for this namespace. `None` = unlimited (default).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit_stores_per_minute: Option<u32>,
+    /// Max recall operations per minute for this namespace. `None` = unlimited (default).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit_recalls_per_minute: Option<u32>,
 }
 
 impl Default for MemoryPolicy {
@@ -2817,6 +2828,9 @@ impl Default for MemoryPolicy {
             consolidation_threshold: Some(0.92),
             consolidation_interval_hours: Some(24),
             consolidated_count: Some(0),
+            rate_limit_enabled: Some(false),
+            rate_limit_stores_per_minute: None,
+            rate_limit_recalls_per_minute: None,
         }
     }
 }
