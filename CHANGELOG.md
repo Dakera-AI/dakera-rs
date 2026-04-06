@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-04-06
+
+### Added
+- **OBS-2: Product KPI Snapshot endpoint:**
+  - `DakeraClient::get_kpis()` — `GET /v1/kpis` — returns a `KpiSnapshot` with 8 real-time
+    operational metrics. Sub-millisecond; served from in-memory counters. Requires Admin scope.
+  - `KpiSnapshot` struct exported from the crate root:
+    - `recall_latency_p50_ms` / `recall_latency_p99_ms` (`f64`) — median/p99 recall latency (ms)
+    - `store_latency_p50_ms` (`f64`) — median store latency (ms)
+    - `api_error_rate_5xx_pct` (`f64`) — 5xx error rate as a percentage of total requests
+    - `active_agents_count` (`u64`) — distinct agents active in the last 24 hours
+    - `session_count_week` (`u64`) — sessions created in the rolling 7-day window
+    - `cross_agent_network_node_count` (`u64`) — nodes in the cross-agent knowledge graph
+    - `memory_retention_7d_pct` (`f64`) — percentage of memories from 7 days ago still active
+
+### Server-side only (no SDK changes required)
+- **v0.9.12 performance fixes:** session-agent index lookup reduced to O(1); memory counters
+  now updated via atomic increments; S3 flushes are async (non-blocking).
+
 ## [0.9.11] - 2026-04-01
 
 ### Added
