@@ -362,6 +362,9 @@ pub struct Session {
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    /// Cached count of memories in this session
+    #[serde(default)]
+    pub memory_count: usize,
 }
 
 /// Session end request
@@ -369,6 +372,19 @@ pub struct Session {
 pub struct SessionEndRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+}
+
+/// Response from `POST /v1/sessions/start`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionStartResponse {
+    pub session: Session,
+}
+
+/// Response from `POST /v1/sessions/{id}/end`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionEndResponse {
+    pub session: Session,
+    pub memory_count: usize,
 }
 
 /// Request to update a memory
@@ -1069,7 +1085,8 @@ impl DakeraClient {
             metadata: None,
         };
         let response = self.client.post(&url).json(&request).send().await?;
-        self.handle_response(response).await
+        let resp: SessionStartResponse = self.handle_response(response).await?;
+        Ok(resp.session)
     }
 
     /// Start a session with metadata
@@ -1084,11 +1101,17 @@ impl DakeraClient {
             metadata: Some(metadata),
         };
         let response = self.client.post(&url).json(&request).send().await?;
-        self.handle_response(response).await
+        let resp: SessionStartResponse = self.handle_response(response).await?;
+        Ok(resp.session)
     }
 
-    /// End a session, optionally with a summary
-    pub async fn end_session(&self, session_id: &str, summary: Option<String>) -> Result<Session> {
+    /// End a session, optionally with a summary.
+    /// Returns the session state and the total memory count at close.
+    pub async fn end_session(
+        &self,
+        session_id: &str,
+        summary: Option<String>,
+    ) -> Result<SessionEndResponse> {
         let url = format!("{}/v1/sessions/{}/end", self.base_url, session_id);
         let request = SessionEndRequest { summary };
         let response = self.client.post(&url).json(&request).send().await?;
