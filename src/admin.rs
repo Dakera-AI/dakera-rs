@@ -979,4 +979,49 @@ impl DakeraClient {
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
+
+    // ====================================================================
+    // Product KPI Snapshot (OBS-2)
+    // ====================================================================
+
+    /// Return a point-in-time product KPI snapshot (OBS-2).
+    ///
+    /// Calls `GET /v1/kpis`. Returns 8 operational metrics covering latency,
+    /// error rate, and retention. Sub-millisecond — served from in-memory
+    /// counters. Requires Admin scope.
+    pub async fn get_kpis(&self) -> Result<KpiSnapshot> {
+        let url = format!("{}/kpis", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+}
+
+// ============================================================================
+// Product KPI Snapshot (OBS-2)
+// ============================================================================
+
+/// Point-in-time product KPI snapshot returned by `GET /v1/kpis` (OBS-2).
+///
+/// All latency values are in milliseconds. Rate/percentage values are in the
+/// range `0.0`–`100.0`. Integer counts are unsigned.
+///
+/// Requires Admin scope.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KpiSnapshot {
+    /// Median recall latency across all namespaces over the last minute (ms).
+    pub recall_latency_p50_ms: f64,
+    /// 99th-percentile recall latency across all namespaces over the last minute (ms).
+    pub recall_latency_p99_ms: f64,
+    /// Median store latency across all namespaces over the last minute (ms).
+    pub store_latency_p50_ms: f64,
+    /// 5xx error rate as a percentage of total API requests over the last minute.
+    pub api_error_rate_5xx_pct: f64,
+    /// Distinct agent identifiers that stored or recalled a memory in the last 24 hours.
+    pub active_agents_count: u64,
+    /// Total sessions created in the rolling 7-day window.
+    pub session_count_week: u64,
+    /// Current number of nodes in the cross-agent knowledge graph.
+    pub cross_agent_network_node_count: u64,
+    /// Percentage of memories created 7 days ago that are still active.
+    pub memory_retention_7d_pct: f64,
 }
