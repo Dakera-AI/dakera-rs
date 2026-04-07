@@ -102,7 +102,7 @@ pub use admin::{
     OpsStats, QuotaConfig, QuotaListResponse, QuotaStatus, RestoreBackupRequest,
     RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse,
 };
-pub use agents::{AgentStats, AgentSummary};
+pub use agents::{AgentStats, AgentSummary, Memory, WakeUpResponse};
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
