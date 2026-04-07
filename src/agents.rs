@@ -185,4 +185,82 @@ impl DakeraClient {
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
+
+    /// Return top-N wake-up context memories for an agent (DAK-1690).
+    ///
+    /// Calls `GET /v1/agents/{agent_id}/wake-up`. Returns memories ranked by
+    /// `importance × exp(-ln2 × age / 14d)` — no embedding inference, served
+    /// from the metadata index for sub-millisecond latency.
+    ///
+    /// Requires Read scope on the agent namespace.
+    ///
+    /// # Arguments
+    /// * `agent_id` — Agent identifier.
+    /// * `top_n` — Maximum memories to return (default 20, max 100). Pass `None` to use default.
+    /// * `min_importance` — Only return memories with importance ≥ this value. Pass `None` for 0.0.
+    pub async fn wake_up(
+        &self,
+        agent_id: &str,
+        top_n: Option<u32>,
+        min_importance: Option<f32>,
+    ) -> Result<WakeUpResponse> {
+        let mut url = format!("{}/v1/agents/{}/wake-up", self.base_url, agent_id);
+        let mut params = Vec::new();
+        if let Some(n) = top_n {
+            params.push(format!("top_n={}", n));
+        }
+        if let Some(mi) = min_importance {
+            params.push(format!("min_importance={}", mi));
+        }
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+}
+
+// ============================================================================
+// Wake-Up Types (DAK-1690)
+// ============================================================================
+
+/// A stored memory returned by agent endpoints (non-recall, no similarity score).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Memory {
+    /// Memory ID
+    pub id: String,
+    /// Memory content
+    pub content: String,
+    /// Memory type (episodic, semantic, procedural, working)
+    pub memory_type: String,
+    /// Importance score (0.0–1.0)
+    pub importance: f32,
+    /// Optional metadata
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    /// Creation timestamp (ISO 8601)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    /// Last update timestamp (ISO 8601)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    /// Number of times this memory has been accessed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_count: Option<i64>,
+}
+
+/// Response from `GET /v1/agents/{agent_id}/wake-up` (DAK-1690).
+///
+/// Contains top-N memories ranked by recency-weighted importance for fast
+/// agent start-up context loading.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WakeUpResponse {
+    /// The agent whose memories are returned
+    pub agent_id: String,
+    /// Top-N memories ranked by `importance × exp(-ln2 × age / 14d)`
+    pub memories: Vec<Memory>,
+    /// Total memories available before `top_n` cap was applied
+    pub total_available: i64,
 }
