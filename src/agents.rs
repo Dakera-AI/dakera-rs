@@ -220,6 +220,19 @@ impl DakeraClient {
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
+
+    /// Compress the memory namespace for an agent (CE-12).
+    ///
+    /// Runs a server-side compression pass that removes low-value or redundant
+    /// memories, returning statistics about the operation.
+    ///
+    /// # Arguments
+    /// * `agent_id` — Agent identifier.
+    pub async fn compress(&self, agent_id: &str) -> Result<CompressResponse> {
+        let url = format!("{}/v1/agents/{}/compress", self.base_url, agent_id);
+        let response = self.client.post(&url).send().await?;
+        self.handle_response(response).await
+    }
 }
 
 // ============================================================================
@@ -263,4 +276,27 @@ pub struct WakeUpResponse {
     pub memories: Vec<Memory>,
     /// Total memories available before `top_n` cap was applied
     pub total_available: i64,
+}
+
+// ============================================================================
+// Compress Types (CE-12)
+// ============================================================================
+
+/// Response from `POST /v1/agents/{agent_id}/compress` (CE-12).
+///
+/// Contains compression statistics for the agent's memory namespace after the
+/// server runs the compression pass.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompressResponse {
+    /// The agent whose namespace was compressed
+    pub agent_id: String,
+    /// Number of memories before compression
+    pub memories_before: i64,
+    /// Number of memories after compression
+    pub memories_after: i64,
+    /// Number of memories removed during compression
+    pub removed_count: i64,
+    /// Wall-clock duration of the compression pass in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<f64>,
 }

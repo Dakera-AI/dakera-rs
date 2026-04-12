@@ -2809,6 +2809,21 @@ pub struct MemoryPolicy {
     /// Max recall operations per minute for this namespace. `None` = unlimited (default).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit_recalls_per_minute: Option<u32>,
+
+    // Store-time deduplication (CE-10) -----------------------------------------
+    /// Deduplicate against existing memories at store time (CE-10, default: `false`).
+    ///
+    /// When `true` the server computes a similarity check before persisting a new
+    /// memory and drops it if a near-duplicate already exists (threshold controlled
+    /// by [`dedup_threshold`](Self::dedup_threshold)).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dedup_on_store: Option<bool>,
+    /// Cosine-similarity threshold for store-time deduplication (default: `0.92`).
+    ///
+    /// Memories with similarity ≥ this value are considered duplicates and the
+    /// incoming memory is dropped. Only active when `dedup_on_store` is `true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dedup_threshold: Option<f32>,
 }
 
 impl Default for MemoryPolicy {
@@ -2831,6 +2846,8 @@ impl Default for MemoryPolicy {
             rate_limit_enabled: Some(false),
             rate_limit_stores_per_minute: None,
             rate_limit_recalls_per_minute: None,
+            dedup_on_store: Some(false),
+            dedup_threshold: Some(0.92),
         }
     }
 }
