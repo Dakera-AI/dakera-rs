@@ -59,7 +59,21 @@ impl DakeraClient {
         let response = self.client.get(&url).send().await?;
 
         if response.status().is_success() {
-            Ok(response.json().await?)
+            let json: serde_json::Value = response.json().await?;
+            // Server returns {"service":"dakera","status":"healthy","version":"..."}.
+            // Accept both `healthy: bool` (legacy) and `status: "healthy"` (current).
+            let healthy = json
+                .get("healthy")
+                .and_then(|v| v.as_bool())
+                .unwrap_or_else(|| {
+                    json.get("status").and_then(|v| v.as_str()) == Some("healthy")
+                });
+            let version = json
+                .get("version")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let uptime_seconds = json.get("uptime_seconds").and_then(|v| v.as_u64());
+            Ok(HealthResponse { healthy, version, uptime_seconds })
         } else {
             // Health endpoint might return simple OK
             Ok(HealthResponse {

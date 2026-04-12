@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-04-12
+
+### Fixed
+- `DakeraClient::health()` now correctly parses the server health response. The server returns `{"status":"healthy"}` (a string field) but the SDK was attempting to deserialize it into a `HealthResponse` with `healthy: bool`, causing a deserialization error on every health check. Fixed by parsing the JSON body flexibly and mapping `status == "healthy"` to `healthy = true`, with fallback to the legacy `healthy: bool` field for forward-compat.
+
 ## [0.10.0] - 2026-04-12
 
 ### Added
