@@ -126,8 +126,6 @@ pub struct StoreMemoryResponse {
     pub namespace: String,
 }
 
-/// Recall memories request
-#[derive(Debug, Clone, Serialize, Deserialize)]
 /// Retrieval routing mode for recall and search (CE-10).
 ///
 /// Controls which retrieval index the server uses. `Auto` (default) lets the
@@ -145,6 +143,8 @@ pub enum RoutingMode {
     Hybrid,
 }
 
+/// Recall memories request
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecallRequest {
     pub agent_id: String,
     pub query: String,
