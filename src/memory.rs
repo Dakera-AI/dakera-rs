@@ -19,6 +19,7 @@ use crate::DakeraClient;
 
 /// Memory type classification
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum MemoryType {
     #[default]
     Episodic,
