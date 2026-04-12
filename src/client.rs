@@ -1,6 +1,9 @@
 //! Dakera client implementation
 
-use reqwest::{Client, StatusCode};
+use reqwest::{
+    header::{HeaderMap, HeaderValue, AUTHORIZATION},
+    Client, StatusCode,
+};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{debug, instrument};
@@ -1262,6 +1265,7 @@ impl DakeraClient {
 #[derive(Debug)]
 pub struct DakeraClientBuilder {
     base_url: String,
+    api_key: Option<String>,
     ode_url: Option<String>,
     timeout: Duration,
     connect_timeout: Option<Duration>,
@@ -1274,12 +1278,22 @@ impl DakeraClientBuilder {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
+            api_key: None,
             ode_url: None,
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             connect_timeout: None,
             retry_config: RetryConfig::default(),
             user_agent: None,
         }
+    }
+
+    /// Set the API key for Bearer authentication.
+    ///
+    /// If not set explicitly, the builder will try to read `DAKERA_API_KEY`
+    /// from the environment at build time.
+    pub fn api_key(mut self, key: impl Into<String>) -> Self {
+        self.api_key = Some(key.into());
+        self
     }
 
     /// Set the base URL of the dakera-ode sidecar (ODE-2).
@@ -1344,10 +1358,25 @@ impl DakeraClientBuilder {
 
         let connect_timeout = self.connect_timeout.unwrap_or(self.timeout);
 
+        // Resolve API key: explicit > DAKERA_API_KEY env var
+        let api_key = self
+            .api_key
+            .or_else(|| std::env::var("DAKERA_API_KEY").ok());
+
+        let mut default_headers = HeaderMap::new();
+        if let Some(key) = &api_key {
+            let bearer = format!("Bearer {key}");
+            let mut value =
+                HeaderValue::from_str(&bearer).map_err(|_| ClientError::Config("invalid API key".into()))?;
+            value.set_sensitive(true);
+            default_headers.insert(AUTHORIZATION, value);
+        }
+
         let client = Client::builder()
             .timeout(self.timeout)
             .connect_timeout(connect_timeout)
             .user_agent(user_agent)
+            .default_headers(default_headers)
             .build()
             .map_err(|e| ClientError::Config(e.to_string()))?;
 

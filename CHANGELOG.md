@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.1] - 2026-04-12
 
+### Added
+- **Auth:** `DakeraClientBuilder::api_key(key)` — set the Bearer token for all requests. Falls back to the `DAKERA_API_KEY` environment variable automatically. Previously the SDK sent no `Authorization` header and could not authenticate against servers with `DAKERA_AUTH_ENABLED=true`.
+
 ### Fixed
 - `DakeraClient::health()` now correctly parses the server health response. The server returns `{"status":"healthy"}` (a string field) but the SDK was attempting to deserialize it into a `HealthResponse` with `healthy: bool`, causing a deserialization error on every health check. Fixed by parsing the JSON body flexibly and mapping `status == "healthy"` to `healthy = true`, with fallback to the legacy `healthy: bool` field for forward-compat.
 
