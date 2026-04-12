@@ -128,6 +128,23 @@ pub struct StoreMemoryResponse {
 
 /// Recall memories request
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Retrieval routing mode for recall and search (CE-10).
+///
+/// Controls which retrieval index the server uses. `Auto` (default) lets the
+/// server pick the best strategy based on the query.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingMode {
+    /// Server picks the best strategy (default).
+    Auto,
+    /// Force ANN vector search (HNSW).
+    Vector,
+    /// Force BM25 full-text search.
+    Bm25,
+    /// Fuse ANN and BM25 scores (RRF).
+    Hybrid,
+}
+
 pub struct RecallRequest {
     pub agent_id: String,
     pub query: String,
@@ -160,6 +177,9 @@ pub struct RecallRequest {
     /// CE-7: only recall memories created at or before this ISO-8601 timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
     pub until: Option<String>,
+    /// CE-10: retrieval routing mode. `None` uses the server default (`auto`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing: Option<RoutingMode>,
 }
 
 fn default_top_k() -> usize {
@@ -183,6 +203,7 @@ impl RecallRequest {
             associated_memories_min_weight: None,
             since: None,
             until: None,
+            routing: None,
         }
     }
 
@@ -238,6 +259,12 @@ impl RecallRequest {
     /// CE-7: only recall memories created at or before this ISO-8601 timestamp
     pub fn with_until(mut self, until: impl Into<String>) -> Self {
         self.until = Some(until.into());
+        self
+    }
+
+    /// CE-10: set retrieval routing mode
+    pub fn with_routing(mut self, routing: RoutingMode) -> Self {
+        self.routing = Some(routing);
         self
     }
 

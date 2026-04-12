@@ -102,7 +102,7 @@ pub use admin::{
     OpsStats, QuotaConfig, QuotaListResponse, QuotaStatus, RestoreBackupRequest,
     RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse,
 };
-pub use agents::{AgentStats, AgentSummary, Memory, WakeUpResponse};
+pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpResponse};
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
@@ -141,6 +141,8 @@ pub use memory::{
     // SEC-3: AES-256-GCM Encryption Key Rotation
     RotateEncryptionKeyRequest,
     RotateEncryptionKeyResponse,
+    // CE-10: Routing mode
+    RoutingMode,
 };
 pub use types::*;
 
