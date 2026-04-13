@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-04-12
+
+### Added
+- **Auth:** `DakeraClientBuilder::api_key(key)` — set the Bearer token for all requests. Falls back to the `DAKERA_API_KEY` environment variable automatically. Previously the SDK sent no `Authorization` header and could not authenticate against servers with `DAKERA_AUTH_ENABLED=true`.
+
+### Fixed
+- `StoreMemoryResponse` now correctly deserializes the server's nested `{memory:{id:...}}` format. Previously the struct expected flat `{memory_id, agent_id, namespace}` causing a deserialization failure on every `store_memory` call.
+- `RecallResponse.total_found` is now `#[serde(default)]` — the server does not return this field and deserialization was failing.
+- `ConsolidateResponse` now deserializes from the server's actual format (`memories_removed`, `source_memory_ids`) instead of the fictional flat format (`consolidated_count`, `new_memories`).
+- `ConsolidateResponse` `consolidate()` now calls `POST /v1/memory/consolidate` (correct path) instead of `POST /v1/agents/{id}/memories/consolidate` (which returned 404).
+- `CompressResponse` now matches the server's DBSCAN compress response format (`originals_deprecated`, `memories_scanned`, `clusters_found`, `summaries_created`) replacing the fictional `memories_before/after/removed_count` fields.
+- `MemoryType` enum now serializes as lowercase (`"episodic"`, `"semantic"`, `"procedural"`, `"working"`). Previously serialized as PascalCase (`"Episodic"`, ...) causing HTTP 422 on every `store_memory` call.
+- `DakeraClient::health()` now correctly parses the server health response. The server returns `{"status":"healthy"}` (a string field) but the SDK was attempting to deserialize it into a `HealthResponse` with `healthy: bool`, causing a deserialization error on every health check. Fixed by parsing the JSON body flexibly and mapping `status == "healthy"` to `healthy = true`, with fallback to the legacy `healthy: bool` field for forward-compat.
+
 ## [0.10.0] - 2026-04-12
 
 ### Added

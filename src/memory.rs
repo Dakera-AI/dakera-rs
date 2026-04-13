@@ -19,6 +19,7 @@ use crate::DakeraClient;
 
 /// Memory type classification
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum MemoryType {
     #[default]
     Episodic,
@@ -118,12 +119,80 @@ impl StoreMemoryRequest {
     }
 }
 
-/// Stored memory response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Stored memory response from `POST /v1/memory/store`.
+///
+/// The server wraps the memory in a nested `memory` object:
+/// `{"memory": {"id": "...", "agent_id": "...", ...}, "embedding_time_ms": N}`.
+/// The `memory_id` and `agent_id` fields are convenience accessors mapped from
+/// `memory.id` and `memory.agent_id` respectively.
+#[derive(Debug, Clone, Serialize)]
 pub struct StoreMemoryResponse {
+    /// Memory ID (mapped from `memory.id`)
     pub memory_id: String,
+    /// Agent ID (mapped from `memory.agent_id`)
     pub agent_id: String,
+    /// Namespace (mapped from `memory.namespace`, defaults to `"default"`)
     pub namespace: String,
+    /// Embedding latency in milliseconds
+    pub embedding_time_ms: Option<u64>,
+}
+
+impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::de::Error;
+        let val = serde_json::Value::deserialize(deserializer)?;
+
+        // Server response: {"memory": {"id":"...","agent_id":"...",...}, "embedding_time_ms": N}
+        if let Some(memory) = val.get("memory") {
+            let memory_id = memory
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| D::Error::missing_field("memory.id"))?
+                .to_string();
+            let agent_id = memory
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let namespace = memory
+                .get("namespace")
+                .and_then(|v| v.as_str())
+                .unwrap_or("default")
+                .to_string();
+            let embedding_time_ms = val.get("embedding_time_ms").and_then(|v| v.as_u64());
+            return Ok(Self {
+                memory_id,
+                agent_id,
+                namespace,
+                embedding_time_ms,
+            });
+        }
+
+        // Legacy / mock format: {"memory_id":"...","agent_id":"...","namespace":"..."}
+        let memory_id = val
+            .get("memory_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| D::Error::missing_field("memory_id"))?
+            .to_string();
+        let agent_id = val
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let namespace = val
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string();
+        Ok(Self {
+            memory_id,
+            agent_id,
+            namespace,
+            embedding_time_ms: None,
+        })
+    }
 }
 
 /// Retrieval routing mode for recall and search (CE-10).
@@ -283,7 +352,7 @@ impl RecallRequest {
 }
 
 /// A recalled memory
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RecalledMemory {
     pub id: String,
     pub content: String,
@@ -304,10 +373,83 @@ pub struct RecalledMemory {
     pub depth: Option<u8>,
 }
 
+impl<'de> serde::Deserialize<'de> for RecalledMemory {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::de::Error as _;
+        let val = serde_json::Value::deserialize(deserializer)?;
+
+        // Server wraps recall results as {memory:{...}, score, weighted_score, smart_score}.
+        // Fall back to flat format for direct memory-get responses.
+        let score = val
+            .get("score")
+            .and_then(|v| v.as_f64())
+            .or_else(|| val.get("weighted_score").and_then(|v| v.as_f64()))
+            .unwrap_or(0.0) as f32;
+
+        let mem = val.get("memory").unwrap_or(&val);
+
+        let id = mem
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| D::Error::missing_field("id"))?
+            .to_string();
+        let content = mem
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| D::Error::missing_field("content"))?
+            .to_string();
+        let memory_type: MemoryType = mem
+            .get("memory_type")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(MemoryType::Episodic);
+        let importance = mem
+            .get("importance")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.5) as f32;
+        let tags: Vec<String> = mem
+            .get("tags")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let session_id = mem
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let metadata = mem.get("metadata").cloned().filter(|v| !v.is_null());
+        let created_at = mem.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
+        let last_accessed_at = mem
+            .get("last_accessed_at")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let access_count = mem
+            .get("access_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let depth = mem.get("depth").and_then(|v| v.as_u64()).map(|v| v as u8);
+
+        Ok(Self {
+            id,
+            content,
+            memory_type,
+            importance,
+            score,
+            tags,
+            session_id,
+            metadata,
+            created_at,
+            last_accessed_at,
+            access_count,
+            depth,
+        })
+    }
+}
+
 /// Recall response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecallResponse {
     pub memories: Vec<RecalledMemory>,
+    #[serde(default)]
     pub total_found: usize,
     /// COG-2 / KG-3: KG associated memories at configurable depth (only present when include_associated was true)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -469,15 +611,52 @@ pub struct ConsolidateRequest {
     pub config: Option<ConsolidationConfig>,
 }
 
-/// Response from consolidation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Response from consolidation (`POST /v1/memory/consolidate`).
+///
+/// The server returns `{"memories_removed": N, "source_memory_ids": [...], "consolidated_memory": {...}}`.
+/// `consolidated_count` is mapped from `memories_removed` for backward compat.
+#[derive(Debug, Clone, Serialize)]
 pub struct ConsolidateResponse {
+    /// Number of source memories removed (= `memories_removed` from server)
     pub consolidated_count: usize,
+    /// Alias for consolidated_count
     pub removed_count: usize,
+    /// IDs of source memories that were removed
+    #[serde(default)]
     pub new_memories: Vec<String>,
     /// Step-by-step consolidation log (CE-6, optional).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub log: Vec<ConsolidationLogEntry>,
+}
+
+impl<'de> serde::Deserialize<'de> for ConsolidateResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let val = serde_json::Value::deserialize(deserializer)?;
+        // Server format: {"consolidated_memory":{...}, "source_memory_ids":[...], "memories_removed": N}
+        let removed = val
+            .get("memories_removed")
+            .and_then(|v| v.as_u64())
+            .or_else(|| val.get("removed_count").and_then(|v| v.as_u64()))
+            .or_else(|| val.get("consolidated_count").and_then(|v| v.as_u64()))
+            .unwrap_or(0) as usize;
+        let source_ids: Vec<String> = val
+            .get("source_memory_ids")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(Self {
+            consolidated_count: removed,
+            removed_count: removed,
+            new_memories: source_ids,
+            log: vec![],
+        })
+    }
 }
 
 // ============================================================================
@@ -886,11 +1065,11 @@ impl DakeraClient {
         agent_id: &str,
         request: ConsolidateRequest,
     ) -> Result<ConsolidateResponse> {
-        let url = format!(
-            "{}/v1/agents/{}/memories/consolidate",
-            self.base_url, agent_id
-        );
-        let response = self.client.post(&url).json(&request).send().await?;
+        // Server endpoint: POST /v1/memory/consolidate with agent_id in body
+        let url = format!("{}/v1/memory/consolidate", self.base_url);
+        let mut body = serde_json::to_value(&request)?;
+        body["agent_id"] = serde_json::Value::String(agent_id.to_string());
+        let response = self.client.post(&url).json(&body).send().await?;
         self.handle_response(response).await
     }
 

@@ -285,17 +285,29 @@ pub struct WakeUpResponse {
 /// Response from `POST /v1/agents/{agent_id}/compress` (CE-12).
 ///
 /// Contains compression statistics for the agent's memory namespace after the
-/// server runs the compression pass.
+/// server runs the DBSCAN compression pass (`POST /v1/agents/{id}/compress`).
+///
+/// Server returns: `{"agent_id":"...","memories_scanned":N,"originals_deprecated":N,
+/// "clusters_found":N,"summaries_created":N,...}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompressResponse {
     /// The agent whose namespace was compressed
     pub agent_id: String,
-    /// Number of memories before compression
-    pub memories_before: i64,
-    /// Number of memories after compression
-    pub memories_after: i64,
-    /// Number of memories removed during compression
-    pub removed_count: i64,
+    /// Memories scanned (server field `memories_scanned`)
+    #[serde(default)]
+    pub memories_scanned: i64,
+    /// Memories removed via DBSCAN clustering (server field `originals_deprecated`)
+    #[serde(default, alias = "removed_count")]
+    pub originals_deprecated: i64,
+    /// DBSCAN clusters found
+    #[serde(default)]
+    pub clusters_found: i64,
+    /// Summary memories created from cluster centroids
+    #[serde(default)]
+    pub summaries_created: i64,
+    /// IDs of memories that were deprecated
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deprecated_ids: Vec<String>,
     /// Wall-clock duration of the compression pass in milliseconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<f64>,
