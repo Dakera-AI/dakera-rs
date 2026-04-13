@@ -2053,8 +2053,10 @@ pub struct QueryExplainResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum EmbeddingModel {
-    /// MiniLM-L6 — Fast, good quality (384 dimensions)
+    /// BGE-large — Best quality, server default (1024 dimensions)
     #[default]
+    BgeLarge,
+    /// MiniLM-L6 — Fast, good quality (384 dimensions)
     Minilm,
     /// BGE-small — Balanced performance (384 dimensions)
     BgeSmall,
