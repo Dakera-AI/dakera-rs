@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-04-13
+
+### Added
+- **CE-13:** `rerank: Option<bool>` field on `RecallRequest` (used by both `recall()` and `search_memories()`). `None` uses server default (`true` for recall, `false` for search). Use `.with_rerank(false)` to disable on latency-sensitive paths.
+- **CE-13:** `EmbeddingModel::BgeLarge` variant (`"bge-large"`, 1024 dimensions). Now `#[default]` — matches new server default embedding model.
+
 ## [0.10.1] - 2026-04-12
 
 ### Added

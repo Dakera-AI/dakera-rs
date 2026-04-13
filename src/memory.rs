@@ -249,6 +249,10 @@ pub struct RecallRequest {
     /// CE-10: retrieval routing mode. `None` uses the server default (`auto`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routing: Option<RoutingMode>,
+    /// CE-13: cross-encoder reranking. `None` uses server default (`true` for recall,
+    /// `false` for search). Set to `Some(false)` to disable on latency-sensitive paths.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerank: Option<bool>,
 }
 
 fn default_top_k() -> usize {
@@ -273,6 +277,7 @@ impl RecallRequest {
             since: None,
             until: None,
             routing: None,
+            rerank: None,
         }
     }
 
@@ -334,6 +339,12 @@ impl RecallRequest {
     /// CE-10: set retrieval routing mode
     pub fn with_routing(mut self, routing: RoutingMode) -> Self {
         self.routing = Some(routing);
+        self
+    }
+
+    /// CE-13: enable or disable cross-encoder reranking (server default: true for recall)
+    pub fn with_rerank(mut self, rerank: bool) -> Self {
+        self.rerank = Some(rerank);
         self
     }
 
