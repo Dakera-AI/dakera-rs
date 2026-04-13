@@ -68,15 +68,17 @@ impl DakeraClient {
             let healthy = json
                 .get("healthy")
                 .and_then(|v| v.as_bool())
-                .unwrap_or_else(|| {
-                    json.get("status").and_then(|v| v.as_str()) == Some("healthy")
-                });
+                .unwrap_or_else(|| json.get("status").and_then(|v| v.as_str()) == Some("healthy"));
             let version = json
                 .get("version")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             let uptime_seconds = json.get("uptime_seconds").and_then(|v| v.as_u64());
-            Ok(HealthResponse { healthy, version, uptime_seconds })
+            Ok(HealthResponse {
+                healthy,
+                version,
+                uptime_seconds,
+            })
         } else {
             // Health endpoint might return simple OK
             Ok(HealthResponse {
@@ -1366,8 +1368,8 @@ impl DakeraClientBuilder {
         let mut default_headers = HeaderMap::new();
         if let Some(key) = &api_key {
             let bearer = format!("Bearer {key}");
-            let mut value =
-                HeaderValue::from_str(&bearer).map_err(|_| ClientError::Config("invalid API key".into()))?;
+            let mut value = HeaderValue::from_str(&bearer)
+                .map_err(|_| ClientError::Config("invalid API key".into()))?;
             value.set_sensitive(true);
             default_headers.insert(AUTHORIZATION, value);
         }

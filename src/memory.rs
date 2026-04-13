@@ -138,42 +138,60 @@ pub struct StoreMemoryResponse {
 }
 
 impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
         use serde::de::Error;
         let val = serde_json::Value::deserialize(deserializer)?;
 
         // Server response: {"memory": {"id":"...","agent_id":"...",...}, "embedding_time_ms": N}
         if let Some(memory) = val.get("memory") {
-            let memory_id = memory.get("id")
+            let memory_id = memory
+                .get("id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| D::Error::missing_field("memory.id"))?
                 .to_string();
-            let agent_id = memory.get("agent_id")
+            let agent_id = memory
+                .get("agent_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let namespace = memory.get("namespace")
+            let namespace = memory
+                .get("namespace")
                 .and_then(|v| v.as_str())
                 .unwrap_or("default")
                 .to_string();
             let embedding_time_ms = val.get("embedding_time_ms").and_then(|v| v.as_u64());
-            return Ok(Self { memory_id, agent_id, namespace, embedding_time_ms });
+            return Ok(Self {
+                memory_id,
+                agent_id,
+                namespace,
+                embedding_time_ms,
+            });
         }
 
         // Legacy / mock format: {"memory_id":"...","agent_id":"...","namespace":"..."}
-        let memory_id = val.get("memory_id")
+        let memory_id = val
+            .get("memory_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| D::Error::missing_field("memory_id"))?
             .to_string();
-        let agent_id = val.get("agent_id")
+        let agent_id = val
+            .get("agent_id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let namespace = val.get("namespace")
+        let namespace = val
+            .get("namespace")
             .and_then(|v| v.as_str())
             .unwrap_or("default")
             .to_string();
-        Ok(Self { memory_id, agent_id, namespace, embedding_time_ms: None })
+        Ok(Self {
+            memory_id,
+            agent_id,
+            namespace,
+            embedding_time_ms: None,
+        })
     }
 }
 
@@ -334,7 +352,7 @@ impl RecallRequest {
 }
 
 /// A recalled memory
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RecalledMemory {
     pub id: String,
     pub content: String,
@@ -353,6 +371,78 @@ pub struct RecalledMemory {
     /// KG-3: hop depth at which this memory was found (only set on associated memories)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub depth: Option<u8>,
+}
+
+impl<'de> serde::Deserialize<'de> for RecalledMemory {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::de::Error as _;
+        let val = serde_json::Value::deserialize(deserializer)?;
+
+        // Server wraps recall results as {memory:{...}, score, weighted_score, smart_score}.
+        // Fall back to flat format for direct memory-get responses.
+        let score = val
+            .get("score")
+            .and_then(|v| v.as_f64())
+            .or_else(|| val.get("weighted_score").and_then(|v| v.as_f64()))
+            .unwrap_or(0.0) as f32;
+
+        let mem = val.get("memory").unwrap_or(&val);
+
+        let id = mem
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| D::Error::missing_field("id"))?
+            .to_string();
+        let content = mem
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| D::Error::missing_field("content"))?
+            .to_string();
+        let memory_type: MemoryType = mem
+            .get("memory_type")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(MemoryType::Episodic);
+        let importance = mem
+            .get("importance")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.5) as f32;
+        let tags: Vec<String> = mem
+            .get("tags")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let session_id = mem
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let metadata = mem.get("metadata").cloned().filter(|v| !v.is_null());
+        let created_at = mem.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
+        let last_accessed_at = mem
+            .get("last_accessed_at")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let access_count = mem
+            .get("access_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let depth = mem.get("depth").and_then(|v| v.as_u64()).map(|v| v as u8);
+
+        Ok(Self {
+            id,
+            content,
+            memory_type,
+            importance,
+            score,
+            tags,
+            session_id,
+            metadata,
+            created_at,
+            last_accessed_at,
+            access_count,
+            depth,
+        })
+    }
 }
 
 /// Recall response
@@ -540,16 +630,25 @@ pub struct ConsolidateResponse {
 }
 
 impl<'de> serde::Deserialize<'de> for ConsolidateResponse {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
         let val = serde_json::Value::deserialize(deserializer)?;
         // Server format: {"consolidated_memory":{...}, "source_memory_ids":[...], "memories_removed": N}
-        let removed = val.get("memories_removed").and_then(|v| v.as_u64())
+        let removed = val
+            .get("memories_removed")
+            .and_then(|v| v.as_u64())
             .or_else(|| val.get("removed_count").and_then(|v| v.as_u64()))
             .or_else(|| val.get("consolidated_count").and_then(|v| v.as_u64()))
             .unwrap_or(0) as usize;
-        let source_ids: Vec<String> = val.get("source_memory_ids")
+        let source_ids: Vec<String> = val
+            .get("source_memory_ids")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         Ok(Self {
             consolidated_count: removed,
