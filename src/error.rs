@@ -101,7 +101,10 @@ impl ClientError {
     pub fn is_retryable(&self) -> bool {
         match self {
             #[cfg(feature = "http-client")]
-            ClientError::Http(e) => e.is_timeout() || e.is_connect(),
+            // All reqwest Http errors are network-layer (connection closed, timeout, connect
+            // failure, hyper IncompleteMessage, etc.). API-level errors (4xx/5xx) are parsed
+            // by the client and surfaced as ClientError::Server, never as ClientError::Http.
+            ClientError::Http(_) => true,
             #[cfg(feature = "grpc")]
             ClientError::Grpc(_) => true, // gRPC errors are generally retryable
             ClientError::Server { status, .. } => *status >= 500,
