@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-04-15
+
+### Fixed
+- `ClientError::Http(_)` variants now correctly return `true` from `is_retryable()`. Previously, network-layer errors from reqwest (timeout, connect failure, and hyper-level errors like `IncompleteMessage`) were not classified as retryable, causing retry logic to skip them even when the server was transiently unavailable.
+
 ## [0.10.2] - 2026-04-13
 
 ### Added
