@@ -195,6 +195,21 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
     }
 }
 
+/// Fusion strategy for hybrid recall (CE-14).
+///
+/// Controls how vector and BM25 scores are combined when `routing = Hybrid`.
+/// `Rrf` (default) uses Reciprocal Rank Fusion (Cormack et al., SIGIR 2009).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FusionStrategy {
+    /// Reciprocal Rank Fusion — default, best for recall tasks.
+    /// Formula: score(d) = Σ 1 / (k + rank(d)), k = 60.
+    #[default]
+    Rrf,
+    /// Legacy weighted min-max normalization.
+    MinMax,
+}
+
 /// Retrieval routing mode for recall and search (CE-10).
 ///
 /// Controls which retrieval index the server uses. `Auto` (default) lets the
@@ -253,6 +268,14 @@ pub struct RecallRequest {
     /// `false` for search). Set to `Some(false)` to disable on latency-sensitive paths.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rerank: Option<bool>,
+    /// CE-14: fusion strategy when `routing = Hybrid`. `None` uses server default (`Rrf`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fusion: Option<FusionStrategy>,
+    /// v0.11.0: fetch session-adjacent memories within ±5 min of each top result.
+    /// `None` uses server default (`true`). Set to `Some(false)` to disable for
+    /// latency-sensitive paths.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub neighborhood: Option<bool>,
 }
 
 fn default_top_k() -> usize {
@@ -278,6 +301,8 @@ impl RecallRequest {
             until: None,
             routing: None,
             rerank: None,
+            fusion: None,
+            neighborhood: None,
         }
     }
 
@@ -358,6 +383,19 @@ impl RecallRequest {
     /// KG-3: set minimum edge weight for KG traversal (default: 0.0)
     pub fn with_associated_min_weight(mut self, weight: f32) -> Self {
         self.associated_memories_min_weight = Some(weight);
+        self
+    }
+
+    /// CE-14: set fusion strategy for hybrid recall (server default: `Rrf`)
+    pub fn with_fusion(mut self, fusion: FusionStrategy) -> Self {
+        self.fusion = Some(fusion);
+        self
+    }
+
+    /// v0.11.0: enable or disable session-adjacent neighborhood enrichment
+    /// (server default: `true`). Set to `false` for latency-sensitive paths.
+    pub fn with_neighborhood(mut self, neighborhood: bool) -> Self {
+        self.neighborhood = Some(neighborhood);
         self
     }
 }
