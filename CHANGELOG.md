@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-04-16
+
+### Fixed
+- `FusionStrategy::MinMax` now correctly serializes as `"minmax"` (was `"min_max"` due to the
+  `#[serde(rename_all = "snake_case")]` default on the enum). Any caller using
+  `FusionStrategy::MinMax` / `.with_fusion(FusionStrategy::MinMax)` prior to this release
+  would have received a `422 Unprocessable Entity` from the server. Affects Rust only — Python,
+  TypeScript, and Go serialized `"minmax"` correctly in v0.11.0.
+
 ## [0.11.0] - 2026-04-15
 
 ### Added
