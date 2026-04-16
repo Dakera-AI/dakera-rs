@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-04-16
+
+### Changed
+- **v0.11.2:** Server default fusion strategy changed from `Rrf` to `MinMax`
+  (CEO architecture decision, DAK-1948). MinMax +6.3pp overall Recall@10, +13.5pp temporal.
+  Callers that pass `fusion: None` (the recommended pattern) will now get `MinMax` from the
+  server. Pass `Some(FusionStrategy::Rrf)` explicitly to keep RRF behaviour. Updated doc
+  comments to reflect the new server default. The Rust enum's `#[default]` attribute remains
+  on `Rrf` for backwards-compatible `Default::default()` usage, but `RecallRequest` sends
+  `None` by default so the server default applies.
+
 ## [0.11.1] - 2026-04-16
 
 ### Fixed
