@@ -198,15 +198,18 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
 /// Fusion strategy for hybrid recall (CE-14).
 ///
 /// Controls how vector and BM25 scores are combined when `routing = Hybrid`.
-/// `Rrf` (default) uses Reciprocal Rank Fusion (Cormack et al., SIGIR 2009).
+/// `MinMax` is the server default since v0.11.2 (CEO architecture decision, DAK-1948).
+/// `RecallRequest` sends `None` by default, so the server default applies automatically.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FusionStrategy {
-    /// Reciprocal Rank Fusion — default, best for recall tasks.
+    /// Reciprocal Rank Fusion (Cormack et al., SIGIR 2009).
     /// Formula: score(d) = Σ 1 / (k + rank(d)), k = 60.
+    /// This variant is the Rust `Default` for ergonomic use; pass `None` in
+    /// `RecallRequest` to let the server apply its own default (MinMax since v0.11.2).
     #[default]
     Rrf,
-    /// Legacy weighted min-max normalization.
+    /// Weighted min-max normalization — server default since v0.11.2.
     #[serde(rename = "minmax")]
     MinMax,
 }
