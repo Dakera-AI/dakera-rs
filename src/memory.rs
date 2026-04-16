@@ -207,6 +207,7 @@ pub enum FusionStrategy {
     #[default]
     Rrf,
     /// Legacy weighted min-max normalization.
+    #[serde(rename = "minmax")]
     MinMax,
 }
 
