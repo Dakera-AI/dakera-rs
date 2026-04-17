@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-04-17
+
+### Security
+- Updated `rustls-webpki` from `0.103.10` to `0.103.12` (via Cargo.lock) to address
+  GHSA-xgp8-3hg3-c2mh and GHSA-965h-392x-2mh5 (LOW, CVSS 2.2). These CVEs affect
+  TLS certificate parsing in edge cases. Callers receive the fix automatically on upgrade;
+  no API changes required.
+
 ## [0.11.2] - 2026-04-16
 
 ### Changed
