@@ -281,6 +281,12 @@ pub struct RecallRequest {
     /// Only effective when `routing = RoutingMode::Hybrid`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vector_weight: Option<f32>,
+    /// CE-23: pseudo-relevance feedback (PRF) passes for BM25 routing (1–3, default: 1).
+    /// Pass `Some(2)` or `Some(3)` for multi-hop or temporal queries where a second
+    /// BM25 pass over extracted entities improves recall.
+    /// Only effective when `routing = RoutingMode::Bm25`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iterations: Option<u8>,
     /// v0.11.0: fetch session-adjacent memories within ±5 min of each top result.
     /// `None` uses server default (`true`). Set to `Some(false)` to disable for
     /// latency-sensitive paths.
@@ -313,6 +319,7 @@ impl RecallRequest {
             rerank: None,
             fusion: None,
             vector_weight: None,
+            iterations: None,
             neighborhood: None,
         }
     }
@@ -408,6 +415,15 @@ impl RecallRequest {
     /// Omit for adaptive defaults (recommended for most callers).
     pub fn with_vector_weight(mut self, weight: f32) -> Self {
         self.vector_weight = Some(weight);
+        self
+    }
+
+    /// CE-23: set PRF iteration count for BM25 routing (1–3, default: 1).
+    /// Pass `2` or `3` for multi-hop or temporal queries where a second BM25
+    /// pass over extracted entities improves recall.
+    /// Only effective when `routing = RoutingMode::Bm25`.
+    pub fn with_iterations(mut self, iterations: u8) -> Self {
+        self.iterations = Some(iterations);
         self
     }
 
