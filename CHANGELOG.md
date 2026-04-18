@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-04-18
+
+### Added
+- **CE-17 — Explicit `vector_weight` for Hybrid recall**: `RecallRequest` gains an optional
+  `vector_weight: Option<f32>` field (0.0–1.0) and a `with_vector_weight(weight: f32)` builder
+  method. When set, overrides the server's adaptive vector/BM25 heuristic for
+  `routing = RoutingMode::Hybrid` calls. Omitting the field (serialised as `skip_serializing_if`)
+  preserves existing adaptive behaviour — zero breaking changes.
+  (server: [#173](https://github.com/Dakera-AI/dakera/pull/173))
+
 ## [0.11.3] - 2026-04-17
 
 ### Security

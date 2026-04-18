@@ -275,6 +275,12 @@ pub struct RecallRequest {
     /// CE-14: fusion strategy when `routing = Hybrid`. `None` uses server default (`Rrf`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fusion: Option<FusionStrategy>,
+    /// CE-17: explicit vector/BM25 weight for Hybrid routing (0.0–1.0).
+    /// When set, overrides the adaptive heuristic from `QueryClassifier`.
+    /// Omit for adaptive defaults (recommended for most callers).
+    /// Only effective when `routing = RoutingMode::Hybrid`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_weight: Option<f32>,
     /// v0.11.0: fetch session-adjacent memories within ±5 min of each top result.
     /// `None` uses server default (`true`). Set to `Some(false)` to disable for
     /// latency-sensitive paths.
@@ -306,6 +312,7 @@ impl RecallRequest {
             routing: None,
             rerank: None,
             fusion: None,
+            vector_weight: None,
             neighborhood: None,
         }
     }
@@ -393,6 +400,14 @@ impl RecallRequest {
     /// CE-14: set fusion strategy for hybrid recall (server default: `Rrf`)
     pub fn with_fusion(mut self, fusion: FusionStrategy) -> Self {
         self.fusion = Some(fusion);
+        self
+    }
+
+    /// CE-17: set explicit vector/BM25 weight for Hybrid routing (0.0–1.0).
+    /// Overrides the adaptive heuristic from `QueryClassifier`.
+    /// Omit for adaptive defaults (recommended for most callers).
+    pub fn with_vector_weight(mut self, weight: f32) -> Self {
+        self.vector_weight = Some(weight);
         self
     }
 
