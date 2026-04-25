@@ -1736,6 +1736,26 @@ mod tests {
     }
 
     #[test]
+    fn test_server_408_retryable() {
+        let e = ClientError::Server {
+            status: 408,
+            message: String::new(),
+            code: None,
+        };
+        assert!(e.is_retryable());
+    }
+
+    #[test]
+    fn test_server_400_not_retryable() {
+        let e = ClientError::Server {
+            status: 400,
+            message: String::new(),
+            code: None,
+        };
+        assert!(!e.is_retryable());
+    }
+
+    #[test]
     fn test_rate_limit_error_with_retry_after_zero() {
         // retry_after: Some(0) should still be Some, not treated as missing
         let e = ClientError::RateLimitExceeded {
