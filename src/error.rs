@@ -107,7 +107,7 @@ impl ClientError {
             ClientError::Http(_) => true,
             #[cfg(feature = "grpc")]
             ClientError::Grpc(_) => true, // gRPC errors are generally retryable
-            ClientError::Server { status, .. } => *status >= 500,
+            ClientError::Server { status, .. } => *status >= 500 || *status == 408,
             ClientError::Connection(_) => true,
             ClientError::Timeout => true,
             ClientError::RateLimitExceeded { .. } => true,
