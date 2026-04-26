@@ -26,7 +26,7 @@ async fn test_hybrid_search_with_vector_hits_correct_endpoint() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let req = HybridSearchRequest::new(vec![0.1, 0.2, 0.3], "search query", 5);
     let result = client.hybrid_search("test-ns", req).await.unwrap();
 
@@ -58,7 +58,7 @@ async fn test_hybrid_search_bm25_only_hits_correct_endpoint() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let req = HybridSearchRequest::text_only("hello world", 10);
     let result = client.hybrid_search("test-ns", req).await.unwrap();
 

@@ -15,7 +15,7 @@ async fn test_rotate_encryption_key_returns_response() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client
         .rotate_encryption_key("new-secret-passphrase", None)
         .await
@@ -38,7 +38,7 @@ async fn test_rotate_encryption_key_with_namespace() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client
         .rotate_encryption_key("new-key", Some("my-ns"))
         .await
@@ -60,7 +60,7 @@ async fn test_rotate_encryption_key_empty_response_defaults() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client.rotate_encryption_key("any-key", None).await.unwrap();
 
     assert_eq!(result.rotated, 0);

@@ -22,7 +22,7 @@ async fn test_ops_metrics_returns_prometheus_text() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client.ops_metrics().await.unwrap();
 
     assert!(result.contains("dakera_memory_store_total"));
@@ -41,7 +41,7 @@ async fn test_ops_metrics_uses_get_method() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     client.ops_metrics().await.unwrap();
 
     mock.assert_async().await;
@@ -58,7 +58,7 @@ async fn test_ops_metrics_authorization_error_on_403() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let err = client.ops_metrics().await.unwrap_err();
 
     assert!(

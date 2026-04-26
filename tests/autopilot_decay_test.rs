@@ -36,7 +36,7 @@ async fn test_autopilot_status_gets_correct_endpoint() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client.autopilot_status().await.unwrap();
 
     assert!(result.config.enabled);
@@ -72,7 +72,7 @@ async fn test_autopilot_update_config_puts_correct_endpoint() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let req = AutoPilotConfigRequest {
         enabled: Some(false),
         dedup_threshold: Some(0.90),
@@ -102,7 +102,7 @@ async fn test_autopilot_update_config_omits_unset_fields() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let req = AutoPilotConfigRequest {
         dedup_interval_hours: Some(4),
         ..Default::default()
@@ -138,7 +138,7 @@ async fn test_autopilot_trigger_dedup() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client
         .autopilot_trigger(AutoPilotTriggerAction::Dedup)
         .await
@@ -180,7 +180,7 @@ async fn test_autopilot_trigger_all_returns_both_results() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client
         .autopilot_trigger(AutoPilotTriggerAction::All)
         .await
@@ -214,7 +214,7 @@ async fn test_decay_config_gets_correct_endpoint() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client.decay_config().await.unwrap();
 
     assert_eq!(result.strategy, "exponential");
@@ -244,7 +244,7 @@ async fn test_decay_update_config_puts_correct_endpoint() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let req = DecayConfigUpdateRequest {
         strategy: Some("linear".to_string()),
         half_life_hours: Some(72.0),
@@ -272,7 +272,7 @@ async fn test_decay_update_config_omits_unset_fields() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let req = DecayConfigUpdateRequest {
         min_importance: Some(0.02),
         ..Default::default()
@@ -310,7 +310,7 @@ async fn test_decay_stats_gets_correct_endpoint() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client.decay_stats().await.unwrap();
 
     assert_eq!(result.total_decayed, 1024);
@@ -333,7 +333,7 @@ async fn test_decay_stats_handles_never_run_state() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let result = client.decay_stats().await.unwrap();
 
     assert_eq!(result.cycles_run, 0);
@@ -360,7 +360,7 @@ async fn test_store_memory_with_expires_at_includes_field() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let req = StoreMemoryRequest::new("agent-1", "test").with_expires_at(1800000000);
     client.store_memory(req).await.unwrap();
 
@@ -383,7 +383,7 @@ async fn test_store_memory_without_expires_at_omits_field() {
         .create_async()
         .await;
 
-    let client = DakeraClient::new(&server.url()).unwrap();
+    let client = DakeraClient::new(server.url()).unwrap();
     let req = StoreMemoryRequest::new("agent-1", "test");
     client.store_memory(req).await.unwrap();
 
