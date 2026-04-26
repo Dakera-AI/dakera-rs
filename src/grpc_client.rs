@@ -240,7 +240,7 @@ impl GrpcClient {
             .uri(path)
             .header("content-type", "application/grpc")
             .header("te", "trailers")
-            .body(tonic::body::BoxBody::new(
+            .body(tonic::body::Body::new(
                 http_body_util::Full::new(bytes::Bytes::from(body_bytes))
                     .map_err(|_: std::convert::Infallible| tonic::Status::internal("body error")),
             ))
