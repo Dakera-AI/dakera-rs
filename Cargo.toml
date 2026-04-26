@@ -26,7 +26,7 @@ futures-util = { version = "0.3", optional = true }
 urlencoding = { version = "2.1", optional = true }
 
 # gRPC client
-tonic = { version = "0.12", optional = true }
+tonic = { version = "0.14", optional = true }
 prost = { version = "0.14", optional = true }
 tower = { version = "0.5", features = ["util", "limit", "buffer", "timeout"], optional = true }
 http-body-util = { version = "0.1", optional = true }
