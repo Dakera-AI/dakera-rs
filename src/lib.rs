@@ -79,6 +79,7 @@ pub mod analytics;
 mod client;
 mod error;
 pub mod events;
+pub mod filter;
 pub mod keys;
 pub mod knowledge;
 pub mod memory;
