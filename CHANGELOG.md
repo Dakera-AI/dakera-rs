@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.46] - 2026-04-30
+
+### Added
+- **`dakera_client::filter` module**: typed filter builder functions returning `serde_json::Value`,
+  composable directly with `with_filter(...)` on any request builder:
+  - Comparison: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in_`, `nin`, `exists`
+  - String: `contains`, `icontains`, `starts_with`, `ends_with`, `glob`, `regex`
+  - Array (CE-79): `array_contains(v)`, `array_contains_all([...])`, `array_contains_any([...])`
+    — enables HNSW pre-filtering on array metadata fields (e.g. entity tags).
+  - Logical: `and([...])`, `or([...])`
+
+### Notes
+- Version bump to match server v0.11.46. Server improvements v0.11.37–v0.11.46:
+  - **CE-79 — ArrayContains filter operators**: `$arrayContains`, `$arrayContainsAll`,
+    `$arrayContainsAny` for HNSW pre-filtering on array metadata fields.
+  - **CE-73 — Auto-PRF for hybrid inference queries**: Cat3 +4.2pp.
+  - **CE-71 — ML query classifier**: Temporal inference detection on by default.
+  - **CE-68/69/70 — Temporal boost + recency bias + S3 retry backoff**.
+  - **CE-58 — Configurable RRF k-parameter** (`DAKERA_RRF_K` env var).
+
 ## [0.11.36] - 2026-04-26
 
 ### Notes
