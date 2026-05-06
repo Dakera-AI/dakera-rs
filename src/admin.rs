@@ -994,6 +994,27 @@ impl DakeraClient {
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
+
+    // ========================================================================
+    // CE-54: Fulltext Reindex
+    // ========================================================================
+
+    /// Backfill the BM25 fulltext index for memories stored before CE-12 auto-indexing (CE-54).
+    ///
+    /// Calls `POST /admin/fulltext/reindex`. Requires Admin scope.
+    ///
+    /// Scans all memories in `namespace` (or every agent namespace when `None`) and adds
+    /// any missing from the BM25 index. Safe to call multiple times — already-indexed
+    /// memories are counted in `total_skipped` and not re-processed.
+    pub async fn admin_fulltext_reindex(
+        &self,
+        namespace: Option<&str>,
+    ) -> Result<FulltextReindexResponse> {
+        let url = format!("{}/admin/fulltext/reindex", self.base_url);
+        let body = serde_json::json!({ "namespace": namespace });
+        let response = self.client.post(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
 }
 
 // ============================================================================
@@ -1024,4 +1045,38 @@ pub struct KpiSnapshot {
     pub cross_agent_network_node_count: u64,
     /// Percentage of memories created 7 days ago that are still active.
     pub memory_retention_7d_pct: f64,
+}
+
+// ============================================================================
+// CE-54: Fulltext Reindex (Admin)
+// ============================================================================
+
+/// Per-namespace result from `POST /admin/fulltext/reindex` (CE-54).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FulltextReindexNamespaceResult {
+    /// Namespace that was scanned.
+    pub namespace: String,
+    /// Total vectors examined.
+    pub vectors_scanned: usize,
+    /// Memories newly added to the BM25 index.
+    pub newly_indexed: usize,
+    /// Memories already in the BM25 index (skipped).
+    pub already_indexed: usize,
+    /// Memories that could not be parsed.
+    pub parse_failures: usize,
+}
+
+/// Response from `POST /admin/fulltext/reindex` (CE-54).
+///
+/// Returned by [`DakeraClient::admin_fulltext_reindex`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FulltextReindexResponse {
+    /// Number of namespaces scanned.
+    pub namespaces_processed: usize,
+    /// Total memories newly added to BM25 across all namespaces.
+    pub total_indexed: usize,
+    /// Total memories already in the BM25 index (skipped).
+    pub total_skipped: usize,
+    /// Per-namespace breakdown.
+    pub details: Vec<FulltextReindexNamespaceResult>,
 }
