@@ -8,8 +8,8 @@ readme = "README.md"
 repository = "https://github.com/dakera-ai/dakera-rs"
 homepage = "https://dakera.ai"
 documentation = "https://docs.rs/dakera-client"
-keywords = ["memory", "ai-agent", "sdk", "client", "vector-database"]
-categories = ["database", "api-bindings"]
+keywords = ["agent-memory", "vector-search", "knowledge-graph", "ai-agents", "mcp"]
+categories = ["database", "api-bindings", "science"]
 
 [features]
 default = ["http-client"]
