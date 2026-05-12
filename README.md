@@ -13,7 +13,7 @@ Part of [Dakera AI](https://dakera.ai) — the memory engine for AI agents.
 ```toml
 # Cargo.toml
 [dependencies]
-dakera-client = "0.9"
+dakera-client = "0.11"
 tokio = { version = "1", features = ["full"] }
 ```
 
