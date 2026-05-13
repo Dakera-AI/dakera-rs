@@ -59,9 +59,17 @@ cargo fmt
 
 ## Reporting Issues
 
-Use GitHub Issues to report bugs or request features. Please include:
-
-- Rust version (`rustc --version`)
-- Operating system
+Use the [Bug Report](https://github.com/Dakera-AI/dakera-rs/issues/new?template=bug_report.md) template to report bugs. Please include:
+- Rust version (`rustc --version`), operating system
 - Steps to reproduce the issue
 - Expected vs actual behavior
+
+Have a feature idea? Use the [Feature Request](https://github.com/Dakera-AI/dakera-rs/issues/new?template=feature_request.md) template.
+
+## Security Vulnerabilities
+
+**Do not open public issues for security vulnerabilities.** See [SECURITY.md](.github/SECURITY.md) for responsible disclosure instructions — email security@dakera.ai.
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
