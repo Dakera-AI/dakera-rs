@@ -1,5 +1,7 @@
 # ⚡ dakera-rs
 
+[![CI](https://github.com/Dakera-AI/dakera-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Dakera-AI/dakera-rs/actions/workflows/ci.yml) [![Crate](https://img.shields.io/crates/v/dakera-client?logo=rust)](https://crates.io/crates/dakera-client) [![Downloads](https://img.shields.io/crates/d/dakera-client)](https://crates.io/crates/dakera-client) [![License: MIT](https://img.shields.io/github/license/Dakera-AI/dakera-rs)](LICENSE)
+
 Rust client for Dakera AI — store, recall, and search agent memories against a Dakera instance.
 
 Part of [Dakera AI](https://dakera.ai) — the memory engine for AI agents.
