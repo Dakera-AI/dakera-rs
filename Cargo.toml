@@ -9,7 +9,7 @@ repository = "https://github.com/dakera-ai/dakera-rs"
 homepage = "https://dakera.ai"
 documentation = "https://docs.rs/dakera-client"
 keywords = ["agent-memory", "vector-search", "knowledge-graph", "ai-agents", "mcp"]
-categories = ["database", "api-bindings", "science"]
+categories = ["database", "science", "command-line-utilities"]
 
 [features]
 default = ["http-client"]
