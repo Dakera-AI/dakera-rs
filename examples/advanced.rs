@@ -5,8 +5,7 @@
 //! Run: cargo run --example advanced
 
 use dakera_client::{
-    filter, DakeraClient, Document, HybridSearchRequest, IndexDocumentsRequest,
-    QueryTextRequest, UpsertTextRequest,
+    filter, DakeraClient, Document, HybridSearchRequest, IndexDocumentsRequest, UpsertTextRequest,
 };
 
 #[tokio::main]
@@ -25,26 +24,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let text_resp = client
         .upsert_text(
             namespace,
-            UpsertTextRequest {
-                documents: vec![
-                    dakera_client::TextDocument {
-                        id: "doc1".to_string(),
-                        text: "Rust memory safety prevents data races at compile time.".to_string(),
-                        metadata: None,
-                    },
-                    dakera_client::TextDocument {
-                        id: "doc2".to_string(),
-                        text: "Go goroutines enable lightweight concurrency patterns.".to_string(),
-                        metadata: None,
-                    },
-                    dakera_client::TextDocument {
-                        id: "doc3".to_string(),
-                        text: "Python asyncio provides cooperative multitasking.".to_string(),
-                        metadata: None,
-                    },
-                ],
-                embedding_model: None,
-            },
+            UpsertTextRequest::new(vec![
+                dakera_client::TextDocument::new(
+                    "doc1",
+                    "Rust memory safety prevents data races at compile time.",
+                ),
+                dakera_client::TextDocument::new(
+                    "doc2",
+                    "Go goroutines enable lightweight concurrency patterns.",
+                ),
+                dakera_client::TextDocument::new(
+                    "doc3",
+                    "Python asyncio provides cooperative multitasking.",
+                ),
+            ]),
         )
         .await?;
     println!("Upserted {} text documents", text_resp.upserted_count);
@@ -69,7 +62,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 documents: vec![
                     Document {
                         id: "ft1".to_string(),
-                        text: "Vector databases enable semantic search over embeddings.".to_string(),
+                        text: "Vector databases enable semantic search over embeddings."
+                            .to_string(),
                         metadata: None,
                     },
                     Document {
@@ -84,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ft_results = client.search_text(namespace, "vector search", 5).await?;
     println!("Full-text results:");
-    for r in &ft_results.results {
+    for r in &ft_results.matches {
         println!("  {}: score {:.4}", r.id, r.score);
     }
 
@@ -96,17 +90,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hybrid_results = client
         .hybrid_search(
             namespace,
-            HybridSearchRequest {
-                text: "semantic search".to_string(),
-                vector: None,
-                top_k: Some(5),
-                filter: None,
-                vector_weight: None,
-            },
+            HybridSearchRequest::text_only("semantic search", 5),
         )
         .await?;
     println!("Hybrid results:");
-    for r in &hybrid_results.results {
+    for r in &hybrid_results.matches {
         println!("  {}: score {:.4}", r.id, r.score);
     }
 
@@ -115,7 +103,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // -------------------------------------------------------------------------
     println!("\n--- Typed Filter DSL ---");
 
-    // The filter module provides typed helpers instead of raw JSON
     let _filter = serde_json::json!({
         "category": filter::eq("electronics"),
         "price": filter::gte(100.0),
