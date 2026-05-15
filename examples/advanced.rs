@@ -5,8 +5,7 @@
 //! Run: cargo run --example advanced
 
 use dakera_client::{
-    filter, DakeraClient, Document, HybridSearchRequest, IndexDocumentsRequest,
-    QueryTextRequest, UpsertTextRequest,
+    filter, DakeraClient, Document, HybridSearchRequest, IndexDocumentsRequest, UpsertTextRequest,
 };
 
 #[tokio::main]
@@ -69,7 +68,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 documents: vec![
                     Document {
                         id: "ft1".to_string(),
-                        text: "Vector databases enable semantic search over embeddings.".to_string(),
+                        text: "Vector databases enable semantic search over embeddings."
+                            .to_string(),
                         metadata: None,
                     },
                     Document {

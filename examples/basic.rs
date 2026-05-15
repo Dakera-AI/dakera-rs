@@ -2,9 +2,7 @@
 //!
 //! Run: cargo run --example basic
 
-use dakera_client::{
-    CreateNamespaceRequest, DakeraClient, QueryRequest, UpsertRequest, Vector,
-};
+use dakera_client::{CreateNamespaceRequest, DakeraClient, QueryRequest, UpsertRequest, Vector};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,7 +12,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check server health
     let health = client.health().await?;
-    println!("Server: {} (healthy: {})", health.version, health.healthy);
+    println!(
+        "Server: {} (healthy: {})",
+        health.version.as_deref().unwrap_or("unknown"),
+        health.healthy
+    );
 
     let namespace = "example-vectors";
 

@@ -137,14 +137,25 @@ pub use memory::{
     ExtractionProviderInfo,
     // EXT-1: External Extraction Providers
     ExtractionResult,
+    ForgetRequest,
+    ForgetResponse,
     MemoryExportResponse,
     // DX-1: Memory Import / Export
     MemoryImportResponse,
+    MemoryType,
+    RecallRequest,
+    RecallResponse,
+    RecalledMemory,
     // SEC-3: AES-256-GCM Encryption Key Rotation
     RotateEncryptionKeyRequest,
     RotateEncryptionKeyResponse,
     // CE-10: Routing mode
     RoutingMode,
+    Session,
+    SessionEndResponse,
+    SessionStartResponse,
+    StoreMemoryRequest,
+    StoreMemoryResponse,
 };
 pub use types::*;
 

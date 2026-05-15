@@ -2,7 +2,7 @@
 //!
 //! Run: cargo run --example memory
 
-use dakera_client::{DakeraClient, StoreMemoryRequest, RecallRequest};
+use dakera_client::{DakeraClient, MemoryType, RecallRequest, StoreMemoryRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,22 +21,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .store_memory(StoreMemoryRequest {
             agent_id: agent_id.to_string(),
             content: "The user prefers concise responses with code examples.".to_string(),
-            memory_type: Some("semantic".to_string()),
-            importance: Some(0.9),
+            memory_type: MemoryType::Semantic,
+            importance: 0.9,
             metadata: Some(serde_json::json!({ "source": "user-feedback" })),
-            ..Default::default()
+            tags: Vec::new(),
+            session_id: None,
+            ttl_seconds: None,
+            expires_at: None,
         })
         .await?;
     println!("Stored memory: {}", mem1.memory_id);
 
     let mem2 = client
-        .store_memory(StoreMemoryRequest {
-            agent_id: agent_id.to_string(),
-            content: "User is building a Rust web service with Axum.".to_string(),
-            memory_type: Some("episodic".to_string()),
-            importance: Some(0.7),
-            ..Default::default()
-        })
+        .store_memory(
+            StoreMemoryRequest::new(agent_id, "User is building a Rust web service with Axum.")
+                .with_type(MemoryType::Episodic)
+                .with_importance(0.7),
+        )
         .await?;
     println!("Stored memory: {}", mem2.memory_id);
 
@@ -46,20 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- Recalling Memories ---");
 
     let recalled = client
-        .recall(RecallRequest {
-            agent_id: agent_id.to_string(),
-            query: "What does the user prefer?".to_string(),
-            top_k: Some(5),
-            ..Default::default()
-        })
+        .recall(RecallRequest::new(agent_id, "What does the user prefer?").with_top_k(5))
         .await?;
     for m in &recalled.memories {
-        println!(
-            "  [{:.2}] {} — {}",
-            m.importance,
-            m.memory_type.as_deref().unwrap_or("unknown"),
-            m.content
-        );
+        println!("  [{:.2}] {:?} — {}", m.importance, m.memory_type, m.content);
     }
 
     // -------------------------------------------------------------------------
@@ -70,20 +61,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session = client.start_session(agent_id).await?;
     println!("Started session: {}", session.id);
 
-    // Store a session-scoped memory
     client
-        .store_memory(StoreMemoryRequest {
-            agent_id: agent_id.to_string(),
-            content: "Reviewing PR #42: refactor authentication middleware.".to_string(),
-            session_id: Some(session.id.clone()),
-            ..Default::default()
-        })
+        .store_memory(
+            StoreMemoryRequest::new(
+                agent_id,
+                "Reviewing PR #42: refactor authentication middleware.",
+            )
+            .with_session(session.id.clone()),
+        )
         .await?;
     println!("Stored session-scoped memory");
 
-    // End the session
-    let end_resp = client.end_session(&session.id, Some("code review complete")).await?;
-    println!("Ended session (status: {:?})", end_resp.status);
+    let end_resp = client
+        .end_session(&session.id, Some("code review complete".to_string()))
+        .await?;
+    println!("Ended session (memories: {})", end_resp.memory_count);
 
     // -------------------------------------------------------------------------
     // Agent stats
