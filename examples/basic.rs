@@ -2,6 +2,8 @@
 //!
 //! Run: cargo run --example basic
 
+use std::collections::HashMap;
+
 use dakera_client::{CreateNamespaceRequest, DakeraClient, QueryRequest, UpsertRequest, Vector};
 
 #[tokio::main]
@@ -22,13 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create namespace
     client
-        .create_namespace(
-            namespace,
-            CreateNamespaceRequest {
-                dimension: Some(3),
-                distance_metric: None,
-            },
-        )
+        .create_namespace(namespace, CreateNamespaceRequest::new().with_dimensions(3))
         .await?;
 
     // Upsert vectors with metadata
@@ -37,30 +33,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             namespace,
             UpsertRequest {
                 vectors: vec![
-                    Vector {
-                        id: "vec1".to_string(),
-                        values: vec![0.1, 0.2, 0.3],
-                        metadata: Some(serde_json::json!({
-                            "category": "electronics",
-                            "price": 299.99
-                        })),
-                    },
-                    Vector {
-                        id: "vec2".to_string(),
-                        values: vec![0.4, 0.5, 0.6],
-                        metadata: Some(serde_json::json!({
-                            "category": "books",
-                            "price": 19.99
-                        })),
-                    },
-                    Vector {
-                        id: "vec3".to_string(),
-                        values: vec![0.15, 0.25, 0.35],
-                        metadata: Some(serde_json::json!({
-                            "category": "electronics",
-                            "price": 599.99
-                        })),
-                    },
+                    Vector::with_metadata(
+                        "vec1",
+                        vec![0.1, 0.2, 0.3],
+                        HashMap::from([
+                            ("category".into(), serde_json::json!("electronics")),
+                            ("price".into(), serde_json::json!(299.99)),
+                        ]),
+                    ),
+                    Vector::with_metadata(
+                        "vec2",
+                        vec![0.4, 0.5, 0.6],
+                        HashMap::from([
+                            ("category".into(), serde_json::json!("books")),
+                            ("price".into(), serde_json::json!(19.99)),
+                        ]),
+                    ),
+                    Vector::with_metadata(
+                        "vec3",
+                        vec![0.15, 0.25, 0.35],
+                        HashMap::from([
+                            ("category".into(), serde_json::json!("electronics")),
+                            ("price".into(), serde_json::json!(599.99)),
+                        ]),
+                    ),
                 ],
             },
         )
@@ -70,15 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Query similar vectors
     println!("\n--- Query Results ---");
     let results = client
-        .query(
-            namespace,
-            QueryRequest {
-                vector: vec![0.1, 0.2, 0.3],
-                top_k: 10,
-                include_metadata: true,
-                ..Default::default()
-            },
-        )
+        .query(namespace, QueryRequest::new(vec![0.1, 0.2, 0.3], 10))
         .await?;
     for m in &results.matches {
         println!("ID: {}, Score: {:.4}", m.id, m.score);
@@ -89,15 +77,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filtered = client
         .query(
             namespace,
-            QueryRequest {
-                vector: vec![0.1, 0.2, 0.3],
-                top_k: 10,
-                filter: Some(serde_json::json!({
-                    "category": { "$eq": "electronics" }
-                })),
-                include_metadata: true,
-                ..Default::default()
-            },
+            QueryRequest::new(vec![0.1, 0.2, 0.3], 10).with_filter(serde_json::json!({
+                "category": { "$eq": "electronics" }
+            })),
         )
         .await?;
     for m in &filtered.matches {
