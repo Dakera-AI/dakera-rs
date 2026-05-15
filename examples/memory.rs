@@ -50,7 +50,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .recall(RecallRequest::new(agent_id, "What does the user prefer?").with_top_k(5))
         .await?;
     for m in &recalled.memories {
-        println!("  [{:.2}] {:?} — {}", m.importance, m.memory_type, m.content);
+        println!(
+            "  [{:.2}] {:?} — {}",
+            m.importance, m.memory_type, m.content
+        );
     }
 
     // -------------------------------------------------------------------------
