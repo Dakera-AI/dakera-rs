@@ -1,11 +1,7 @@
-[![Docs](https://img.shields.io/badge/docs-dakera.ai-D4A843)](https://dakera.ai/docs)
 # dakera-rs
-
-
 
 [![CI](https://github.com/Dakera-AI/dakera-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Dakera-AI/dakera-rs/actions/workflows/ci.yml) [![Crate](https://img.shields.io/crates/v/dakera-client?logo=rust)](https://crates.io/crates/dakera-client) [![Downloads](https://img.shields.io/crates/d/dakera-client)](https://crates.io/crates/dakera-client) [![License: MIT](https://img.shields.io/github/license/Dakera-AI/dakera-rs)](LICENSE)
 [![dakera.ai](https://img.shields.io/badge/dakera.ai-website-22c55e?style=flat-square)](https://dakera.ai) [![Docs](https://img.shields.io/badge/docs-dakera.ai%2Fdocs-3b82f6?style=flat-square)](https://dakera.ai/docs)
-[![Docs](https://img.shields.io/badge/docs-dakera.ai-D4A843)](https://dakera.ai/docs)
 
 Rust client for Dakera AI — store, recall, and search agent memories against a Dakera instance.
 
