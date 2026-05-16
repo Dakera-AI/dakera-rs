@@ -1,6 +1,7 @@
 # dakera-rs
 
 [![CI](https://github.com/Dakera-AI/dakera-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Dakera-AI/dakera-rs/actions/workflows/ci.yml) [![Crate](https://img.shields.io/crates/v/dakera-client?logo=rust)](https://crates.io/crates/dakera-client) [![Downloads](https://img.shields.io/crates/d/dakera-client)](https://crates.io/crates/dakera-client) [![License: MIT](https://img.shields.io/github/license/Dakera-AI/dakera-rs)](LICENSE)
+[![dakera.ai](https://img.shields.io/badge/dakera.ai-website-22c55e?style=flat-square)](https://dakera.ai) [![Docs](https://img.shields.io/badge/docs-dakera.ai%2Fdocs-3b82f6?style=flat-square)](https://dakera.ai/docs)
 
 Rust client for Dakera AI — store, recall, and search agent memories against a Dakera instance.
 
@@ -177,4 +178,6 @@ let client = DakeraClient::builder("http://localhost:3300")
 
 ---
 
-*Part of the Dakera AI open core. The engine is proprietary. The tools are yours.*
+**[dakera.ai](https://dakera.ai)** · [Documentation](https://dakera.ai/docs) · [Request Early Access](https://dakera.ai#cta)
+
+<sub>Part of the Dakera AI open-source ecosystem. Built with Rust. Self-hosted. Zero dependencies.</sub>
