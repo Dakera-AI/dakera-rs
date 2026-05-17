@@ -86,10 +86,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // -------------------------------------------------------------------------
     println!("\n--- Agent Stats ---");
 
-    let stats = client.agent_stats(agent_id).await?;
-    println!("Agent: {}", stats.agent_id);
-    println!("  Total memories: {}", stats.total_memories);
-    println!("  Total sessions: {}", stats.total_sessions);
+    match client.agent_stats(agent_id).await {
+        Ok(stats) => {
+            println!("Agent: {}", stats.agent_id);
+            println!("  Total memories: {}", stats.total_memories);
+            println!("  Total sessions: {}", stats.total_sessions);
+        }
+        Err(e) => println!("Agent stats not available: {e}"),
+    }
 
     println!("\nDone!");
     Ok(())
