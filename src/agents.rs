@@ -233,6 +233,11 @@ impl DakeraClient {
         let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
+
+    /// Alias for [`compress`](Self::compress) matching Python/JS/Go SDK naming.
+    pub async fn compress_agent(&self, agent_id: &str) -> Result<CompressResponse> {
+        self.compress(agent_id).await
+    }
 }
 
 // ============================================================================
