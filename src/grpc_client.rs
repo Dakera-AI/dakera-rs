@@ -319,7 +319,8 @@ impl GrpcClient {
             name: response.name,
             vector_count: response.vector_count,
             dimensions: response.dimension,
-            index_type: None, // gRPC doesn't return index type
+            index_type: None,
+            created: None,
         })
     }
 
