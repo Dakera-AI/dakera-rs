@@ -2860,3 +2860,115 @@ impl Default for MemoryPolicy {
         }
     }
 }
+
+// =============================================================================
+// Engine Parity — Vector Bulk Ops, Agent Consolidation, Namespace Config
+// =============================================================================
+
+/// Request for `POST /v1/namespaces/{ns}/vectors/bulk-update`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BulkUpdateRequest {
+    pub filter: serde_json::Value,
+    pub update: serde_json::Value,
+}
+
+/// Response from `POST /v1/namespaces/{ns}/vectors/bulk-update`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BulkUpdateResponse {
+    pub updated: u64,
+    pub failed: u64,
+    pub errors: Vec<String>,
+}
+
+/// Request for `POST /v1/namespaces/{ns}/vectors/bulk-delete`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BulkDeleteRequest {
+    pub filter: serde_json::Value,
+}
+
+/// Response from `POST /v1/namespaces/{ns}/vectors/bulk-delete`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BulkDeleteResponse {
+    pub deleted: u64,
+    pub failed: u64,
+    pub errors: Vec<String>,
+}
+
+/// Request for `POST /v1/namespaces/{ns}/vectors/count`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountVectorsRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<serde_json::Value>,
+}
+
+/// Response from `POST /v1/namespaces/{ns}/vectors/count`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountVectorsResponse {
+    pub count: u64,
+    pub namespace: String,
+}
+
+/// Response from `POST /v1/agents/{agent_id}/consolidate`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConsolidateResponse {
+    pub agent_id: String,
+    pub memories_scanned: u64,
+    pub clusters_found: u64,
+    pub memories_deprecated: u64,
+    pub anchor_ids: Vec<String>,
+    pub deprecated_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// One entry in the agent consolidation log.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConsolidationLogEntry {
+    pub timestamp: u64,
+    pub clusters_found: u64,
+    pub memories_deprecated: u64,
+    pub anchor_ids: Vec<String>,
+    pub deprecated_ids: Vec<String>,
+}
+
+/// Request for `PATCH /v1/agents/{agent_id}/consolidation/config`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ConsolidationConfigPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub epsilon: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_samples: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub soft_deprecation_days: Option<u32>,
+}
+
+/// Response from consolidation config endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConsolidationConfig {
+    pub enabled: bool,
+    pub epsilon: f64,
+    pub min_samples: u32,
+    pub soft_deprecation_days: u32,
+}
+
+/// Response from `GET /v1/namespaces/{ns}/config`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamespaceEntityConfig {
+    pub namespace: String,
+    pub extract_entities: bool,
+    pub entity_types: Vec<String>,
+}
+
+/// Response from `GET /v1/namespaces/{ns}/extractor`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamespaceExtractorConfig {
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+}

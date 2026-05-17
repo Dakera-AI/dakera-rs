@@ -363,6 +363,51 @@ impl DakeraClient {
         self.delete(namespace, DeleteRequest::single(id)).await
     }
 
+    /// Bulk update vector metadata matching a filter.
+    #[instrument(skip(self, request))]
+    pub async fn bulk_update_vectors(
+        &self,
+        namespace: &str,
+        request: BulkUpdateRequest,
+    ) -> Result<BulkUpdateResponse> {
+        let url = format!(
+            "{}/v1/namespaces/{}/vectors/bulk-update",
+            self.base_url, namespace
+        );
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Bulk delete vectors matching a filter.
+    #[instrument(skip(self, request))]
+    pub async fn bulk_delete_vectors(
+        &self,
+        namespace: &str,
+        request: BulkDeleteRequest,
+    ) -> Result<BulkDeleteResponse> {
+        let url = format!(
+            "{}/v1/namespaces/{}/vectors/bulk-delete",
+            self.base_url, namespace
+        );
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Count vectors in a namespace, optionally filtered.
+    #[instrument(skip(self, request))]
+    pub async fn count_vectors(
+        &self,
+        namespace: &str,
+        request: CountVectorsRequest,
+    ) -> Result<CountVectorsResponse> {
+        let url = format!(
+            "{}/v1/namespaces/{}/vectors/count",
+            self.base_url, namespace
+        );
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
     // ========================================================================
     // Full-Text Search Operations
     // ========================================================================
@@ -987,6 +1032,28 @@ impl DakeraClient {
     // ========================================================================
     // CE-4: GLiNER Entity Extraction
     // ========================================================================
+
+    /// Get entity extraction configuration for a namespace.
+    #[instrument(skip(self))]
+    pub async fn get_namespace_entity_config(
+        &self,
+        namespace: &str,
+    ) -> Result<NamespaceEntityConfig> {
+        let url = format!("{}/v1/namespaces/{}/config", self.base_url, namespace);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Get the extractor provider configuration for a namespace.
+    #[instrument(skip(self))]
+    pub async fn get_namespace_extractor(
+        &self,
+        namespace: &str,
+    ) -> Result<NamespaceExtractorConfig> {
+        let url = format!("{}/v1/namespaces/{}/extractor", self.base_url, namespace);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
 
     /// Configure namespace-level entity extraction settings (CE-4).
     ///

@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::memory::{RecalledMemory, Session};
+use crate::types::{
+    AgentConsolidateResponse, AgentConsolidationConfig, AgentConsolidationLogEntry,
+    ConsolidationConfigPatch,
+};
 use crate::DakeraClient;
 
 // ============================================================================
@@ -237,6 +241,40 @@ impl DakeraClient {
     /// Alias for [`compress`](Self::compress) matching Python/JS/Go SDK naming.
     pub async fn compress_agent(&self, agent_id: &str) -> Result<CompressResponse> {
         self.compress(agent_id).await
+    }
+
+    /// Consolidate memories for an agent using the agent-scoped endpoint.
+    #[tracing::instrument(skip(self))]
+    pub async fn consolidate_agent(&self, agent_id: &str) -> Result<AgentConsolidateResponse> {
+        let url = format!("{}/v1/agents/{}/consolidate", self.base_url, agent_id);
+        let response = self.client.post(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Get the consolidation execution log for an agent.
+    #[tracing::instrument(skip(self))]
+    pub async fn get_consolidation_log(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentConsolidationLogEntry>> {
+        let url = format!("{}/v1/agents/{}/consolidation/log", self.base_url, agent_id);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Update the consolidation configuration for an agent.
+    #[tracing::instrument(skip(self, patch))]
+    pub async fn patch_consolidation_config(
+        &self,
+        agent_id: &str,
+        patch: ConsolidationConfigPatch,
+    ) -> Result<AgentConsolidationConfig> {
+        let url = format!(
+            "{}/v1/agents/{}/consolidation/config",
+            self.base_url, agent_id
+        );
+        let response = self.client.patch(&url).json(&patch).send().await?;
+        self.handle_response(response).await
     }
 }
 
