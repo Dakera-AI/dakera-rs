@@ -8,7 +8,8 @@ use dakera_client::{CreateNamespaceRequest, DakeraClient, QueryRequest, UpsertRe
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = DakeraClient::builder("http://localhost:3300")
+    let url = std::env::var("DAKERA_API_URL").unwrap_or_else(|_| "http://localhost:3300".to_string());
+    let client = DakeraClient::builder(&url)
         .api_key("dk-mykey")
         .build()?;
 
