@@ -1324,6 +1324,96 @@ impl DakeraClient {
         let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
+
+    // =========================================================================
+    // Backup Download / Upload
+    // =========================================================================
+
+    /// Download a backup as gzipped bytes via `GET /admin/backups/{id}/download`.
+    pub async fn download_backup(&self, backup_id: &str) -> Result<Vec<u8>> {
+        let url = format!("{}/admin/backups/{}/download", self.base_url, backup_id);
+        let response = self.client.get(&url).send().await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(crate::error::ClientError::Server {
+                status: status.as_u16(),
+                message: body,
+                code: None,
+            });
+        }
+        Ok(response.bytes().await?.to_vec())
+    }
+
+    /// Upload a backup from gzipped bytes via `POST /admin/backups/upload`.
+    pub async fn upload_backup(
+        &self,
+        data: Vec<u8>,
+    ) -> Result<crate::types::CreateBackupResponse> {
+        let url = format!("{}/admin/backups/upload", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/gzip")
+            .body(data)
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Storage Tier Overview
+    // =========================================================================
+
+    /// Get storage tier overview via `GET /admin/storage/tiers`.
+    pub async fn storage_tier_overview(
+        &self,
+    ) -> Result<crate::types::StorageTierOverview> {
+        let url = format!("{}/admin/storage/tiers", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Background Activity
+    // =========================================================================
+
+    /// Get background activity metrics via `GET /admin/background-activity`.
+    pub async fn background_activity(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/admin/background-activity", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Memory Type Stats
+    // =========================================================================
+
+    /// Get per-type memory statistics via `GET /admin/memory-type-stats`.
+    pub async fn memory_type_stats(
+        &self,
+    ) -> Result<crate::types::MemoryTypeStatsResponse> {
+        let url = format!("{}/admin/memory-type-stats", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Migrate Namespace Dimensions
+    // =========================================================================
+
+    /// Migrate namespace embedding dimensions via `POST /admin/namespaces/migrate-dimensions`.
+    pub async fn migrate_namespace_dimensions(
+        &self,
+        request: crate::types::MigrateNamespaceDimensionsRequest,
+    ) -> Result<crate::types::MigrateDimensionsResponse> {
+        let url = format!(
+            "{}/admin/namespaces/migrate-dimensions",
+            self.base_url
+        );
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
 }
 
 // ============================================================================

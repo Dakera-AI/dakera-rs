@@ -3340,3 +3340,231 @@ pub struct CompactionResponse {
     pub job_id: String,
     pub message: String,
 }
+
+// ============================================================================
+// Route Query (POST /v1/route)
+// ============================================================================
+
+fn default_route_top_k() -> usize {
+    3
+}
+
+fn default_route_min_similarity() -> f32 {
+    0.3
+}
+
+/// Request for `POST /v1/route`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteRequest {
+    /// The query string to route.
+    pub query: String,
+    /// Maximum number of matching routes to return.
+    #[serde(default = "default_route_top_k")]
+    pub top_k: usize,
+    /// Minimum similarity threshold for route matches.
+    #[serde(default = "default_route_min_similarity")]
+    pub min_similarity: f32,
+    /// Optional embedding model override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// A single route match returned by `POST /v1/route`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteMatch {
+    /// Matched namespace name.
+    pub namespace: String,
+    /// Cosine similarity score.
+    pub similarity: f64,
+    /// Optional namespace description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Response from `POST /v1/route`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteResponse {
+    /// Ordered list of route matches.
+    pub routes: Vec<RouteMatch>,
+    /// Embedding model used.
+    pub model: String,
+    /// Time spent computing embeddings (milliseconds).
+    pub embedding_time_ms: u64,
+}
+
+// ============================================================================
+// Import Job Status (GET /v1/import/{job_id}/status)
+// ============================================================================
+
+/// Status of an import job returned by `GET /v1/import/{job_id}/status`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportJobStatus {
+    /// Unique job identifier.
+    pub job_id: String,
+    /// Current job status (e.g. "running", "completed", "failed").
+    pub status: String,
+    /// Import file format (e.g. "jsonl", "csv").
+    pub format: String,
+    /// Total records in the import.
+    pub total: usize,
+    /// Records successfully imported.
+    pub imported: usize,
+    /// Records skipped (duplicates, invalid).
+    pub skipped: usize,
+    /// Per-record error messages, if any.
+    #[serde(default)]
+    pub errors: Vec<String>,
+    /// Unix timestamp when the job started.
+    pub started_at: u64,
+    /// Unix timestamp when the job finished, if completed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<u64>,
+}
+
+// ============================================================================
+// Storage Tier Overview (GET /admin/storage/tiers)
+// ============================================================================
+
+/// Information about a single storage tier.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierInfo {
+    /// Tier name (e.g. "hot", "warm", "cold").
+    pub name: String,
+    /// Tier classification.
+    pub tier_type: String,
+    /// Underlying storage technology.
+    pub technology: String,
+    /// Human-readable tier description.
+    pub description: String,
+    /// Target access latency.
+    pub target_latency: String,
+    /// Optional capacity limit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capacity: Option<String>,
+    /// Current tier status.
+    pub status: String,
+    /// Number of items currently in this tier.
+    pub current_count: u64,
+    /// Number of cache/access hits.
+    pub hit_count: u64,
+    /// Hit rate as a fraction (0.0–1.0).
+    pub hit_rate: f64,
+}
+
+/// Tiered storage configuration parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierConfig {
+    /// Maximum number of items in the hot tier.
+    pub hot_tier_capacity: usize,
+    /// Seconds of inactivity before promoting from hot to warm.
+    pub hot_to_warm_threshold_secs: u64,
+    /// Seconds of inactivity before demoting from warm to cold.
+    pub warm_to_cold_threshold_secs: u64,
+    /// Whether automatic tiering is enabled.
+    pub auto_tier_enabled: bool,
+    /// Interval between tier-check cycles (seconds).
+    pub tier_check_interval_secs: u64,
+}
+
+/// Tier movement activity counters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierActivity {
+    /// Total promotions across all tiers.
+    pub promotions: u64,
+    /// Total demotions across all tiers.
+    pub demotions: u64,
+    /// Overall cache hit rate.
+    pub cache_hit_rate: f64,
+    /// Active storage backend name.
+    pub storage_backend: String,
+    /// Promotions specifically to the hot tier.
+    pub promotions_to_hot: u64,
+    /// Demotions specifically to warm.
+    pub demotions_to_warm: u64,
+    /// Demotions specifically to cold.
+    pub demotions_to_cold: u64,
+}
+
+/// Overview of the tiered storage system from `GET /admin/storage/tiers`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageTierOverview {
+    /// Whether tiered storage is enabled.
+    pub tiers_enabled: bool,
+    /// Description of each tier.
+    pub architecture: Vec<TierInfo>,
+    /// Current tier configuration.
+    pub config: TierConfig,
+    /// Tier movement activity.
+    pub activity: TierActivity,
+}
+
+// ============================================================================
+// Memory Type Stats (GET /admin/memory-type-stats)
+// ============================================================================
+
+/// Per-type memory statistics from `GET /admin/memory-type-stats`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryTypeStatsResponse {
+    /// Total number of memories.
+    pub total: u64,
+    /// Working memory count.
+    pub working: u64,
+    /// Episodic memory count.
+    pub episodic: u64,
+    /// Semantic memory count.
+    pub semantic: u64,
+    /// Procedural memory count.
+    pub procedural: u64,
+    /// Number of distinct agent namespaces.
+    pub agent_namespaces: u64,
+}
+
+// ============================================================================
+// Migrate Namespace Dimensions (POST /admin/namespaces/migrate-dimensions)
+// ============================================================================
+
+fn default_target_dimension() -> usize {
+    1024
+}
+
+/// Request for `POST /admin/namespaces/migrate-dimensions`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrateNamespaceDimensionsRequest {
+    /// Namespaces to migrate (empty = all).
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+    /// Target embedding dimension.
+    #[serde(default = "default_target_dimension")]
+    pub target_dimension: usize,
+}
+
+/// Per-namespace migration result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamespaceMigrationResult {
+    /// Namespace that was migrated.
+    pub namespace: String,
+    /// Original embedding dimension.
+    pub original_dimension: usize,
+    /// Vectors successfully re-embedded.
+    pub vectors_migrated: usize,
+    /// Vectors skipped (already at target dimension).
+    pub vectors_skipped: usize,
+    /// Migration status for this namespace.
+    pub status: String,
+    /// Error message if migration failed for this namespace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Response from `POST /admin/namespaces/migrate-dimensions`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrateDimensionsResponse {
+    /// Number of namespaces successfully migrated.
+    pub migrated: usize,
+    /// Number of namespaces that failed migration.
+    pub failed: usize,
+    /// Namespaces already at the target dimension.
+    pub already_current: usize,
+    /// Per-namespace results.
+    pub results: Vec<NamespaceMigrationResult>,
+}

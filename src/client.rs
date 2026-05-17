@@ -1651,6 +1651,30 @@ impl DakeraClient {
 
         Ok(rx)
     }
+
+    // ========================================================================
+    // Route Query
+    // ========================================================================
+
+    /// Route a query to the best-matching namespaces via `POST /v1/route`.
+    #[instrument(skip(self, request))]
+    pub async fn route_query(&self, request: RouteRequest) -> Result<RouteResponse> {
+        let url = format!("{}/v1/route", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
+    // Import Job Status
+    // ========================================================================
+
+    /// Get import job status via `GET /v1/import/{job_id}/status`.
+    #[instrument(skip(self))]
+    pub async fn import_job_status(&self, job_id: &str) -> Result<ImportJobStatus> {
+        let url = format!("{}/v1/import/{}/status", self.base_url, job_id);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
 }
 
 #[cfg(test)]
