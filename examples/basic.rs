@@ -87,22 +87,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("ID: {}, Score: {:.4}", m.id, m.score);
     }
 
-    // Fetch vectors by ID (may not be supported on all server versions)
-    println!("\n--- Fetched Vectors ---");
-    match client.fetch_by_ids(namespace, &["vec1", "vec2"]).await {
-        Ok(vectors) => {
-            for v in &vectors {
-                println!("ID: {}, Values: {:?}", v.id, v.values);
-            }
-        }
-        Err(e) => println!("Fetch not supported on this server version: {e}"),
-    }
-
-    // Delete and cleanup (may not be supported on all server versions)
-    match client.delete_one(namespace, "vec1").await {
-        Ok(_) => println!("\nDeleted vec1"),
-        Err(e) => println!("\nDelete not supported on this server version: {e}"),
-    }
+    // Delete and cleanup
+    client.delete_one(namespace, "vec1").await?;
+    println!("\nDeleted vec1");
 
     Ok(())
 }
