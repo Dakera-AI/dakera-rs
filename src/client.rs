@@ -163,6 +163,46 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
+    /// Delete a namespace and all its data.
+    #[instrument(skip(self))]
+    pub async fn delete_namespace(&self, namespace: &str) -> Result<()> {
+        let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
+        let response = self.client.delete(&url).send().await?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let status = response.status().as_u16();
+            let text = response.text().await.unwrap_or_default();
+            Err(ClientError::Server {
+                status,
+                message: text,
+                code: None,
+            })
+        }
+    }
+
+    /// Flush pending writes for a namespace.
+    #[instrument(skip(self))]
+    pub async fn flush(&self, namespace: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/v1/namespaces/{}/flush", self.base_url, namespace);
+        let response = self.client.post(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Get index statistics for a specific namespace.
+    #[instrument(skip(self))]
+    pub async fn get_namespace_stats(&self, namespace: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/v1/namespaces/{}/stats", self.base_url, namespace);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Alias for [`get_namespace_stats`](Self::get_namespace_stats) matching Python/JS naming.
+    #[instrument(skip(self))]
+    pub async fn get_index_stats(&self, namespace: &str) -> Result<serde_json::Value> {
+        self.get_namespace_stats(namespace).await
+    }
+
     // ========================================================================
     // Vector Operations
     // ========================================================================
@@ -786,6 +826,16 @@ impl DakeraClient {
     #[instrument(skip(self))]
     pub async fn export_all(&self, namespace: &str) -> Result<ExportResponse> {
         self.export(namespace, ExportRequest::new()).await
+    }
+
+    /// Alias for [`export`](Self::export) matching Python/JS/Go SDK naming.
+    #[instrument(skip(self, request), fields(namespace = %namespace))]
+    pub async fn export_vectors(
+        &self,
+        namespace: &str,
+        request: ExportRequest,
+    ) -> Result<ExportResponse> {
+        self.export(namespace, request).await
     }
 
     // ========================================================================

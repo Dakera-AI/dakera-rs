@@ -225,6 +225,15 @@ impl DakeraClient {
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
+
+    /// Alias for [`namespace_key_usage`](Self::namespace_key_usage) matching Python/JS naming.
+    pub async fn get_namespace_key_usage(
+        &self,
+        namespace: &str,
+        key_id: &str,
+    ) -> Result<NamespaceKeyUsageResponse> {
+        self.namespace_key_usage(namespace, key_id).await
+    }
 }
 
 // ============================================================================

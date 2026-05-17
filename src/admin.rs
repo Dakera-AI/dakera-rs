@@ -888,6 +888,22 @@ impl DakeraClient {
     // TTL Management
     // ====================================================================
 
+    /// Configure TTL for a namespace.
+    pub async fn configure_ttl(
+        &self,
+        namespace: &str,
+        ttl_seconds: u64,
+        strategy: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/v1/admin/namespaces/{}/ttl", self.base_url, namespace);
+        let mut body = serde_json::json!({ "ttl_seconds": ttl_seconds });
+        if let Some(s) = strategy {
+            body["strategy"] = serde_json::Value::String(s.to_string());
+        }
+        let response = self.client.post(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
+
     /// Run TTL cleanup on expired vectors
     pub async fn ttl_cleanup(&self, namespace: Option<&str>) -> Result<TtlCleanupResponse> {
         let url = format!("{}/admin/ttl/cleanup", self.base_url);
