@@ -965,7 +965,7 @@ impl DakeraClient {
     ) -> Result<EntityExtractionResponse> {
         let url = format!("{}/v1/memories/extract", self.base_url);
         let body = serde_json::json!({
-            "text": text,
+            "content": text,
             "entity_types": entity_types,
         });
         let response = self.client.post(&url).json(&body).send().await?;
