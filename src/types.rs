@@ -2972,3 +2972,371 @@ pub struct NamespaceExtractorConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
 }
+
+// ============================================================================
+// Phase 2 Types — Cluster, Quotas, Backups, Ops
+// ============================================================================
+
+/// Per-node replication lag entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeReplicationLag {
+    pub node_id: String,
+    pub lag_ms: u64,
+    pub status: String,
+}
+
+/// Response from `GET /admin/cluster/replication`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplicationStatus {
+    pub replication_factor: u32,
+    pub healthy_replicas: u32,
+    pub total_nodes: u32,
+    #[serde(default)]
+    pub replication_lag: Vec<NodeReplicationLag>,
+}
+
+/// Shard information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardInfo {
+    pub shard_id: String,
+    pub namespace: String,
+    pub primary_node: String,
+    #[serde(default)]
+    pub replica_nodes: Vec<String>,
+    pub state: String,
+    pub vector_count: u64,
+    pub size_bytes: u64,
+}
+
+/// Response from `GET /admin/cluster/shards`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardListResponse {
+    pub shards: Vec<ShardInfo>,
+    pub total: u32,
+}
+
+/// Request for `POST /admin/cluster/shards/rebalance`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ShardRebalanceRequest {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shard_ids: Vec<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// A planned shard move.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardMove {
+    pub shard_id: String,
+    pub from_node: String,
+    pub to_node: String,
+}
+
+/// Response from `POST /admin/cluster/shards/rebalance`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardRebalanceResponse {
+    pub initiated: bool,
+    pub operation_id: String,
+    pub shards_affected: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_seconds: Option<u64>,
+    #[serde(default)]
+    pub planned_moves: Vec<ShardMove>,
+}
+
+/// Response from `GET /admin/cluster/maintenance`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintenanceStatus {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled_end: Option<u64>,
+    #[serde(default)]
+    pub nodes_in_maintenance: Vec<String>,
+    pub rejecting_requests: bool,
+}
+
+/// Request for `POST /admin/cluster/maintenance/enable`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnableMaintenanceRequest {
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub node_ids: Vec<String>,
+    #[serde(default)]
+    pub reject_requests: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_minutes: Option<u32>,
+}
+
+/// Request for `POST /admin/cluster/maintenance/disable`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DisableMaintenanceRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub force: Option<bool>,
+}
+
+/// Quota configuration for a namespace.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct QuotaConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_vectors: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_storage_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_dimensions: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_metadata_bytes: Option<usize>,
+    #[serde(default)]
+    pub enforcement: String,
+}
+
+/// Quota usage for a namespace.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct QuotaUsage {
+    pub vector_count: u64,
+    pub storage_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_dimensions: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_metadata_bytes: Option<usize>,
+    pub last_updated: u64,
+}
+
+/// Combined quota status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaStatus {
+    pub namespace: String,
+    pub config: QuotaConfig,
+    pub usage: QuotaUsage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_usage_percent: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_usage_percent: Option<f32>,
+    pub is_exceeded: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exceeded_quotas: Vec<String>,
+}
+
+/// Response from `GET /admin/quotas`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaListResponse {
+    pub quotas: Vec<QuotaStatus>,
+    pub total: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_config: Option<QuotaConfig>,
+}
+
+/// Response from `GET /admin/quotas/default`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefaultQuotaResponse {
+    pub config: Option<QuotaConfig>,
+}
+
+/// Request for `PUT /admin/quotas/default`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SetDefaultQuotaRequest {
+    pub config: Option<QuotaConfig>,
+}
+
+/// Request for `PUT /admin/quotas/{namespace}`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetQuotaRequest {
+    pub config: QuotaConfig,
+}
+
+/// Response from `PUT /admin/quotas`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetQuotaResponse {
+    pub success: bool,
+    pub namespace: String,
+    pub config: QuotaConfig,
+    pub message: String,
+}
+
+/// Request for `POST /admin/quotas/{namespace}/check`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaCheckRequest {
+    pub vector_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_bytes: Option<usize>,
+}
+
+/// Response from `POST /admin/quotas/{namespace}/check`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaCheckResult {
+    pub allowed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub usage: QuotaUsage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exceeded_quota: Option<String>,
+}
+
+/// Backup information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminBackupInfo {
+    pub backup_id: String,
+    pub name: String,
+    pub backup_type: String,
+    pub status: String,
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+    pub vector_count: u64,
+    pub size_bytes: u64,
+    pub created_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub encrypted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+}
+
+/// Response from `GET /admin/backups`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupListResponse {
+    pub backups: Vec<AdminBackupInfo>,
+    pub total: u64,
+}
+
+/// Request for `POST /admin/backups`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBackupRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespaces: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypt: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+}
+
+/// Response from `POST /admin/backups`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBackupResponse {
+    pub backup: AdminBackupInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_completion: Option<u64>,
+}
+
+/// Request for `POST /admin/backups/restore`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreBackupRequest {
+    pub backup_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_namespaces: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overwrite: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub point_in_time: Option<u64>,
+}
+
+/// Response from `POST /admin/backups/restore`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreBackupResponse {
+    pub restore_id: String,
+    pub status: String,
+    pub backup_id: String,
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+    pub started_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_completion: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress_percent: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vectors_restored: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Backup schedule configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupSchedule {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cron: Option<String>,
+    pub backup_type: String,
+    pub retention_days: u32,
+    pub max_backups: u32,
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+    pub encrypt: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_backup_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_backup_at: Option<u64>,
+}
+
+/// Request for `POST /admin/backups/schedule`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UpdateBackupScheduleRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cron: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_backups: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespaces: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypt: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+}
+
+/// Background job information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobInfo {
+    pub id: String,
+    pub job_type: String,
+    pub status: String,
+    pub created_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    pub progress: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+/// Request for `POST /ops/compact`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CompactionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// Response from `POST /ops/compact`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactionResponse {
+    pub job_id: String,
+    pub message: String,
+}
