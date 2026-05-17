@@ -895,10 +895,7 @@ impl DakeraClient {
         ttl_seconds: u64,
         strategy: Option<&str>,
     ) -> Result<serde_json::Value> {
-        let url = format!(
-            "{}/v1/admin/namespaces/{}/ttl",
-            self.base_url, namespace
-        );
+        let url = format!("{}/v1/admin/namespaces/{}/ttl", self.base_url, namespace);
         let mut body = serde_json::json!({ "ttl_seconds": ttl_seconds });
         if let Some(s) = strategy {
             body["strategy"] = serde_json::Value::String(s.to_string());
