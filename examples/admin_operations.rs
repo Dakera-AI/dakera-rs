@@ -18,7 +18,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         health.version.as_deref().unwrap_or("unknown"),
         health.healthy
     );
-    assert!(health.healthy, "server must be healthy");
+    assert!(
+        health.healthy,
+        "server must be healthy"
+    );
 
     // =========================================================================
     // Cluster Status
@@ -30,7 +33,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Cluster: {} | State: {} | Nodes: {} | Vectors: {}",
         cluster.cluster_id, cluster.state, cluster.node_count, cluster.total_vectors
     );
-    assert!(!cluster.cluster_id.is_empty(), "expected non-empty cluster ID");
+    assert!(
+        !cluster.cluster_id.is_empty(),
+        "expected non-empty cluster ID"
+    );
 
     // List cluster nodes
     let nodes = client.cluster_nodes().await?;
@@ -41,7 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             node.node_id, node.role, node.vector_count, node.uptime_seconds
         );
     }
-    assert!(!nodes.nodes.is_empty(), "expected at least one node");
+    assert!(
+        !nodes.nodes.is_empty(),
+        "expected at least one node"
+    );
 
     // =========================================================================
     // Maintenance Mode
@@ -83,7 +92,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             b.backup_id, b.status, b.vector_count, b.size_bytes
         );
     }
-    assert!(!backups.backups.is_empty(), "expected at least one backup");
+    assert!(
+        !backups.backups.is_empty(),
+        "expected at least one backup"
+    );
 
     // Clean up the backup we just created
     client.delete_backup(&backup_resp.backup.backup_id).await?;
@@ -100,9 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_queries_per_minute: Some(1000),
         max_writes_per_minute: Some(500),
     };
-    client
-        .set_quota("example-quota-ns", quota_config)
-        .await?;
+    client.set_quota("example-quota-ns", quota_config).await?;
     println!("Set quota for namespace 'example-quota-ns'");
 
     let quota = client.get_quota("example-quota-ns").await?;

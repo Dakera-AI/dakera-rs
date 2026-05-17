@@ -374,7 +374,10 @@ async fn test_bulk_update_vectors() {
         filter: serde_json::json!({"category": {"$eq": "old"}}),
         update: serde_json::json!({"category": "archived"}),
     };
-    let result = client.bulk_update_vectors("test-ns", request).await.unwrap();
+    let result = client
+        .bulk_update_vectors("test-ns", request)
+        .await
+        .unwrap();
     assert_eq!(result.updated, 10);
     assert_eq!(result.failed, 0);
     mock.assert_async().await;
@@ -399,7 +402,10 @@ async fn test_bulk_delete_vectors() {
     let request = dakera_client::BulkDeleteRequest {
         filter: serde_json::json!({"status": {"$eq": "expired"}}),
     };
-    let result = client.bulk_delete_vectors("test-ns", request).await.unwrap();
+    let result = client
+        .bulk_delete_vectors("test-ns", request)
+        .await
+        .unwrap();
     assert_eq!(result.deleted, 25);
     assert_eq!(result.failed, 1);
     assert_eq!(result.errors.len(), 1);
@@ -477,7 +483,10 @@ async fn test_multi_vector_search() {
         vec![0.4, 0.5, 0.6],
     ])
     .with_top_k(10);
-    let result = client.multi_vector_search("test-ns", request).await.unwrap();
+    let result = client
+        .multi_vector_search("test-ns", request)
+        .await
+        .unwrap();
     assert_eq!(result.results.len(), 2);
     assert_eq!(result.results[0].id, "v1");
     mock.assert_async().await;
@@ -749,7 +758,10 @@ async fn test_warm_vectors_by_ids() {
 
     let client = DakeraClient::new(server.url()).unwrap();
     let result = client
-        .warm_vectors("my-ns", vec!["v1".to_string(), "v2".to_string(), "v3".to_string()])
+        .warm_vectors(
+            "my-ns",
+            vec!["v1".to_string(), "v2".to_string(), "v3".to_string()],
+        )
         .await
         .unwrap();
     assert!(result.success);

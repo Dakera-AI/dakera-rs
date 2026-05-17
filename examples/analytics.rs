@@ -23,13 +23,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Store a few memories so we have data to analyze
     println!("\n--- Seeding memories ---");
     for i in 0..3 {
-        let mem = StoreMemoryRequest::new(
-            agent_id,
-            format!("Analytics test memory #{}", i),
-        )
-        .with_type(MemoryType::Episodic)
-        .with_importance(0.5 + i as f32 * 0.15)
-        .with_tags(vec!["analytics-test".into()]);
+        let mem =
+            StoreMemoryRequest::new(agent_id, format!("Analytics test memory #{}", i))
+                .with_type(MemoryType::Episodic)
+                .with_importance(0.5 + i as f32 * 0.15)
+                .with_tags(vec!["analytics-test".into()]);
         client.store_memory(mem).await?;
     }
     println!("Stored 3 test memories");
@@ -80,7 +78,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n--- Product KPIs ---");
     let kpis = client.get_kpis().await?;
-    println!("  Recall latency p50: {:.2}ms, p99: {:.2}ms", kpis.recall_latency_p50_ms, kpis.recall_latency_p99_ms);
+    println!(
+        "  Recall latency p50: {:.2}ms, p99: {:.2}ms",
+        kpis.recall_latency_p50_ms, kpis.recall_latency_p99_ms
+    );
     println!("  Store latency p50: {:.2}ms", kpis.store_latency_p50_ms);
     println!("  API error rate (5xx): {:.3}%", kpis.api_error_rate_5xx_pct);
     println!("  Active agents (24h): {}", kpis.active_agents_count);
@@ -121,7 +122,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !latency.by_operation.is_empty() {
         println!("  By operation:");
         for (op, stats) in &latency.by_operation {
-            println!("    {}: avg {:.1}ms, p95 {:.1}ms ({} ops)", op, stats.avg_ms, stats.p95_ms, stats.count);
+            println!(
+                "    {}: avg {:.1}ms, p95 {:.1}ms ({} ops)",
+                op, stats.avg_ms, stats.p95_ms, stats.count
+            );
         }
     }
 

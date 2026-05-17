@@ -18,7 +18,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         health.version.as_deref().unwrap_or("unknown"),
         health.healthy
     );
-    assert!(health.healthy, "server must be healthy");
+    assert!(
+        health.healthy,
+        "server must be healthy"
+    );
 
     // =========================================================================
     // System Diagnostics
@@ -39,7 +42,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         diag.components.search_engine.healthy,
         diag.components.cache.healthy
     );
-    assert!(diag.resources.memory_bytes > 0, "expected non-zero memory usage");
+    assert!(
+        diag.resources.memory_bytes > 0,
+        "expected non-zero memory usage"
+    );
 
     // =========================================================================
     // Background Jobs
@@ -108,7 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Version: {}, Total vectors: {}, Namespaces: {}, Uptime: {}s",
         stats.version, stats.total_vectors, stats.namespace_count, stats.uptime_seconds
     );
-    assert!(!stats.version.is_empty(), "expected non-empty version");
+    assert!(
+        !stats.version.is_empty(),
+        "expected non-empty version"
+    );
 
     // =========================================================================
     // Slow Query Summary

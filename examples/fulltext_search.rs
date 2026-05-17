@@ -26,9 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let namespace = "example-fulltext";
 
     // Create namespace for full-text indexing
-    client
-        .create_namespace(namespace, CreateNamespaceRequest::new().with_dimensions(3))
-        .await?;
+    client.create_namespace(namespace, CreateNamespaceRequest::new().with_dimensions(3)).await?;
 
     // =========================================================================
     // Index Documents
@@ -82,7 +80,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let text = m.text.as_deref().unwrap_or("");
         println!("  ID: {}, Score: {:.4}, Text: {:.60}", m.id, m.score, text);
     }
-    assert!(!results.results.is_empty(), "expected non-empty search results");
+    assert!(
+        !results.results.is_empty(),
+        "expected non-empty search results"
+    );
 
     // Search with filter
     println!("\n--- Search: 'AI' (databases only) ---");
@@ -113,7 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Documents: {}, Terms: {}",
         stats.document_count, stats.term_count
     );
-    assert!(stats.document_count >= 5, "expected at least 5 documents in index");
+    assert!(
+        stats.document_count >= 5,
+        "expected at least 5 documents in index"
+    );
 
     // =========================================================================
     // Delete from Full-Text Index

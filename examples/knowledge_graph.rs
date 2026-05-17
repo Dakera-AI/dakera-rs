@@ -32,22 +32,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_type(MemoryType::Semantic)
             .with_importance(0.9)
             .with_tags(vec!["rust".into(), "memory-safety".into()]),
-        StoreMemoryRequest::new(agent_id, "HNSW is an efficient algorithm for approximate nearest neighbor search")
-            .with_type(MemoryType::Semantic)
-            .with_importance(0.8)
-            .with_tags(vec!["algorithms".into(), "search".into()]),
-        StoreMemoryRequest::new(agent_id, "Vector databases use embeddings to represent semantic similarity")
-            .with_type(MemoryType::Semantic)
-            .with_importance(0.85)
-            .with_tags(vec!["vectors".into(), "embeddings".into()]),
-        StoreMemoryRequest::new(agent_id, "Knowledge graphs connect related concepts through typed edges")
-            .with_type(MemoryType::Semantic)
-            .with_importance(0.9)
-            .with_tags(vec!["knowledge-graph".into(), "relationships".into()]),
-        StoreMemoryRequest::new(agent_id, "BM25 scoring ranks documents by term frequency and inverse document frequency")
-            .with_type(MemoryType::Semantic)
-            .with_importance(0.7)
-            .with_tags(vec!["search".into(), "ranking".into()]),
+        StoreMemoryRequest::new(
+            agent_id,
+            "HNSW is an efficient algorithm for approximate nearest neighbor search",
+        )
+        .with_type(MemoryType::Semantic)
+        .with_importance(0.8)
+        .with_tags(vec!["algorithms".into(), "search".into()]),
+        StoreMemoryRequest::new(
+            agent_id,
+            "Vector databases use embeddings to represent semantic similarity",
+        )
+        .with_type(MemoryType::Semantic)
+        .with_importance(0.85)
+        .with_tags(vec!["vectors".into(), "embeddings".into()]),
+        StoreMemoryRequest::new(
+            agent_id,
+            "Knowledge graphs connect related concepts through typed edges",
+        )
+        .with_type(MemoryType::Semantic)
+        .with_importance(0.9)
+        .with_tags(vec!["knowledge-graph".into(), "relationships".into()]),
+        StoreMemoryRequest::new(
+            agent_id,
+            "BM25 scoring ranks documents by term frequency and inverse document frequency",
+        )
+        .with_type(MemoryType::Semantic)
+        .with_importance(0.7)
+        .with_tags(vec!["search".into(), "ranking".into()]),
     ];
 
     let mut memory_ids = Vec::new();
@@ -79,7 +91,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for node in &kg.nodes {
         println!("  Node: {} — {:.50}...", node.id, node.content);
     }
-    assert!(!kg.nodes.is_empty(), "expected non-empty knowledge graph nodes");
+    assert!(
+        !kg.nodes.is_empty(),
+        "expected non-empty knowledge graph nodes"
+    );
 
     // =========================================================================
     // Full Knowledge Graph
@@ -152,7 +167,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Exported graph: {} nodes, {} edges (format: {})",
         export.node_count, export.edge_count, export.format
     );
-    assert!(export.node_count > 0, "expected non-empty export");
+    assert!(
+        export.node_count > 0,
+        "expected non-empty export"
+    );
 
     println!("\nKnowledge graph example completed successfully.");
     Ok(())
