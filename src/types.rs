@@ -2314,7 +2314,7 @@ pub struct FetchResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateNamespaceRequest {
     /// Vector dimensions (inferred from first upsert if omitted).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "dimension", skip_serializing_if = "Option::is_none")]
     pub dimensions: Option<u32>,
     /// Index type (e.g. "hnsw", "flat").
     #[serde(skip_serializing_if = "Option::is_none")]
