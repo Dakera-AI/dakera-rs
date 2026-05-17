@@ -439,7 +439,7 @@ async fn test_knowledge_query() {
                 "agent_id": "agent-1",
                 "node_count": 2,
                 "edge_count": 1,
-                "edges": [{"id": "e1", "source_id": "mem-1", "target_id": "mem-2", "edge_type": "related_to", "weight": 0.8}]
+                "edges": [{"id": "e1", "source_id": "mem-1", "target_id": "mem-2", "edge_type": "related_to", "weight": 0.8, "created_at": 1700000000}]
             }"#,
         )
         .create_async()
