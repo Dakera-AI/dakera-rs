@@ -1,9 +1,9 @@
 //! Integration tests against a real Dakera server (Docker service in CI).
 //!
 //! Requires DAKERA_TEST_URL env var pointing to a running Dakera instance.
-//! Auth is disabled on the test server (DAKERA_AUTH_ENABLED=false).
+//! Auth is enabled — set DAKERA_API_KEY to a valid key (default: test-key).
 //!
-//! Run locally: DAKERA_TEST_URL=http://localhost:3000 cargo test --test integration_test
+//! Run locally: DAKERA_TEST_URL=http://localhost:3000 DAKERA_API_KEY=test-key cargo test --test integration_test
 
 use std::env;
 
@@ -15,9 +15,10 @@ use dakera_client::{CreateNamespaceRequest, DakeraClient, Document, HybridSearch
 
 fn get_client() -> Option<DakeraClient> {
     let url = env::var("DAKERA_TEST_URL").ok()?;
+    let api_key = env::var("DAKERA_API_KEY").unwrap_or_else(|_| "test-key".to_string());
     Some(
         DakeraClient::builder(&url)
-            .api_key("test-key")
+            .api_key(&api_key)
             .build()
             .expect("Failed to create client"),
     )
@@ -361,4 +362,37 @@ async fn test_nonexistent_memory() {
         .get_memory("test-agent", "nonexistent-memory-id")
         .await;
     assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Authentication
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_auth_rejects_invalid_key() {
+    let url = match env::var("DAKERA_TEST_URL") {
+        Ok(u) => u,
+        Err(_) => {
+            eprintln!("DAKERA_TEST_URL not set — skipping");
+            return;
+        }
+    };
+    let bad_client = DakeraClient::builder(&url)
+        .api_key("invalid-key-xxx")
+        .build()
+        .expect("Failed to create client");
+    let result = bad_client.list_namespaces().await;
+    assert!(result.is_err(), "expected auth error with invalid key");
+    let err = result.unwrap_err();
+    assert!(err.is_auth_error(), "expected auth error, got: {err:?}");
+}
+
+#[tokio::test]
+async fn test_auth_accepts_valid_key() {
+    let Some(client) = get_client() else {
+        eprintln!("DAKERA_TEST_URL not set — skipping");
+        return;
+    };
+    let namespaces = client.list_namespaces().await.unwrap();
+    assert!(namespaces.len() >= 0);
 }
