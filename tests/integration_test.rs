@@ -66,7 +66,7 @@ async fn test_create_namespace() {
     };
     let ns = test_namespace();
     let req = CreateNamespaceRequest {
-        dimensions: Some(384),
+        dimensions: Some(1024),
         ..Default::default()
     };
     let result = client.create_namespace(&ns, req).await.unwrap();
@@ -82,7 +82,7 @@ async fn test_list_namespaces() {
     };
     let ns = test_namespace();
     let req = CreateNamespaceRequest {
-        dimensions: Some(384),
+        dimensions: Some(1024),
         ..Default::default()
     };
     client.create_namespace(&ns, req).await.unwrap();
@@ -99,13 +99,13 @@ async fn test_get_namespace() {
     };
     let ns = test_namespace();
     let req = CreateNamespaceRequest {
-        dimensions: Some(384),
+        dimensions: Some(1024),
         ..Default::default()
     };
     client.create_namespace(&ns, req).await.unwrap();
     let info = client.get_namespace(&ns).await.unwrap();
     assert_eq!(info.name, ns);
-    assert_eq!(info.dimensions, Some(384));
+    assert_eq!(info.dimensions, Some(1024));
     client.delete_namespace_admin(&ns).await.unwrap();
 }
 
@@ -234,7 +234,7 @@ async fn test_index_and_search() {
     };
     let ns = test_namespace();
     let req = CreateNamespaceRequest {
-        dimensions: Some(384),
+        dimensions: Some(1024),
         ..Default::default()
     };
     client.create_namespace(&ns, req).await.unwrap();
@@ -277,7 +277,7 @@ async fn test_hybrid_search() {
     };
     let ns = test_namespace();
     let req = CreateNamespaceRequest {
-        dimensions: Some(384),
+        dimensions: Some(1024),
         ..Default::default()
     };
     client.create_namespace(&ns, req).await.unwrap();
