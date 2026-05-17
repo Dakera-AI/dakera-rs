@@ -264,7 +264,7 @@ impl DakeraClient {
     }
 
     /// Update the consolidation configuration for an agent.
-    #[instrument(skip(self, patch))]
+    #[tracing::instrument(skip(self, patch))]
     pub async fn patch_consolidation_config(
         &self,
         agent_id: &str,
