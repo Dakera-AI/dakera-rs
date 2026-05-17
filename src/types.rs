@@ -728,13 +728,19 @@ pub struct JobInfo {
     /// Creation timestamp
     pub created_at: u64,
     /// Start timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<u64>,
     /// Completion timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<u64>,
     /// Progress percentage
     pub progress: u8,
     /// Status message
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Job metadata
+    #[serde(default)]
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 /// Compaction request
@@ -3305,40 +3311,6 @@ pub struct UpdateBackupScheduleRequest {
     pub encrypt: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compression: Option<String>,
-}
-
-/// Background job information.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JobInfo {
-    pub id: String,
-    pub job_type: String,
-    pub status: String,
-    pub created_at: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<u64>,
-    pub progress: u8,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-    #[serde(default)]
-    pub metadata: std::collections::HashMap<String, String>,
-}
-
-/// Request for `POST /ops/compact`.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CompactionRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub namespace: Option<String>,
-    #[serde(default)]
-    pub force: bool,
-}
-
-/// Response from `POST /ops/compact`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompactionResponse {
-    pub job_id: String,
-    pub message: String,
 }
 
 // ============================================================================

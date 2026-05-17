@@ -1346,10 +1346,7 @@ impl DakeraClient {
     }
 
     /// Upload a backup from gzipped bytes via `POST /admin/backups/upload`.
-    pub async fn upload_backup(
-        &self,
-        data: Vec<u8>,
-    ) -> Result<crate::types::CreateBackupResponse> {
+    pub async fn upload_backup(&self, data: Vec<u8>) -> Result<crate::types::CreateBackupResponse> {
         let url = format!("{}/admin/backups/upload", self.base_url);
         let response = self
             .client
@@ -1366,9 +1363,7 @@ impl DakeraClient {
     // =========================================================================
 
     /// Get storage tier overview via `GET /admin/storage/tiers`.
-    pub async fn storage_tier_overview(
-        &self,
-    ) -> Result<crate::types::StorageTierOverview> {
+    pub async fn storage_tier_overview(&self) -> Result<crate::types::StorageTierOverview> {
         let url = format!("{}/admin/storage/tiers", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
@@ -1390,9 +1385,7 @@ impl DakeraClient {
     // =========================================================================
 
     /// Get per-type memory statistics via `GET /admin/memory-type-stats`.
-    pub async fn memory_type_stats(
-        &self,
-    ) -> Result<crate::types::MemoryTypeStatsResponse> {
+    pub async fn memory_type_stats(&self) -> Result<crate::types::MemoryTypeStatsResponse> {
         let url = format!("{}/admin/memory-type-stats", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
@@ -1407,10 +1400,7 @@ impl DakeraClient {
         &self,
         request: crate::types::MigrateNamespaceDimensionsRequest,
     ) -> Result<crate::types::MigrateDimensionsResponse> {
-        let url = format!(
-            "{}/admin/namespaces/migrate-dimensions",
-            self.base_url
-        );
+        let url = format!("{}/admin/namespaces/migrate-dimensions", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
