@@ -644,7 +644,8 @@ impl HybridSearchRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HybridSearchResponse {
     /// Matched results
-    pub matches: Vec<Match>,
+    #[serde(alias = "matches")]
+    pub results: Vec<Match>,
 }
 
 // ============================================================================
