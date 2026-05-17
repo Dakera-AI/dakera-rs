@@ -1031,6 +1031,379 @@ impl DakeraClient {
         let response = self.client.post(&url).json(&body).send().await?;
         self.handle_response(response).await
     }
+
+    // =========================================================================
+    // Cluster & Maintenance
+    // =========================================================================
+
+    /// GET /admin/cluster/replication — cluster replication status.
+    pub async fn admin_cluster_replication(&self) -> Result<crate::types::ReplicationStatus> {
+        let url = format!("{}/admin/cluster/replication", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /admin/cluster/shards — list shards.
+    pub async fn admin_list_shards(&self) -> Result<crate::types::ShardListResponse> {
+        let url = format!("{}/admin/cluster/shards", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// POST /admin/cluster/shards/rebalance — rebalance shards.
+    pub async fn admin_rebalance_shards(
+        &self,
+        request: crate::types::ShardRebalanceRequest,
+    ) -> Result<crate::types::ShardRebalanceResponse> {
+        let url = format!("{}/admin/cluster/shards/rebalance", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /admin/cluster/maintenance — maintenance mode status.
+    pub async fn admin_maintenance_status(&self) -> Result<crate::types::MaintenanceStatus> {
+        let url = format!("{}/admin/cluster/maintenance", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// POST /admin/cluster/maintenance/enable — enable maintenance mode.
+    pub async fn admin_enable_maintenance(
+        &self,
+        request: crate::types::EnableMaintenanceRequest,
+    ) -> Result<crate::types::MaintenanceStatus> {
+        let url = format!("{}/admin/cluster/maintenance/enable", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// POST /admin/cluster/maintenance/disable — disable maintenance mode.
+    pub async fn admin_disable_maintenance(
+        &self,
+        request: crate::types::DisableMaintenanceRequest,
+    ) -> Result<crate::types::MaintenanceStatus> {
+        let url = format!("{}/admin/cluster/maintenance/disable", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Quotas
+    // =========================================================================
+
+    /// GET /admin/quotas — list all namespace quotas.
+    pub async fn admin_list_quotas(&self) -> Result<crate::types::QuotaListResponse> {
+        let url = format!("{}/admin/quotas", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /admin/quotas/default — get default quota configuration.
+    pub async fn admin_get_default_quota(&self) -> Result<crate::types::DefaultQuotaResponse> {
+        let url = format!("{}/admin/quotas/default", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// PUT /admin/quotas/default — set default quota configuration.
+    pub async fn admin_set_default_quota(
+        &self,
+        request: crate::types::SetDefaultQuotaRequest,
+    ) -> Result<crate::types::SetQuotaResponse> {
+        let url = format!("{}/admin/quotas/default", self.base_url);
+        let response = self.client.put(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /admin/quotas/{namespace} — get namespace quota.
+    pub async fn admin_get_quota(&self, namespace: &str) -> Result<crate::types::QuotaStatus> {
+        let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// PUT /admin/quotas/{namespace} — set namespace quota.
+    pub async fn admin_set_quota(
+        &self,
+        namespace: &str,
+        request: crate::types::SetQuotaRequest,
+    ) -> Result<crate::types::SetQuotaResponse> {
+        let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
+        let response = self.client.put(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// DELETE /admin/quotas/{namespace} — remove namespace quota.
+    pub async fn admin_delete_quota(&self, namespace: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
+        let response = self.client.delete(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// POST /admin/quotas/{namespace}/check — check if operation would exceed quota.
+    pub async fn admin_check_quota(
+        &self,
+        namespace: &str,
+        request: crate::types::QuotaCheckRequest,
+    ) -> Result<crate::types::QuotaCheckResult> {
+        let url = format!("{}/admin/quotas/{}/check", self.base_url, namespace);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Slow Queries
+    // =========================================================================
+
+    /// GET /admin/slow-queries — list recent slow queries.
+    pub async fn admin_list_slow_queries(
+        &self,
+        namespace: Option<&str>,
+        query_type: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Vec<serde_json::Value>> {
+        let mut url = format!("{}/admin/slow-queries", self.base_url);
+        let mut params = Vec::new();
+        if let Some(ns) = namespace {
+            params.push(format!("namespace={}", ns));
+        }
+        if let Some(qt) = query_type {
+            params.push(format!("query_type={}", qt));
+        }
+        if let Some(l) = limit {
+            params.push(format!("limit={}", l));
+        }
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /admin/slow-queries/summary — slow query summary.
+    pub async fn admin_slow_query_summary(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/admin/slow-queries/summary", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// DELETE /admin/slow-queries — clear slow query log.
+    pub async fn admin_clear_slow_queries(
+        &self,
+        namespace: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let mut url = format!("{}/admin/slow-queries", self.base_url);
+        if let Some(ns) = namespace {
+            url.push_str(&format!("?namespace={}", ns));
+        }
+        let response = self.client.delete(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// PATCH /admin/slow-queries/config — update slow query configuration.
+    pub async fn admin_update_slow_query_config(
+        &self,
+        config: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/admin/slow-queries/config", self.base_url);
+        let response = self.client.patch(&url).json(&config).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Backups
+    // =========================================================================
+
+    /// GET /admin/backups — list all backups.
+    pub async fn admin_list_backups(&self) -> Result<crate::types::BackupListResponse> {
+        let url = format!("{}/admin/backups", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// POST /admin/backups — create a new backup.
+    pub async fn admin_create_backup(
+        &self,
+        request: crate::types::CreateBackupRequest,
+    ) -> Result<crate::types::CreateBackupResponse> {
+        let url = format!("{}/admin/backups", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /admin/backups/{id} — get backup details.
+    pub async fn admin_get_backup(&self, backup_id: &str) -> Result<crate::types::AdminBackupInfo> {
+        let url = format!("{}/admin/backups/{}", self.base_url, backup_id);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// DELETE /admin/backups/{id} — delete a backup.
+    pub async fn admin_delete_backup(&self, backup_id: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/admin/backups/{}", self.base_url, backup_id);
+        let response = self.client.delete(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /admin/backups/schedule — get backup schedule.
+    pub async fn admin_get_backup_schedule(&self) -> Result<crate::types::BackupSchedule> {
+        let url = format!("{}/admin/backups/schedule", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// POST /admin/backups/schedule — update backup schedule.
+    pub async fn admin_update_backup_schedule(
+        &self,
+        request: crate::types::UpdateBackupScheduleRequest,
+    ) -> Result<crate::types::BackupSchedule> {
+        let url = format!("{}/admin/backups/schedule", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// POST /admin/backups/restore — restore from backup.
+    pub async fn admin_restore_backup(
+        &self,
+        request: crate::types::RestoreBackupRequest,
+    ) -> Result<crate::types::RestoreBackupResponse> {
+        let url = format!("{}/admin/backups/restore", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /admin/backups/restore/{id} — restore operation status.
+    pub async fn admin_get_restore_status(
+        &self,
+        restore_id: &str,
+    ) -> Result<crate::types::RestoreBackupResponse> {
+        let url = format!("{}/admin/backups/restore/{}", self.base_url, restore_id);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Ops — Diagnostics & Jobs
+    // =========================================================================
+
+    /// GET /ops/diagnostics — system diagnostics.
+    pub async fn ops_diagnostics(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/ops/diagnostics", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /ops/jobs — list background jobs.
+    pub async fn ops_list_jobs(&self) -> Result<Vec<crate::types::JobInfo>> {
+        let url = format!("{}/ops/jobs", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// GET /ops/jobs/{id} — get job status.
+    pub async fn ops_get_job(&self, job_id: &str) -> Result<crate::types::JobInfo> {
+        let url = format!("{}/ops/jobs/{}", self.base_url, job_id);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// POST /ops/compact — trigger compaction.
+    pub async fn ops_compact(
+        &self,
+        request: crate::types::CompactionRequest,
+    ) -> Result<crate::types::CompactionResponse> {
+        let url = format!("{}/ops/compact", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// POST /ops/shutdown — request graceful shutdown.
+    pub async fn ops_shutdown(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/ops/shutdown", self.base_url);
+        let response = self.client.post(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Backup Download / Upload
+    // =========================================================================
+
+    /// Download a backup as gzipped bytes via `GET /admin/backups/{id}/download`.
+    pub async fn download_backup(&self, backup_id: &str) -> Result<Vec<u8>> {
+        let url = format!("{}/admin/backups/{}/download", self.base_url, backup_id);
+        let response = self.client.get(&url).send().await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(crate::error::ClientError::Server {
+                status: status.as_u16(),
+                message: body,
+                code: None,
+            });
+        }
+        Ok(response.bytes().await?.to_vec())
+    }
+
+    /// Upload a backup from gzipped bytes via `POST /admin/backups/upload`.
+    pub async fn upload_backup(&self, data: Vec<u8>) -> Result<crate::types::CreateBackupResponse> {
+        let url = format!("{}/admin/backups/upload", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/gzip")
+            .body(data)
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Storage Tier Overview
+    // =========================================================================
+
+    /// Get storage tier overview via `GET /admin/storage/tiers`.
+    pub async fn storage_tier_overview(&self) -> Result<crate::types::StorageTierOverview> {
+        let url = format!("{}/admin/storage/tiers", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Background Activity
+    // =========================================================================
+
+    /// Get background activity metrics via `GET /admin/background-activity`.
+    pub async fn background_activity(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/admin/background-activity", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Memory Type Stats
+    // =========================================================================
+
+    /// Get per-type memory statistics via `GET /admin/memory-type-stats`.
+    pub async fn memory_type_stats(&self) -> Result<crate::types::MemoryTypeStatsResponse> {
+        let url = format!("{}/admin/memory-type-stats", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    // =========================================================================
+    // Migrate Namespace Dimensions
+    // =========================================================================
+
+    /// Migrate namespace embedding dimensions via `POST /admin/namespaces/migrate-dimensions`.
+    pub async fn migrate_namespace_dimensions(
+        &self,
+        request: crate::types::MigrateNamespaceDimensionsRequest,
+    ) -> Result<crate::types::MigrateDimensionsResponse> {
+        let url = format!("{}/admin/namespaces/migrate-dimensions", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
 }
 
 // ============================================================================

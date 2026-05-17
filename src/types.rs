@@ -728,13 +728,19 @@ pub struct JobInfo {
     /// Creation timestamp
     pub created_at: u64,
     /// Start timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<u64>,
     /// Completion timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<u64>,
     /// Progress percentage
     pub progress: u8,
     /// Status message
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Job metadata
+    #[serde(default)]
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 /// Compaction request
@@ -2971,4 +2977,566 @@ pub struct NamespaceExtractorConfig {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+}
+
+// ============================================================================
+// Phase 2 Types — Cluster, Quotas, Backups, Ops
+// ============================================================================
+
+/// Per-node replication lag entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeReplicationLag {
+    pub node_id: String,
+    pub lag_ms: u64,
+    pub status: String,
+}
+
+/// Response from `GET /admin/cluster/replication`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplicationStatus {
+    pub replication_factor: u32,
+    pub healthy_replicas: u32,
+    pub total_nodes: u32,
+    #[serde(default)]
+    pub replication_lag: Vec<NodeReplicationLag>,
+}
+
+/// Shard information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardInfo {
+    pub shard_id: String,
+    pub namespace: String,
+    pub primary_node: String,
+    #[serde(default)]
+    pub replica_nodes: Vec<String>,
+    pub state: String,
+    pub vector_count: u64,
+    pub size_bytes: u64,
+}
+
+/// Response from `GET /admin/cluster/shards`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardListResponse {
+    pub shards: Vec<ShardInfo>,
+    pub total: u32,
+}
+
+/// Request for `POST /admin/cluster/shards/rebalance`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ShardRebalanceRequest {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shard_ids: Vec<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// A planned shard move.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardMove {
+    pub shard_id: String,
+    pub from_node: String,
+    pub to_node: String,
+}
+
+/// Response from `POST /admin/cluster/shards/rebalance`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardRebalanceResponse {
+    pub initiated: bool,
+    pub operation_id: String,
+    pub shards_affected: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_seconds: Option<u64>,
+    #[serde(default)]
+    pub planned_moves: Vec<ShardMove>,
+}
+
+/// Response from `GET /admin/cluster/maintenance`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintenanceStatus {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled_end: Option<u64>,
+    #[serde(default)]
+    pub nodes_in_maintenance: Vec<String>,
+    pub rejecting_requests: bool,
+}
+
+/// Request for `POST /admin/cluster/maintenance/enable`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnableMaintenanceRequest {
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub node_ids: Vec<String>,
+    #[serde(default)]
+    pub reject_requests: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_minutes: Option<u32>,
+}
+
+/// Request for `POST /admin/cluster/maintenance/disable`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DisableMaintenanceRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub force: Option<bool>,
+}
+
+/// Quota configuration for a namespace.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct QuotaConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_vectors: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_storage_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_dimensions: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_metadata_bytes: Option<usize>,
+    #[serde(default)]
+    pub enforcement: String,
+}
+
+/// Quota usage for a namespace.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct QuotaUsage {
+    pub vector_count: u64,
+    pub storage_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_dimensions: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_metadata_bytes: Option<usize>,
+    pub last_updated: u64,
+}
+
+/// Combined quota status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaStatus {
+    pub namespace: String,
+    pub config: QuotaConfig,
+    pub usage: QuotaUsage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_usage_percent: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_usage_percent: Option<f32>,
+    pub is_exceeded: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exceeded_quotas: Vec<String>,
+}
+
+/// Response from `GET /admin/quotas`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaListResponse {
+    pub quotas: Vec<QuotaStatus>,
+    pub total: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_config: Option<QuotaConfig>,
+}
+
+/// Response from `GET /admin/quotas/default`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefaultQuotaResponse {
+    pub config: Option<QuotaConfig>,
+}
+
+/// Request for `PUT /admin/quotas/default`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SetDefaultQuotaRequest {
+    pub config: Option<QuotaConfig>,
+}
+
+/// Request for `PUT /admin/quotas/{namespace}`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetQuotaRequest {
+    pub config: QuotaConfig,
+}
+
+/// Response from `PUT /admin/quotas`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetQuotaResponse {
+    pub success: bool,
+    pub namespace: String,
+    pub config: QuotaConfig,
+    pub message: String,
+}
+
+/// Request for `POST /admin/quotas/{namespace}/check`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaCheckRequest {
+    pub vector_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_bytes: Option<usize>,
+}
+
+/// Response from `POST /admin/quotas/{namespace}/check`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaCheckResult {
+    pub allowed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub usage: QuotaUsage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exceeded_quota: Option<String>,
+}
+
+/// Backup information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminBackupInfo {
+    pub backup_id: String,
+    pub name: String,
+    pub backup_type: String,
+    pub status: String,
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+    pub vector_count: u64,
+    pub size_bytes: u64,
+    pub created_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub encrypted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+}
+
+/// Response from `GET /admin/backups`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupListResponse {
+    pub backups: Vec<AdminBackupInfo>,
+    pub total: u64,
+}
+
+/// Request for `POST /admin/backups`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBackupRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespaces: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypt: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+}
+
+/// Response from `POST /admin/backups`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBackupResponse {
+    pub backup: AdminBackupInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_completion: Option<u64>,
+}
+
+/// Request for `POST /admin/backups/restore`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreBackupRequest {
+    pub backup_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_namespaces: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overwrite: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub point_in_time: Option<u64>,
+}
+
+/// Response from `POST /admin/backups/restore`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreBackupResponse {
+    pub restore_id: String,
+    pub status: String,
+    pub backup_id: String,
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+    pub started_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_completion: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress_percent: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vectors_restored: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Backup schedule configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupSchedule {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cron: Option<String>,
+    pub backup_type: String,
+    pub retention_days: u32,
+    pub max_backups: u32,
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+    pub encrypt: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_backup_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_backup_at: Option<u64>,
+}
+
+/// Request for `POST /admin/backups/schedule`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UpdateBackupScheduleRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cron: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_backups: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespaces: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypt: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+}
+
+// ============================================================================
+// Route Query (POST /v1/route)
+// ============================================================================
+
+fn default_route_top_k() -> usize {
+    3
+}
+
+fn default_route_min_similarity() -> f32 {
+    0.3
+}
+
+/// Request for `POST /v1/route`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteRequest {
+    /// The query string to route.
+    pub query: String,
+    /// Maximum number of matching routes to return.
+    #[serde(default = "default_route_top_k")]
+    pub top_k: usize,
+    /// Minimum similarity threshold for route matches.
+    #[serde(default = "default_route_min_similarity")]
+    pub min_similarity: f32,
+    /// Optional embedding model override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// A single route match returned by `POST /v1/route`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteMatch {
+    /// Matched namespace name.
+    pub namespace: String,
+    /// Cosine similarity score.
+    pub similarity: f64,
+    /// Optional namespace description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Response from `POST /v1/route`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteResponse {
+    /// Ordered list of route matches.
+    pub routes: Vec<RouteMatch>,
+    /// Embedding model used.
+    pub model: String,
+    /// Time spent computing embeddings (milliseconds).
+    pub embedding_time_ms: u64,
+}
+
+// ============================================================================
+// Import Job Status (GET /v1/import/{job_id}/status)
+// ============================================================================
+
+/// Status of an import job returned by `GET /v1/import/{job_id}/status`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportJobStatus {
+    /// Unique job identifier.
+    pub job_id: String,
+    /// Current job status (e.g. "running", "completed", "failed").
+    pub status: String,
+    /// Import file format (e.g. "jsonl", "csv").
+    pub format: String,
+    /// Total records in the import.
+    pub total: usize,
+    /// Records successfully imported.
+    pub imported: usize,
+    /// Records skipped (duplicates, invalid).
+    pub skipped: usize,
+    /// Per-record error messages, if any.
+    #[serde(default)]
+    pub errors: Vec<String>,
+    /// Unix timestamp when the job started.
+    pub started_at: u64,
+    /// Unix timestamp when the job finished, if completed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<u64>,
+}
+
+// ============================================================================
+// Storage Tier Overview (GET /admin/storage/tiers)
+// ============================================================================
+
+/// Information about a single storage tier.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierInfo {
+    /// Tier name (e.g. "hot", "warm", "cold").
+    pub name: String,
+    /// Tier classification.
+    pub tier_type: String,
+    /// Underlying storage technology.
+    pub technology: String,
+    /// Human-readable tier description.
+    pub description: String,
+    /// Target access latency.
+    pub target_latency: String,
+    /// Optional capacity limit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capacity: Option<String>,
+    /// Current tier status.
+    pub status: String,
+    /// Number of items currently in this tier.
+    pub current_count: u64,
+    /// Number of cache/access hits.
+    pub hit_count: u64,
+    /// Hit rate as a fraction (0.0–1.0).
+    pub hit_rate: f64,
+}
+
+/// Tiered storage configuration parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierConfig {
+    /// Maximum number of items in the hot tier.
+    pub hot_tier_capacity: usize,
+    /// Seconds of inactivity before promoting from hot to warm.
+    pub hot_to_warm_threshold_secs: u64,
+    /// Seconds of inactivity before demoting from warm to cold.
+    pub warm_to_cold_threshold_secs: u64,
+    /// Whether automatic tiering is enabled.
+    pub auto_tier_enabled: bool,
+    /// Interval between tier-check cycles (seconds).
+    pub tier_check_interval_secs: u64,
+}
+
+/// Tier movement activity counters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierActivity {
+    /// Total promotions across all tiers.
+    pub promotions: u64,
+    /// Total demotions across all tiers.
+    pub demotions: u64,
+    /// Overall cache hit rate.
+    pub cache_hit_rate: f64,
+    /// Active storage backend name.
+    pub storage_backend: String,
+    /// Promotions specifically to the hot tier.
+    pub promotions_to_hot: u64,
+    /// Demotions specifically to warm.
+    pub demotions_to_warm: u64,
+    /// Demotions specifically to cold.
+    pub demotions_to_cold: u64,
+}
+
+/// Overview of the tiered storage system from `GET /admin/storage/tiers`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageTierOverview {
+    /// Whether tiered storage is enabled.
+    pub tiers_enabled: bool,
+    /// Description of each tier.
+    pub architecture: Vec<TierInfo>,
+    /// Current tier configuration.
+    pub config: TierConfig,
+    /// Tier movement activity.
+    pub activity: TierActivity,
+}
+
+// ============================================================================
+// Memory Type Stats (GET /admin/memory-type-stats)
+// ============================================================================
+
+/// Per-type memory statistics from `GET /admin/memory-type-stats`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryTypeStatsResponse {
+    /// Total number of memories.
+    pub total: u64,
+    /// Working memory count.
+    pub working: u64,
+    /// Episodic memory count.
+    pub episodic: u64,
+    /// Semantic memory count.
+    pub semantic: u64,
+    /// Procedural memory count.
+    pub procedural: u64,
+    /// Number of distinct agent namespaces.
+    pub agent_namespaces: u64,
+}
+
+// ============================================================================
+// Migrate Namespace Dimensions (POST /admin/namespaces/migrate-dimensions)
+// ============================================================================
+
+fn default_target_dimension() -> usize {
+    1024
+}
+
+/// Request for `POST /admin/namespaces/migrate-dimensions`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrateNamespaceDimensionsRequest {
+    /// Namespaces to migrate (empty = all).
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+    /// Target embedding dimension.
+    #[serde(default = "default_target_dimension")]
+    pub target_dimension: usize,
+}
+
+/// Per-namespace migration result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamespaceMigrationResult {
+    /// Namespace that was migrated.
+    pub namespace: String,
+    /// Original embedding dimension.
+    pub original_dimension: usize,
+    /// Vectors successfully re-embedded.
+    pub vectors_migrated: usize,
+    /// Vectors skipped (already at target dimension).
+    pub vectors_skipped: usize,
+    /// Migration status for this namespace.
+    pub status: String,
+    /// Error message if migration failed for this namespace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Response from `POST /admin/namespaces/migrate-dimensions`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrateDimensionsResponse {
+    /// Number of namespaces successfully migrated.
+    pub migrated: usize,
+    /// Number of namespaces that failed migration.
+    pub failed: usize,
+    /// Namespaces already at the target dimension.
+    pub already_current: usize,
+    /// Per-namespace results.
+    pub results: Vec<NamespaceMigrationResult>,
 }
