@@ -1,7 +1,6 @@
 //! Agent management for the Dakera client.
 
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
 
 use crate::error::Result;
 use crate::memory::{RecalledMemory, Session};
