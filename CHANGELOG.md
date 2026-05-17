@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.55] - 2026-05-17
+
+### Changed
+
+- **BREAKING: `QueryResponse` field renamed `matches` → `results`** — the field holding
+  returned memory/vector entries has been renamed from `.matches` to `.results` for consistency
+  with the REST API response schema. A backward-compat type alias is provided at compile time
+  but will be removed in a future minor release. Update all destructuring:
+  ```rust
+  // Before
+  for r in response.matches { ... }
+  // After
+  for r in response.results { ... }
+  ```
+
+### Added
+
+- **Docker integration tests in CI** — full end-to-end integration tests now run against a
+  live Dakera server container on every PR and push.
+
 ## [0.11.54] - 2026-05-13
 
 ### Notes
