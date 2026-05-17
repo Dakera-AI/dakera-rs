@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let results = client
         .query(namespace, QueryRequest::new(vec![0.1, 0.2, 0.3], 10))
         .await?;
-    for m in &results.matches {
+    for m in &results.results {
         println!("ID: {}, Score: {:.4}", m.id, m.score);
     }
 
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })),
         )
         .await?;
-    for m in &filtered.matches {
+    for m in &filtered.results {
         println!("ID: {}, Score: {:.4}", m.id, m.score);
     }
 
