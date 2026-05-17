@@ -1039,10 +1039,7 @@ impl DakeraClient {
         &self,
         namespace: &str,
     ) -> Result<NamespaceEntityConfig> {
-        let url = format!(
-            "{}/v1/namespaces/{}/config",
-            self.base_url, namespace
-        );
+        let url = format!("{}/v1/namespaces/{}/config", self.base_url, namespace);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1053,10 +1050,7 @@ impl DakeraClient {
         &self,
         namespace: &str,
     ) -> Result<NamespaceExtractorConfig> {
-        let url = format!(
-            "{}/v1/namespaces/{}/extractor",
-            self.base_url, namespace
-        );
+        let url = format!("{}/v1/namespaces/{}/extractor", self.base_url, namespace);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
