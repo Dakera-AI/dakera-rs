@@ -1135,12 +1135,18 @@ impl DakeraClient {
         agent_id: &str,
         request: UpdateImportanceRequest,
     ) -> Result<serde_json::Value> {
-        let url = format!(
-            "{}/v1/agents/{}/memories/importance",
-            self.base_url, agent_id
-        );
-        let response = self.client.put(&url).json(&request).send().await?;
-        self.handle_response(response).await
+        let url = format!("{}/v1/memory/importance", self.base_url);
+        let mut last_result = serde_json::Value::Null;
+        for memory_id in &request.memory_ids {
+            let body = serde_json::json!({
+                "agent_id": agent_id,
+                "memory_id": memory_id,
+                "importance": request.importance,
+            });
+            let response = self.client.post(&url).json(&body).send().await?;
+            last_result = self.handle_response(response).await?;
+        }
+        Ok(last_result)
     }
 
     /// Consolidate memories for an agent
