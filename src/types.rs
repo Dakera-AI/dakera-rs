@@ -456,8 +456,9 @@ pub struct Match {
 /// Query response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResponse {
-    /// Matched vectors
-    pub matches: Vec<Match>,
+    /// Search results
+    #[serde(alias = "matches")]
+    pub results: Vec<Match>,
 }
 
 // ============================================================================

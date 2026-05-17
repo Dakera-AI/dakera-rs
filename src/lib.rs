@@ -41,7 +41,7 @@
 //!     };
 //!     let results = client.query("my-namespace", query).await?;
 //!
-//!     for match_ in results.matches {
+//!     for match_ in results.results {
 //!         println!("ID: {}, Score: {}", match_.id, match_.score);
 //!     }
 //!
