@@ -26,7 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let namespace = "example-vectors-ops";
 
     // Create namespace
-    client.create_namespace(namespace, CreateNamespaceRequest::new().with_dimensions(4)).await?;
+    client
+        .create_namespace(namespace, CreateNamespaceRequest::new().with_dimensions(4))
+        .await?;
 
     // =========================================================================
     // Bulk Upsert
@@ -39,7 +41,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &format!("vec-{:03}", i),
                 vec![i as f32 * 0.05, 0.1, 0.2, 0.3 + i as f32 * 0.01],
                 HashMap::from([
-                    ("category".into(), serde_json::json!(if i % 2 == 0 { "even" } else { "odd" })),
+                    (
+                        "category".into(),
+                        serde_json::json!(if i % 2 == 0 { "even" } else { "odd" }),
+                    ),
                     ("score".into(), serde_json::json!(i as f64 * 1.5)),
                     ("batch".into(), serde_json::json!(i / 10)),
                 ]),
@@ -47,11 +52,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect();
 
-    let upsert_resp = client
-        .upsert(namespace, UpsertRequest { vectors })
-        .await?;
+    let upsert_resp = client.upsert(namespace, UpsertRequest { vectors }).await?;
     println!("Upserted {} vectors", upsert_resp.upserted_count);
-    assert_eq!(upsert_resp.upserted_count, 20, "expected 20 vectors upserted");
+    assert_eq!(
+        upsert_resp.upserted_count, 20,
+        "expected 20 vectors upserted"
+    );
 
     // =========================================================================
     // Count Vectors
@@ -61,11 +67,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count_all = client
         .count_vectors(namespace, CountVectorsRequest { filter: None })
         .await?;
-    println!("Total vectors in '{}': {}", count_all.namespace, count_all.count);
-    assert!(
-        count_all.count >= 20,
-        "expected at least 20 vectors"
+    println!(
+        "Total vectors in '{}': {}",
+        count_all.namespace, count_all.count
     );
+    assert!(count_all.count >= 20, "expected at least 20 vectors");
 
     // Count with filter
     let count_even = client
@@ -122,15 +128,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Aggregation results:");
     if let Some(groups) = &agg_resp.aggregation_groups {
         for group in groups {
-            println!(
-                "  Group {:?}: {:?}",
-                group.group_key, group.aggregations
-            );
+            println!("  Group {:?}: {:?}", group.group_key, group.aggregations);
         }
-        assert!(
-            !groups.is_empty(),
-            "expected non-empty aggregation groups"
-        );
+        assert!(!groups.is_empty(), "expected non-empty aggregation groups");
     }
 
     // =========================================================================
@@ -153,10 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let dims = v.values.as_ref().map_or(0, |vals| vals.len());
         println!("  {} — dims: {}", v.id, dims);
     }
-    assert!(
-        !export_resp.vectors.is_empty(),
-        "expected non-empty export"
-    );
+    assert!(!export_resp.vectors.is_empty(), "expected non-empty export");
 
     // =========================================================================
     // Bulk Delete
@@ -175,10 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Deleted {} vectors, failed: {}",
         del_resp.deleted, del_resp.failed
     );
-    assert!(
-        del_resp.deleted > 0,
-        "expected at least one vector deleted"
-    );
+    assert!(del_resp.deleted > 0, "expected at least one vector deleted");
 
     // Verify remaining count
     let count_after = client

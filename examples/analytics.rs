@@ -23,11 +23,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Store a few memories so we have data to analyze
     println!("\n--- Seeding memories ---");
     for i in 0..3 {
-        let mem =
-            StoreMemoryRequest::new(agent_id, format!("Analytics test memory #{}", i))
-                .with_type(MemoryType::Episodic)
-                .with_importance(0.5 + i as f32 * 0.15)
-                .with_tags(vec!["analytics-test".into()]);
+        let mem = StoreMemoryRequest::new(agent_id, format!("Analytics test memory #{}", i))
+            .with_type(MemoryType::Episodic)
+            .with_importance(0.5 + i as f32 * 0.15)
+            .with_tags(vec!["analytics-test".into()]);
         client.store_memory(mem).await?;
     }
     println!("Stored 3 test memories");
@@ -69,7 +68,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             "active"
         };
-        println!("  {} — started: {}, status: {}", session.id, session.started_at, status);
+        println!(
+            "  {} — started: {}, status: {}",
+            session.id, session.started_at, status
+        );
     }
 
     // =========================================================================
@@ -83,11 +85,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kpis.recall_latency_p50_ms, kpis.recall_latency_p99_ms
     );
     println!("  Store latency p50: {:.2}ms", kpis.store_latency_p50_ms);
-    println!("  API error rate (5xx): {:.3}%", kpis.api_error_rate_5xx_pct);
+    println!(
+        "  API error rate (5xx): {:.3}%",
+        kpis.api_error_rate_5xx_pct
+    );
     println!("  Active agents (24h): {}", kpis.active_agents_count);
     println!("  Sessions (7d): {}", kpis.session_count_week);
-    println!("  KG network nodes: {}", kpis.cross_agent_network_node_count);
-    println!("  Memory retention (7d): {:.1}%", kpis.memory_retention_7d_pct);
+    println!(
+        "  KG network nodes: {}",
+        kpis.cross_agent_network_node_count
+    );
+    println!(
+        "  Memory retention (7d): {:.1}%",
+        kpis.memory_retention_7d_pct
+    );
 
     // =========================================================================
     // Analytics Overview
@@ -97,7 +108,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let overview = client.analytics_overview(Some("1h"), None).await?;
     println!(
         "  Queries: {}, QPS: {:.1}, Error rate: {:.3}%",
-        overview.total_queries, overview.queries_per_second, overview.error_rate * 100.0
+        overview.total_queries,
+        overview.queries_per_second,
+        overview.error_rate * 100.0
     );
     println!(
         "  Latency — avg: {:.1}ms, p95: {:.1}ms, p99: {:.1}ms",
@@ -158,7 +171,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !storage.by_namespace.is_empty() {
         println!("  By namespace:");
         for (ns, info) in &storage.by_namespace {
-            println!("    {}: {} bytes, {} vectors", ns, info.bytes, info.vector_count);
+            println!(
+                "    {}: {} bytes, {} vectors",
+                ns, info.bytes, info.vector_count
+            );
         }
     }
 

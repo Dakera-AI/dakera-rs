@@ -26,7 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let namespace = "example-fulltext";
 
     // Create namespace for full-text indexing
-    client.create_namespace(namespace, CreateNamespaceRequest::new().with_dimensions(3)).await?;
+    client
+        .create_namespace(namespace, CreateNamespaceRequest::new().with_dimensions(3))
+        .await?;
 
     // =========================================================================
     // Index Documents
@@ -74,7 +76,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n--- Search: 'programming language' ---");
     let results = client
-        .fulltext_search(namespace, FullTextSearchRequest::new("programming language", 10))
+        .fulltext_search(
+            namespace,
+            FullTextSearchRequest::new("programming language", 10),
+        )
         .await?;
     for m in &results.results {
         let text = m.text.as_deref().unwrap_or("");
@@ -127,7 +132,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let del_resp = client
         .fulltext_delete(namespace, DeleteRequest::single("doc4"))
         .await?;
-    println!("Deleted {} documents from full-text index", del_resp.deleted_count);
+    println!(
+        "Deleted {} documents from full-text index",
+        del_resp.deleted_count
+    );
 
     // Verify deletion
     let stats_after = client.fulltext_stats(namespace).await?;

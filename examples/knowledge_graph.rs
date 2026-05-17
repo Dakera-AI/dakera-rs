@@ -28,10 +28,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n--- Storing memories for knowledge graph ---");
     let memories = vec![
-        StoreMemoryRequest::new(agent_id, "Rust provides memory safety without garbage collection")
-            .with_type(MemoryType::Semantic)
-            .with_importance(0.9)
-            .with_tags(vec!["rust".into(), "memory-safety".into()]),
+        StoreMemoryRequest::new(
+            agent_id,
+            "Rust provides memory safety without garbage collection",
+        )
+        .with_type(MemoryType::Semantic)
+        .with_importance(0.9)
+        .with_tags(vec!["rust".into(), "memory-safety".into()]),
         StoreMemoryRequest::new(
             agent_id,
             "HNSW is an efficient algorithm for approximate nearest neighbor search",
@@ -83,11 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_similarity: Some(0.1),
         })
         .await?;
-    println!(
-        "Graph: {} nodes, {} edges",
-        kg.nodes.len(),
-        kg.edges.len()
-    );
+    println!("Graph: {} nodes, {} edges", kg.nodes.len(), kg.edges.len());
     for node in &kg.nodes {
         println!("  Node: {} — {:.50}...", node.id, node.content);
     }
@@ -125,11 +124,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let query_resp = client
         .knowledge_query(
             agent_id,
-            None,              // no root — return all edges
-            None,              // all edge types
-            Some(0.1),         // min weight
-            None,              // default depth
-            Some(20),          // limit
+            None,      // no root — return all edges
+            None,      // all edge types
+            Some(0.1), // min weight
+            None,      // default depth
+            Some(20),  // limit
         )
         .await?;
     println!(
@@ -167,10 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Exported graph: {} nodes, {} edges (format: {})",
         export.node_count, export.edge_count, export.format
     );
-    assert!(
-        export.node_count > 0,
-        "expected non-empty export"
-    );
+    assert!(export.node_count > 0, "expected non-empty export");
 
     println!("\nKnowledge graph example completed successfully.");
     Ok(())

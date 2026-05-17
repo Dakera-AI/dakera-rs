@@ -18,10 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         health.version.as_deref().unwrap_or("unknown"),
         health.healthy
     );
-    assert!(
-        health.healthy,
-        "server must be healthy"
-    );
+    assert!(health.healthy, "server must be healthy");
 
     // =========================================================================
     // Cluster Status
@@ -47,10 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             node.node_id, node.role, node.vector_count, node.uptime_seconds
         );
     }
-    assert!(
-        !nodes.nodes.is_empty(),
-        "expected at least one node"
-    );
+    assert!(!nodes.nodes.is_empty(), "expected at least one node");
 
     // =========================================================================
     // Maintenance Mode
@@ -92,10 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             b.backup_id, b.status, b.vector_count, b.size_bytes
         );
     }
-    assert!(
-        !backups.backups.is_empty(),
-        "expected at least one backup"
-    );
+    assert!(!backups.backups.is_empty(), "expected at least one backup");
 
     // Clean up the backup we just created
     client.delete_backup(&backup_resp.backup.backup_id).await?;

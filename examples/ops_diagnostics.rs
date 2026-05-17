@@ -18,10 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         health.version.as_deref().unwrap_or("unknown"),
         health.healthy
     );
-    assert!(
-        health.healthy,
-        "server must be healthy"
-    );
+    assert!(health.healthy, "server must be healthy");
 
     // =========================================================================
     // System Diagnostics
@@ -83,10 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Poll job status
     if let Some(job) = client.get_job(&compact_resp.job_id).await? {
-        println!(
-            "Job {} status: {} ({}%)",
-            job.id, job.status, job.progress
-        );
+        println!("Job {} status: {} ({}%)", job.id, job.status, job.progress);
     }
 
     // =========================================================================
@@ -97,7 +91,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache = client.cache_stats().await?;
     println!(
         "Cache: {} entries, {} bytes, hit rate: {:.1}%",
-        cache.entries, cache.size_bytes, cache.hit_rate * 100.0
+        cache.entries,
+        cache.size_bytes,
+        cache.hit_rate * 100.0
     );
     println!(
         "  Hits: {}, Misses: {}, Evictions: {}",
@@ -114,10 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Version: {}, Total vectors: {}, Namespaces: {}, Uptime: {}s",
         stats.version, stats.total_vectors, stats.namespace_count, stats.uptime_seconds
     );
-    assert!(
-        !stats.version.is_empty(),
-        "expected non-empty version"
-    );
+    assert!(!stats.version.is_empty(), "expected non-empty version");
 
     // =========================================================================
     // Slow Query Summary
