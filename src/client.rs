@@ -168,7 +168,17 @@ impl DakeraClient {
     pub async fn delete_namespace(&self, namespace: &str) -> Result<()> {
         let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
         let response = self.client.delete(&url).send().await?;
-        self.handle_error(response).await
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let status = response.status().as_u16();
+            let text = response.text().await.unwrap_or_default();
+            Err(ClientError::Server {
+                status,
+                message: text,
+                code: None,
+            })
+        }
     }
 
     /// Flush pending writes for a namespace.
