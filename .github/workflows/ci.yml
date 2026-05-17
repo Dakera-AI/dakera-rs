@@ -148,6 +148,7 @@ jobs:
       - name: Run examples
         env:
           DAKERA_API_URL: http://localhost:3300
+          DAKERA_API_KEY: test-key
         run: |
           cargo run --example basic
           cargo run --example advanced
