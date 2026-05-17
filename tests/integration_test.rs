@@ -169,7 +169,7 @@ async fn test_get_memory() {
     let agent = test_agent();
     let req = StoreMemoryRequest::new(&agent, "Memory for get test").with_importance(0.7);
     let stored = client.store_memory(req).await.unwrap();
-    let memory = client.get_memory(&stored.memory_id).await.unwrap();
+    let memory = client.get_memory(&agent, &stored.memory_id).await.unwrap();
     assert_eq!(memory.content, "Memory for get test");
 }
 

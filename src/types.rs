@@ -107,12 +107,16 @@ pub struct NamespaceInfo {
     #[serde(alias = "namespace")]
     pub name: String,
     /// Number of vectors in the namespace
+    #[serde(default)]
     pub vector_count: u64,
     /// Vector dimensions
     #[serde(alias = "dimension")]
     pub dimensions: Option<u32>,
     /// Index type used
     pub index_type: Option<String>,
+    /// Whether the namespace was newly created (from PUT/configure response)
+    #[serde(default)]
+    pub created: Option<bool>,
 }
 
 /// List namespaces response
