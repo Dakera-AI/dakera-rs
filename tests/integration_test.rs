@@ -357,6 +357,8 @@ async fn test_nonexistent_memory() {
         eprintln!("DAKERA_TEST_URL not set — skipping");
         return;
     };
-    let result = client.get_memory("test-agent", "nonexistent-memory-id").await;
+    let result = client
+        .get_memory("test-agent", "nonexistent-memory-id")
+        .await;
     assert!(result.is_err());
 }
