@@ -12,8 +12,7 @@ use dakera_client::{
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url =
         std::env::var("DAKERA_API_URL").unwrap_or_else(|_| "http://localhost:3300".to_string());
-    let api_key =
-        std::env::var("DAKERA_API_KEY").unwrap_or_else(|_| "dk-mykey".to_string());
+    let api_key = std::env::var("DAKERA_API_KEY").unwrap_or_else(|_| "dk-mykey".to_string());
     let client = DakeraClient::builder(&url).api_key(&api_key).build()?;
 
     let namespace = "example-advanced";
