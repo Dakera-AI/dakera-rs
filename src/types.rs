@@ -562,7 +562,8 @@ pub struct FullTextMatch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullTextSearchResponse {
     /// Matched documents
-    pub matches: Vec<FullTextMatch>,
+    #[serde(alias = "matches")]
+    pub results: Vec<FullTextMatch>,
 }
 
 /// Full-text index statistics
