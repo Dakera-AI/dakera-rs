@@ -19,13 +19,14 @@ async fn test_diagnostics() {
         .mock("GET", "/ops/diagnostics")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"cpu_percent":12.5,"memory_bytes":1048576,"disk_bytes":10485760}"#)
+        .with_body(r#"{"system":{"version":"0.11.55","rust_version":"1.78","uptime_seconds":3600,"pid":1234},"resources":{"memory_bytes":1048576,"thread_count":8,"open_fds":64,"cpu_percent":12.5},"components":{"storage":{"healthy":true,"message":"ok"},"search_engine":{"healthy":true,"message":"ok"},"cache":{"healthy":true,"message":"ok"},"grpc":{"healthy":true,"message":"ok"}},"active_jobs":2}"#)
         .create_async()
         .await;
 
     let client = DakeraClient::new(server.url()).unwrap();
     let result = client.diagnostics().await.unwrap();
-    assert_eq!(result["cpu_percent"], 12.5);
+    assert_eq!(result.active_jobs, 2);
+    assert_eq!(result.resources.memory_bytes, 1048576);
     mock.assert_async().await;
 }
 
@@ -59,8 +60,8 @@ async fn test_list_jobs() {
         .with_header("content-type", "application/json")
         .with_body(
             r#"[
-                {"job_id":"job-1","job_type":"compaction","status":"running","progress":0.5,"created_at":1700000000},
-                {"job_id":"job-2","job_type":"backup","status":"completed","progress":1.0,"created_at":1700000100}
+                {"id":"job-1","job_type":"compaction","status":"running","progress":0.5,"created_at":1700000000},
+                {"id":"job-2","job_type":"backup","status":"completed","progress":1.0,"created_at":1700000100}
             ]"#,
         )
         .create_async()
@@ -69,7 +70,7 @@ async fn test_list_jobs() {
     let client = DakeraClient::new(server.url()).unwrap();
     let jobs = client.list_jobs().await.unwrap();
     assert_eq!(jobs.len(), 2);
-    assert_eq!(jobs[0].job_id, "job-1");
+    assert_eq!(jobs[0].id, "job-1");
     assert_eq!(jobs[1].status, "completed");
     mock.assert_async().await;
 }
@@ -81,14 +82,14 @@ async fn test_ops_list_jobs() {
         .mock("GET", "/ops/jobs")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"[{"job_id":"j-100","job_type":"reindex","status":"pending","progress":0.0,"created_at":1700000200}]"#)
+        .with_body(r#"[{"id":"j-100","job_type":"reindex","status":"pending","progress":0.0,"created_at":1700000200}]"#)
         .create_async()
         .await;
 
     let client = DakeraClient::new(server.url()).unwrap();
     let jobs = client.ops_list_jobs().await.unwrap();
     assert_eq!(jobs.len(), 1);
-    assert_eq!(jobs[0].job_id, "j-100");
+    assert_eq!(jobs[0].id, "j-100");
     mock.assert_async().await;
 }
 
@@ -103,7 +104,7 @@ async fn test_get_job_found() {
         .mock("GET", "/ops/jobs/job-1")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"job_id":"job-1","job_type":"compaction","status":"running","progress":0.75,"created_at":1700000000}"#)
+        .with_body(r#"{"id":"job-1","job_type":"compaction","status":"running","progress":0.75,"created_at":1700000000}"#)
         .create_async()
         .await;
 
@@ -111,7 +112,7 @@ async fn test_get_job_found() {
     let job = client.get_job("job-1").await.unwrap();
     assert!(job.is_some());
     let job = job.unwrap();
-    assert_eq!(job.job_id, "job-1");
+    assert_eq!(job.id, "job-1");
     assert_eq!(job.status, "running");
     mock.assert_async().await;
 }
