@@ -426,7 +426,7 @@ impl GrpcClient {
             })
             .collect();
 
-        Ok(ClientQueryResponse { matches })
+        Ok(ClientQueryResponse { results: matches })
     }
 
     /// Delete vectors by ID
