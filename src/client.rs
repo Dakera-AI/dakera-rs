@@ -143,7 +143,7 @@ impl DakeraClient {
         request: CreateNamespaceRequest,
     ) -> Result<NamespaceInfo> {
         let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
-        let response = self.client.post(&url).json(&request).send().await?;
+        let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
@@ -965,7 +965,7 @@ impl DakeraClient {
     ) -> Result<EntityExtractionResponse> {
         let url = format!("{}/v1/memories/extract", self.base_url);
         let body = serde_json::json!({
-            "text": text,
+            "content": text,
             "entity_types": entity_types,
         });
         let response = self.client.post(&url).json(&body).send().await?;

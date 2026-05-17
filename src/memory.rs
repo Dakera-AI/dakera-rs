@@ -640,6 +640,14 @@ pub struct SessionEndResponse {
     pub memory_count: usize,
 }
 
+/// Response from `GET /v1/sessions`
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListSessionsResponse {
+    pub sessions: Vec<Session>,
+    #[allow(dead_code)]
+    pub total: usize,
+}
+
 /// Request to update a memory
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateMemoryRequest {
@@ -1093,9 +1101,12 @@ impl DakeraClient {
             .await
     }
 
-    /// Get a specific memory by ID
-    pub async fn get_memory(&self, memory_id: &str) -> Result<RecalledMemory> {
-        let url = format!("{}/v1/memory/get/{}", self.base_url, memory_id);
+    /// Get a specific memory by ID (requires agent_id for namespace lookup)
+    pub async fn get_memory(&self, agent_id: &str, memory_id: &str) -> Result<RecalledMemory> {
+        let url = format!(
+            "{}/v1/memory/get/{}?agent_id={}",
+            self.base_url, memory_id, agent_id
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1135,12 +1146,18 @@ impl DakeraClient {
         agent_id: &str,
         request: UpdateImportanceRequest,
     ) -> Result<serde_json::Value> {
-        let url = format!(
-            "{}/v1/agents/{}/memories/importance",
-            self.base_url, agent_id
-        );
-        let response = self.client.put(&url).json(&request).send().await?;
-        self.handle_response(response).await
+        let url = format!("{}/v1/memory/importance", self.base_url);
+        let mut last_result = serde_json::Value::Null;
+        for memory_id in &request.memory_ids {
+            let body = serde_json::json!({
+                "agent_id": agent_id,
+                "memory_id": memory_id,
+                "importance": request.importance,
+            });
+            let response = self.client.post(&url).json(&body).send().await?;
+            last_result = self.handle_response(response).await?;
+        }
+        Ok(last_result)
     }
 
     /// Consolidate memories for an agent
@@ -1419,7 +1436,8 @@ impl DakeraClient {
     pub async fn list_sessions(&self, agent_id: &str) -> Result<Vec<Session>> {
         let url = format!("{}/v1/sessions?agent_id={}", self.base_url, agent_id);
         let response = self.client.get(&url).send().await?;
-        self.handle_response(response).await
+        let wrapper: ListSessionsResponse = self.handle_response(response).await?;
+        Ok(wrapper.sessions)
     }
 
     /// Get memories in a session

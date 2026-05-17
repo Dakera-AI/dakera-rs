@@ -107,12 +107,16 @@ pub struct NamespaceInfo {
     #[serde(alias = "namespace")]
     pub name: String,
     /// Number of vectors in the namespace
+    #[serde(default)]
     pub vector_count: u64,
     /// Vector dimensions
     #[serde(alias = "dimension")]
     pub dimensions: Option<u32>,
     /// Index type used
     pub index_type: Option<String>,
+    /// Whether the namespace was newly created (from PUT/configure response)
+    #[serde(default)]
+    pub created: Option<bool>,
 }
 
 /// List namespaces response
@@ -558,7 +562,8 @@ pub struct FullTextMatch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullTextSearchResponse {
     /// Matched documents
-    pub matches: Vec<FullTextMatch>,
+    #[serde(alias = "matches")]
+    pub results: Vec<FullTextMatch>,
 }
 
 /// Full-text index statistics
@@ -639,7 +644,8 @@ impl HybridSearchRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HybridSearchResponse {
     /// Matched results
-    pub matches: Vec<Match>,
+    #[serde(alias = "matches")]
+    pub results: Vec<Match>,
 }
 
 // ============================================================================
@@ -2314,7 +2320,7 @@ pub struct FetchResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateNamespaceRequest {
     /// Vector dimensions (inferred from first upsert if omitted).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "dimension", skip_serializing_if = "Option::is_none")]
     pub dimensions: Option<u32>,
     /// Index type (e.g. "hnsw", "flat").
     #[serde(skip_serializing_if = "Option::is_none")]

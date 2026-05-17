@@ -78,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ft_results = client.search_text(namespace, "vector search", 5).await?;
     println!("Full-text results:");
-    for r in &ft_results.matches {
+    for r in &ft_results.results {
         println!("  {}: score {:.4}", r.id, r.score);
     }
 
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
     println!("Hybrid results:");
-    for r in &hybrid_results.matches {
+    for r in &hybrid_results.results {
         println!("  {}: score {:.4}", r.id, r.score);
     }
 

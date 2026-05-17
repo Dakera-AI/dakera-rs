@@ -25,3 +25,7 @@ Cargo.lock
 *.pem
 *.p12
 credentials.json
+
+# Local artifacts
+ruvector.db
+.claude-flow/

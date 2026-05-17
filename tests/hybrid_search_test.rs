@@ -30,9 +30,9 @@ async fn test_hybrid_search_with_vector_hits_correct_endpoint() {
     let req = HybridSearchRequest::new(vec![0.1, 0.2, 0.3], "search query", 5);
     let result = client.hybrid_search("test-ns", req).await.unwrap();
 
-    assert_eq!(result.matches.len(), 1);
-    assert_eq!(result.matches[0].id, "mem_001");
-    assert!((result.matches[0].score - 0.95).abs() < 1e-5);
+    assert_eq!(result.results.len(), 1);
+    assert_eq!(result.results[0].id, "mem_001");
+    assert!((result.results[0].score - 0.95).abs() < 1e-5);
     mock.assert_async().await;
 }
 
@@ -62,9 +62,9 @@ async fn test_hybrid_search_bm25_only_hits_correct_endpoint() {
     let req = HybridSearchRequest::text_only("hello world", 10);
     let result = client.hybrid_search("test-ns", req).await.unwrap();
 
-    assert_eq!(result.matches.len(), 2);
-    assert_eq!(result.matches[0].id, "mem_002");
-    assert_eq!(result.matches[1].id, "mem_003");
+    assert_eq!(result.results.len(), 2);
+    assert_eq!(result.results[0].id, "mem_002");
+    assert_eq!(result.results[1].id, "mem_003");
     mock.assert_async().await;
 }
 
