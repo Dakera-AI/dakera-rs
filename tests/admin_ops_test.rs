@@ -19,7 +19,7 @@ async fn test_diagnostics() {
         .mock("GET", "/ops/diagnostics")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"system":{"version":"0.11.55","rust_version":"1.78","uptime_seconds":3600,"pid":1234},"resources":{"memory_bytes":1048576,"thread_count":8,"open_fds":64,"cpu_percent":12.5},"components":{"storage":{"healthy":true,"message":"ok"},"search_engine":{"healthy":true,"message":"ok"},"cache":{"healthy":true,"message":"ok"},"grpc":{"healthy":true,"message":"ok"}},"active_jobs":2}"#)
+        .with_body(r#"{"system":{"version":"0.11.55","rust_version":"1.78","uptime_seconds":3600,"pid":1234},"resources":{"memory_bytes":1048576,"thread_count":8,"open_fds":64,"cpu_percent":12.5},"components":{"storage":{"healthy":true,"message":"ok","last_check":1700000000},"search_engine":{"healthy":true,"message":"ok","last_check":1700000000},"cache":{"healthy":true,"message":"ok","last_check":1700000000},"grpc":{"healthy":true,"message":"ok","last_check":1700000000}},"active_jobs":2}"#)
         .create_async()
         .await;
 
@@ -60,8 +60,8 @@ async fn test_list_jobs() {
         .with_header("content-type", "application/json")
         .with_body(
             r#"[
-                {"id":"job-1","job_type":"compaction","status":"running","progress":0.5,"created_at":1700000000},
-                {"id":"job-2","job_type":"backup","status":"completed","progress":1.0,"created_at":1700000100}
+                {"id":"job-1","job_type":"compaction","status":"running","progress":50,"created_at":1700000000},
+                {"id":"job-2","job_type":"backup","status":"completed","progress":100,"created_at":1700000100}
             ]"#,
         )
         .create_async()
@@ -82,7 +82,7 @@ async fn test_ops_list_jobs() {
         .mock("GET", "/ops/jobs")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"[{"id":"j-100","job_type":"reindex","status":"pending","progress":0.0,"created_at":1700000200}]"#)
+        .with_body(r#"[{"id":"j-100","job_type":"reindex","status":"pending","progress":0,"created_at":1700000200}]"#)
         .create_async()
         .await;
 
@@ -104,7 +104,7 @@ async fn test_get_job_found() {
         .mock("GET", "/ops/jobs/job-1")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"id":"job-1","job_type":"compaction","status":"running","progress":0.75,"created_at":1700000000}"#)
+        .with_body(r#"{"id":"job-1","job_type":"compaction","status":"running","progress":75,"created_at":1700000000}"#)
         .create_async()
         .await;
 
@@ -487,8 +487,8 @@ async fn test_storage_tier_overview() {
             r#"{
                 "tiers_enabled": true,
                 "architecture": [],
-                "config": {"hot_max_bytes": 1073741824, "warm_max_bytes": 10737418240},
-                "activity": {"promotions": 10, "demotions": 5}
+                "config": {"hot_tier_capacity": 10000, "hot_to_warm_threshold_secs": 3600, "warm_to_cold_threshold_secs": 86400, "auto_tier_enabled": true, "tier_check_interval_secs": 300},
+                "activity": {"promotions": 10, "demotions": 5, "cache_hit_rate": 0.85, "storage_backend": "mmap", "promotions_to_hot": 8, "demotions_to_warm": 3, "demotions_to_cold": 2}
             }"#,
         )
         .create_async()
