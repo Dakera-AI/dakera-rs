@@ -240,7 +240,10 @@ async fn test_index_and_search() {
     client.create_namespace(&ns, req).await.unwrap();
 
     client
-        .index_document(&ns, Document::new("doc-1", "Machine learning transforms data"))
+        .index_document(
+            &ns,
+            Document::new("doc-1", "Machine learning transforms data"),
+        )
         .await
         .unwrap();
     client
@@ -251,7 +254,10 @@ async fn test_index_and_search() {
         .await
         .unwrap();
     client
-        .index_document(&ns, Document::new("doc-3", "Deep learning uses neural networks"))
+        .index_document(
+            &ns,
+            Document::new("doc-3", "Deep learning uses neural networks"),
+        )
         .await
         .unwrap();
 
