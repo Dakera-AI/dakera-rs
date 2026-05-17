@@ -124,7 +124,7 @@ async fn test_store_memory() {
         .with_importance(0.8)
         .with_tags(vec!["preference".to_string(), "ui".to_string()]);
     let result = client.store_memory(req).await.unwrap();
-    assert!(!result.id.is_empty());
+    assert!(!result.memory_id.is_empty());
 }
 
 #[tokio::test]
@@ -169,7 +169,7 @@ async fn test_get_memory() {
     let agent = test_agent();
     let req = StoreMemoryRequest::new(&agent, "Memory for get test").with_importance(0.7);
     let stored = client.store_memory(req).await.unwrap();
-    let memory = client.get_memory(&stored.id).await.unwrap();
+    let memory = client.get_memory(&stored.memory_id).await.unwrap();
     assert_eq!(memory.content, "Memory for get test");
 }
 
@@ -183,7 +183,7 @@ async fn test_update_importance() {
     let req = StoreMemoryRequest::new(&agent, "Importance update test").with_importance(0.5);
     let stored = client.store_memory(req).await.unwrap();
     let update_req = UpdateImportanceRequest {
-        memory_ids: vec![stored.id],
+        memory_ids: vec![stored.memory_id],
         importance: 0.95,
     };
     client.update_importance(&agent, update_req).await.unwrap();
@@ -198,7 +198,7 @@ async fn test_forget() {
     let agent = test_agent();
     let req = StoreMemoryRequest::new(&agent, "Memory to forget").with_importance(0.3);
     let stored = client.store_memory(req).await.unwrap();
-    let forget_req = ForgetRequest::by_ids(&agent, vec![stored.id]);
+    let forget_req = ForgetRequest::by_ids(&agent, vec![stored.memory_id]);
     client.forget(forget_req).await.unwrap();
 }
 
@@ -309,7 +309,7 @@ async fn test_memory_graph() {
     let stored = client.store_memory(req).await.unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let opts = dakera_client::GraphOptions::new().depth(1);
-    let _graph = client.memory_graph(&stored.id, opts).await;
+    let _graph = client.memory_graph(&stored.memory_id, opts).await;
 }
 
 // ---------------------------------------------------------------------------
