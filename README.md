@@ -167,7 +167,7 @@ let client = DakeraClient::builder("http://your-server:3300")
     .build()?;
 
 // Cloud (early access)
-let client = DakeraClient::builder("https://api.dakera.ai")
+let client = DakeraClient::builder("http://localhost:3300")
     .api_key("your-key")
     .build()?;
 
