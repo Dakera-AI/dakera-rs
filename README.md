@@ -38,11 +38,11 @@
 ```bash
 docker run -d \
   --name dakera \
-  -p 3300:3300 \
+  -p 3000:3000 \
   -e DAKERA_ROOT_API_KEY=dk-mykey \
   ghcr.io/dakera-ai/dakera:latest
 
-curl http://localhost:3300/health  # → {"status":"ok"}
+curl http://localhost:3000/health  # → {"status":"ok"}
 ```
 
 For persistent storage with Docker Compose:
@@ -90,7 +90,7 @@ use dakera_client::{DakeraClient, StoreMemoryRequest, RecallRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = DakeraClient::builder("http://localhost:3300")
+    let client = DakeraClient::builder("http://localhost:3000")
         .api_key("dk-mykey")
         .build()?;
 
@@ -162,17 +162,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use dakera_client::DakeraClient;
 
 // Self-hosted
-let client = DakeraClient::builder("http://your-server:3300")
+let client = DakeraClient::builder("http://your-server:3000")
     .api_key("your-key")
     .build()?;
 
 // Cloud (early access)
-let client = DakeraClient::builder("http://localhost:3300")
+let client = DakeraClient::builder("http://localhost:3000")
     .api_key("your-key")
     .build()?;
 
 // With custom timeouts
-let client = DakeraClient::builder("http://localhost:3300")
+let client = DakeraClient::builder("http://localhost:3000")
     .api_key("your-key")
     .timeout_secs(60)
     .max_retries(5)
