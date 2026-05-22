@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.57] - 2026-05-22
+
+### Added
+
+- **`store_memories_batch()`** — new `DakeraClient` method for `POST /v1/memories/store/batch`, enabling high-throughput batch memory ingestion (DAK-5508, [#113](https://github.com/Dakera-AI/dakera-rs/pull/113))
+  - `BatchStoreMemoryItem` — per-item fields matching the server batch schema
+  - `BatchStoreMemoryRequest` — `agent_id` + `Vec<BatchStoreMemoryItem>`
+  - `BatchStoredMemory` / `BatchStoreMemoryResponse` — response types
+
+### Fixed
+
+- Replace hardcoded `api.dakera.ai` with `localhost:3300` in README examples (DAK-5329, [#112](https://github.com/Dakera-AI/dakera-rs/pull/112))
+
+### Dependencies
+
+- Bump `release-drafter/release-drafter` from 6 to 7 ([#111](https://github.com/Dakera-AI/dakera-rs/pull/111))
+
 ## [0.11.56] - 2026-05-17
 
 ### Changed
