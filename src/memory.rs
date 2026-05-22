@@ -1005,6 +1005,125 @@ pub struct BatchRecallResponse {
     pub filtered: usize,
 }
 
+// ============================================================================
+// DAK-5508: Batch Store — POST /v1/memories/store/batch
+// ============================================================================
+
+/// A single memory entry within a [`BatchStoreMemoryRequest`].
+///
+/// Mirrors [`StoreMemoryRequest`] but omits `agent_id` (supplied at batch level).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BatchStoreMemoryItem {
+    /// Memory content (required, max 100 000 chars).
+    pub content: String,
+    #[serde(default)]
+    pub memory_type: MemoryType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default = "default_importance")]
+    pub importance: f32,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+    /// Optional custom ID. Auto-generated if not provided.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+impl BatchStoreMemoryItem {
+    /// Create a new item with the given content.
+    pub fn new(content: impl Into<String>) -> Self {
+        Self {
+            content: content.into(),
+            importance: default_importance(),
+            ..Default::default()
+        }
+    }
+
+    /// Set importance.
+    pub fn with_importance(mut self, importance: f32) -> Self {
+        self.importance = importance;
+        self
+    }
+
+    /// Set tags.
+    pub fn with_tags(mut self, tags: Vec<String>) -> Self {
+        self.tags = tags;
+        self
+    }
+
+    /// Set session.
+    pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    /// Set metadata.
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Set a custom memory ID.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+}
+
+/// Request for `POST /v1/memories/store/batch` (DAK-5508).
+///
+/// Accepts up to 1 000 memories per call. The server embeds all contents in a
+/// single ONNX inference pass and upserts them in one RocksDB write, with HNSW
+/// invalidation happening exactly once — yielding ≥100× throughput vs. N
+/// sequential single-store calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchStoreMemoryRequest {
+    /// Agent namespace to store the memories in.
+    pub agent_id: String,
+    /// Memories to store (1–1000 items).
+    pub memories: Vec<BatchStoreMemoryItem>,
+}
+
+impl BatchStoreMemoryRequest {
+    /// Create a new batch request.
+    pub fn new(agent_id: impl Into<String>, memories: Vec<BatchStoreMemoryItem>) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            memories,
+        }
+    }
+}
+
+/// A single stored memory returned in a [`BatchStoreMemoryResponse`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchStoredMemory {
+    pub id: String,
+    pub content: String,
+    pub agent_id: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub importance: f32,
+    pub created_at: u64,
+}
+
+/// Response from `POST /v1/memories/store/batch`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchStoreMemoryResponse {
+    /// Stored memories in the same order as the request items.
+    pub stored: Vec<BatchStoredMemory>,
+    /// Number of memories successfully stored.
+    pub stored_count: usize,
+    /// Time spent on ONNX embedding for the entire batch (milliseconds).
+    pub total_embedding_time_ms: u64,
+}
+
 /// Request body for `DELETE /v1/memories/forget/batch`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchForgetRequest {
@@ -1472,6 +1591,44 @@ impl DakeraClient {
     /// ```
     pub async fn batch_recall(&self, request: BatchRecallRequest) -> Result<BatchRecallResponse> {
         let url = format!("{}/v1/memories/recall/batch", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Store up to 1 000 memories in a single batched call (DAK-5508).
+    ///
+    /// All memories are embedded in one ONNX inference pass and written to
+    /// RocksDB in one batch, with HNSW invalidation happening exactly once —
+    /// yielding ≥100× throughput vs. N sequential [`store_memory`] calls.
+    ///
+    /// The `stored` field in the response preserves the same ordering as the
+    /// request items, so callers can map `response.stored[i].id` back to
+    /// `request.memories[i]` by index.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use dakera_client::{DakeraClient, memory::{BatchStoreMemoryItem, BatchStoreMemoryRequest}};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = DakeraClient::new("http://localhost:3000")?;
+    ///
+    /// let items = vec![
+    ///     BatchStoreMemoryItem::new("The user prefers dark mode").with_importance(0.8),
+    ///     BatchStoreMemoryItem::new("The user is based in Berlin").with_importance(0.7),
+    /// ];
+    /// let resp = client
+    ///     .store_memories_batch(BatchStoreMemoryRequest::new("agent-1", items))
+    ///     .await?;
+    /// println!("Stored {} memories", resp.stored_count);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn store_memories_batch(
+        &self,
+        request: BatchStoreMemoryRequest,
+    ) -> Result<BatchStoreMemoryResponse> {
+        let url = format!("{}/v1/memories/store/batch", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
