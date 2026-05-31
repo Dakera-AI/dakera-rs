@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.75] - 2026-05-31
+
+### Changed
+
+- **Server compatibility**: tracks Dakera server v0.11.75 (TieredEngine registered in
+  AppState, binary HNSW dispatch wired in search paths, ReembedJob spawned at startup).
+  No client API surface changes required — all existing calls work unchanged. Binary HNSW
+  is opt-in server-side via `DAKERA_SEARCH_MODE=hybrid`; the SDK sends requests identically
+  regardless of server search mode.
+
 ## [0.11.57] - 2026-05-22
 
 ### Added
