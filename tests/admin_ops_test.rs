@@ -768,3 +768,83 @@ async fn test_cluster_status_authorization_error() {
     );
     mock.assert_async().await;
 }
+
+// ============================================================================
+// Admin: drain_reembed — POST /admin/reembed/drain (v0.11.82+, DAK-6326)
+// ============================================================================
+
+#[tokio::test]
+async fn test_drain_reembed_full_drain() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/admin/reembed/drain")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"processed":1280,"remaining":0,"elapsed_ms":4210,"cycles":3,"timed_out":false}"#,
+        )
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let result = client
+        .drain_reembed(dakera_client::DrainReembedRequest::default())
+        .await
+        .unwrap();
+    assert_eq!(result.processed, 1280);
+    assert_eq!(result.remaining, 0);
+    assert_eq!(result.cycles, 3);
+    assert!(!result.timed_out);
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_drain_reembed_forwards_params() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/admin/reembed/drain")
+        .match_body(mockito::Matcher::PartialJsonString(
+            r#"{"timeout_secs":600,"batch_size":5000}"#.to_string(),
+        ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"processed":500,"remaining":120,"elapsed_ms":600000,"cycles":50,"timed_out":true}"#,
+        )
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let request = dakera_client::DrainReembedRequest {
+        timeout_secs: Some(600),
+        batch_size: Some(5000),
+        min_importance: Some(0.5),
+    };
+    let result = client.drain_reembed(request).await.unwrap();
+    assert!(result.timed_out);
+    assert_eq!(result.remaining, 120);
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_drain_reembed_requires_admin_scope() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/admin/reembed/drain")
+        .with_status(403)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":"Admin scope required","code":"AUTHORIZATION_ERROR"}"#)
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let err = client
+        .drain_reembed(dakera_client::DrainReembedRequest::default())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, dakera_client::ClientError::Authorization { .. }),
+        "expected Authorization error, got: {err:?}"
+    );
+    mock.assert_async().await;
+}
