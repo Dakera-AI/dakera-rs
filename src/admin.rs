@@ -1404,6 +1404,29 @@ impl DakeraClient {
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
+
+    // =========================================================================
+    // ReembedJob Force-Drain (v0.11.82+)
+    // =========================================================================
+
+    /// Synchronously drain all static vectors to full ONNX quality via
+    /// `POST /admin/reembed/drain` (v0.11.82+).
+    ///
+    /// Runs the re-embedding upgrade loop until zero `_embedding_kind=static`
+    /// candidates remain across all namespaces, or `request.timeout_secs` elapses.
+    /// Requires Admin scope. Useful as a pre-benchmark steady-state gate when
+    /// `DAKERA_TIERED=1`.
+    ///
+    /// A [`DrainReembedResponse::remaining`] of `0` guarantees all vectors are at
+    /// full ONNX quality.
+    pub async fn drain_reembed(
+        &self,
+        request: crate::types::DrainReembedRequest,
+    ) -> Result<crate::types::DrainReembedResponse> {
+        let url = format!("{}/admin/reembed/drain", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
 }
 
 // ============================================================================

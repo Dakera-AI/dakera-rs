@@ -3540,3 +3540,35 @@ pub struct MigrateDimensionsResponse {
     /// Per-namespace results.
     pub results: Vec<NamespaceMigrationResult>,
 }
+
+/// Request body for `POST /admin/reembed/drain` (v0.11.82+). All fields optional.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DrainReembedRequest {
+    /// Hard wall-clock cap in seconds (default 600).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+    /// Candidates upgraded per cycle (default 10000).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_size: Option<usize>,
+    /// Minimum importance to upgrade (default 0.0 — upgrade all statics).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_importance: Option<f32>,
+}
+
+/// Response from `POST /admin/reembed/drain` (v0.11.82+).
+///
+/// A [`remaining`][DrainReembedResponse::remaining] of `0` means all
+/// `_embedding_kind=static` vectors have been upgraded to full ONNX quality.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DrainReembedResponse {
+    /// Total vectors upgraded across all cycles in this drain.
+    pub processed: usize,
+    /// Static candidates still remaining (0 on a full drain).
+    pub remaining: usize,
+    /// Wall-clock duration of the drain in milliseconds.
+    pub elapsed_ms: u128,
+    /// Number of upgrade cycles executed.
+    pub cycles: usize,
+    /// `true` if the drain stopped on the timeout rather than reaching zero.
+    pub timed_out: bool,
+}
