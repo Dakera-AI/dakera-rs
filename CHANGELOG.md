@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.85] - 2026-06-05
+
+### Added
+
+- **`HealthResponse::build_sha`** — new `Option<String>` field on `HealthResponse`,
+  populated since server v0.11.84. Contains the git commit SHA baked into the server
+  binary; useful for verifying the expected commit is running after a hotfix rollout.
+  Field is absent on older server versions (deserialises to `None`).
+
+### Changed
+
+- **Server compatibility**: tracks Dakera server v0.11.84–v0.11.85.
+  - v0.11.84: Entity vector search for temporal BM25 queries (automatic routing, no
+    client changes); reranker queues callers under load instead of dropping; `build_sha`
+    added to `/health`.
+  - v0.11.85: Server-side fetch-n env knobs (`DAKERA_HYBRID_FETCH_MULT` /
+    `DAKERA_CROSS_SESSION_FETCH_MULT`) — no client API changes.
+
 ## [0.11.83] - 2026-06-04
 
 ### Added
