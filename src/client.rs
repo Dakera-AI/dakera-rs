@@ -78,7 +78,10 @@ impl DakeraClient {
                 healthy,
                 version,
                 uptime_seconds,
-                build_sha: json.get("build_sha").and_then(|v| v.as_str()).map(String::from),
+                build_sha: json
+                    .get("build_sha")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
             })
         } else {
             // Health endpoint might return simple OK
