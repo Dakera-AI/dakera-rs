@@ -85,6 +85,8 @@ pub struct HealthResponse {
     pub version: Option<String>,
     /// Uptime in seconds
     pub uptime_seconds: Option<u64>,
+    /// Git commit SHA baked into the binary at build time. Present since server v0.11.84.
+    pub build_sha: Option<String>,
 }
 
 /// Readiness check response

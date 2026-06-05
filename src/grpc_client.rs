@@ -295,6 +295,7 @@ impl GrpcClient {
             healthy: response.status == "healthy",
             version: Some(response.version),
             uptime_seconds: None, // gRPC health doesn't include uptime
+            build_sha: None,      // gRPC health proto doesn't carry build_sha
         })
     }
 

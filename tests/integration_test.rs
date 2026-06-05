@@ -55,6 +55,22 @@ async fn test_health() {
     assert!(health.healthy);
 }
 
+#[test]
+fn test_health_response_build_sha_present() {
+    let json = r#"{"healthy":true,"version":"0.11.84","build_sha":"abc1234def5678"}"#;
+    let h: dakera_client::HealthResponse = serde_json::from_str(json).unwrap();
+    assert!(h.healthy);
+    assert_eq!(h.build_sha.as_deref(), Some("abc1234def5678"));
+}
+
+#[test]
+fn test_health_response_build_sha_absent() {
+    let json = r#"{"healthy":true,"version":"0.11.83"}"#;
+    let h: dakera_client::HealthResponse = serde_json::from_str(json).unwrap();
+    assert!(h.healthy);
+    assert!(h.build_sha.is_none());
+}
+
 // ---------------------------------------------------------------------------
 // Namespaces
 // ---------------------------------------------------------------------------
