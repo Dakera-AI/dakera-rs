@@ -2862,14 +2862,21 @@ mod tif_tests {
 
     #[test]
     fn classification_surface_contradiction() {
-        let score = TifScore::from_feedback_history(&make_history(&["downvote", "downvote", "downvote", "upvote", "upvote"]));
-        assert_eq!(score.classification, TifClassification::SurfaceContradiction);
+        let score = TifScore::from_feedback_history(&make_history(&[
+            "downvote", "downvote", "downvote", "upvote", "upvote",
+        ]));
+        assert_eq!(
+            score.classification,
+            TifClassification::SurfaceContradiction
+        );
     }
 
     #[test]
     fn classification_verify_before_use() {
         // 2 upvotes, 2 downvotes, 3 flags → no dominant signal
-        let score = TifScore::from_feedback_history(&make_history(&["upvote", "upvote", "downvote", "downvote", "flag", "flag", "flag"]));
+        let score = TifScore::from_feedback_history(&make_history(&[
+            "upvote", "upvote", "downvote", "downvote", "flag", "flag", "flag",
+        ]));
         assert_eq!(score.classification, TifClassification::VerifyBeforeUse);
     }
 
@@ -2879,7 +2886,10 @@ mod tif_tests {
         let score = TifScore::from_feedback_history(&make_history(&[
             "downvote", "downvote", "downvote", "flag", "flag", "flag",
         ]));
-        assert_eq!(score.classification, TifClassification::SurfaceContradiction);
+        assert_eq!(
+            score.classification,
+            TifClassification::SurfaceContradiction
+        );
     }
 
     #[test]
