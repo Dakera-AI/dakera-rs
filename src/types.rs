@@ -2654,6 +2654,260 @@ pub struct FeedbackHealthResponse {
 }
 
 // ============================================================================
+// T-I-F Reliability Scoring (Phase 3 T-I-F RFC)
+// ============================================================================
+
+/// Reliability classification label from a [`TifScore`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TifClassification {
+    /// Majority of feedback is negative — the memory likely contains incorrect information.
+    SurfaceContradiction,
+    /// Majority of feedback is uncertain — ask the user for clarification before reusing.
+    AskClarification,
+    /// Strong positive feedback signal — safe to reuse without additional verification.
+    ConfidentReuse,
+    /// Mixed or weak signals — verify the memory before acting on it.
+    VerifyBeforeUse,
+}
+
+impl TifClassification {
+    /// Stable string label matching the Python/JS/Go SDK classification strings.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::SurfaceContradiction => "surface_contradiction",
+            Self::AskClarification => "ask_clarification",
+            Self::ConfidentReuse => "confident_reuse",
+            Self::VerifyBeforeUse => "verify_before_use",
+        }
+    }
+}
+
+/// Truth-Indeterminacy-Falsity reliability score for a memory (T-I-F RFC Phase 3).
+///
+/// All three proportions (`truth`, `indeterminacy`, `falsity`) sum to 1.0.
+/// Build via [`TifScore::from_feedback_history`] or [`TifScore::from_metadata`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TifScore {
+    /// Proportion of positive feedback signals (`upvote` / `positive`).
+    pub truth: f64,
+    /// Proportion of uncertainty signals (`flag`).
+    pub indeterminacy: f64,
+    /// Proportion of negative feedback signals (`downvote` / `negative`).
+    pub falsity: f64,
+    /// Total feedback events used to compute this score.
+    pub feedback_count: u64,
+    /// Human-readable reliability classification.
+    pub classification: TifClassification,
+}
+
+fn classify_tif(truth: f64, indeterminacy: f64, falsity: f64) -> TifClassification {
+    if falsity >= 0.5 {
+        TifClassification::SurfaceContradiction
+    } else if indeterminacy >= 0.5 {
+        TifClassification::AskClarification
+    } else if truth >= 0.7 {
+        TifClassification::ConfidentReuse
+    } else {
+        TifClassification::VerifyBeforeUse
+    }
+}
+
+impl TifScore {
+    /// Compute a [`TifScore`] from a memory's [`FeedbackHistoryResponse`].
+    ///
+    /// Signals are bucketed as:
+    /// - [`FeedbackSignal::Upvote`] / [`FeedbackSignal::Positive`] → truth
+    /// - [`FeedbackSignal::Downvote`] / [`FeedbackSignal::Negative`] → falsity
+    /// - [`FeedbackSignal::Flag`] → indeterminacy
+    ///
+    /// With no feedback the score is `{ truth: 0.0, indeterminacy: 1.0, falsity: 0.0, feedback_count: 0 }`.
+    pub fn from_feedback_history(history: &FeedbackHistoryResponse) -> Self {
+        let mut upvotes: u64 = 0;
+        let mut downvotes: u64 = 0;
+        let mut flags: u64 = 0;
+        for entry in &history.entries {
+            match entry.signal {
+                FeedbackSignal::Upvote | FeedbackSignal::Positive => upvotes += 1,
+                FeedbackSignal::Downvote | FeedbackSignal::Negative => downvotes += 1,
+                FeedbackSignal::Flag => flags += 1,
+            }
+        }
+        let total = upvotes + downvotes + flags;
+        if total == 0 {
+            return Self {
+                truth: 0.0,
+                indeterminacy: 1.0,
+                falsity: 0.0,
+                feedback_count: 0,
+                classification: TifClassification::AskClarification,
+            };
+        }
+        let total_f = total as f64;
+        let truth = upvotes as f64 / total_f;
+        let indeterminacy = flags as f64 / total_f;
+        let falsity = downvotes as f64 / total_f;
+        Self {
+            truth,
+            indeterminacy,
+            falsity,
+            feedback_count: total,
+            classification: classify_tif(truth, indeterminacy, falsity),
+        }
+    }
+
+    /// Deserialise a [`TifScore`] from a `metadata["reliability"]` map.
+    ///
+    /// Expected keys: `truth`, `indeterminacy`, `falsity`, `feedback_count` (snake_case).
+    pub fn from_metadata(data: &serde_json::Value) -> Option<Self> {
+        let truth = data["truth"].as_f64()?;
+        let indeterminacy = data["indeterminacy"].as_f64()?;
+        let falsity = data["falsity"].as_f64()?;
+        let feedback_count = data["feedback_count"].as_u64().unwrap_or(0);
+        Some(Self {
+            truth,
+            indeterminacy,
+            falsity,
+            feedback_count,
+            classification: classify_tif(truth, indeterminacy, falsity),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tif_tests {
+    use super::*;
+
+    fn make_history(signals: &[&str]) -> FeedbackHistoryResponse {
+        FeedbackHistoryResponse {
+            memory_id: "test-mem".to_string(),
+            entries: signals
+                .iter()
+                .map(|s| {
+                    let signal = match *s {
+                        "upvote" => FeedbackSignal::Upvote,
+                        "downvote" => FeedbackSignal::Downvote,
+                        "flag" => FeedbackSignal::Flag,
+                        "positive" => FeedbackSignal::Positive,
+                        "negative" => FeedbackSignal::Negative,
+                        other => panic!("unknown signal: {other}"),
+                    };
+                    FeedbackHistoryEntry { signal, timestamp: 0, old_importance: 0.5, new_importance: 0.5 }
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn no_feedback_max_indeterminacy() {
+        let score = TifScore::from_feedback_history(&make_history(&[]));
+        assert_eq!(score.truth, 0.0);
+        assert_eq!(score.indeterminacy, 1.0);
+        assert_eq!(score.falsity, 0.0);
+        assert_eq!(score.feedback_count, 0);
+        assert_eq!(score.classification, TifClassification::AskClarification);
+    }
+
+    #[test]
+    fn all_upvotes() {
+        let score = TifScore::from_feedback_history(&make_history(&["upvote", "upvote", "upvote"]));
+        assert!((score.truth - 1.0).abs() < 1e-9);
+        assert_eq!(score.feedback_count, 3);
+        assert_eq!(score.classification, TifClassification::ConfidentReuse);
+    }
+
+    #[test]
+    fn all_downvotes() {
+        let score = TifScore::from_feedback_history(&make_history(&["downvote", "downvote"]));
+        assert!((score.falsity - 1.0).abs() < 1e-9);
+        assert_eq!(score.classification, TifClassification::SurfaceContradiction);
+    }
+
+    #[test]
+    fn all_flags() {
+        let score = TifScore::from_feedback_history(&make_history(&["flag", "flag"]));
+        assert!((score.indeterminacy - 1.0).abs() < 1e-9);
+        assert_eq!(score.classification, TifClassification::AskClarification);
+    }
+
+    #[test]
+    fn mixed_signals() {
+        let score = TifScore::from_feedback_history(&make_history(&[
+            "upvote", "upvote", "upvote", "upvote", "downvote", "downvote", "flag", "flag", "flag", "flag",
+        ]));
+        assert!((score.truth - 0.4).abs() < 1e-9);
+        assert!((score.falsity - 0.2).abs() < 1e-9);
+        assert!((score.indeterminacy - 0.4).abs() < 1e-9);
+        assert_eq!(score.feedback_count, 10);
+    }
+
+    #[test]
+    fn positive_alias() {
+        let score = TifScore::from_feedback_history(&make_history(&["positive", "positive", "downvote"]));
+        assert!((score.truth - 2.0 / 3.0).abs() < 1e-9);
+        assert!((score.falsity - 1.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn negative_alias() {
+        let score = TifScore::from_feedback_history(&make_history(&["upvote", "negative", "negative"]));
+        assert!((score.falsity - 2.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn proportions_sum_to_one() {
+        let score = TifScore::from_feedback_history(&make_history(&["upvote", "downvote", "flag"]));
+        assert!((score.truth + score.indeterminacy + score.falsity - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn classification_surface_contradiction() {
+        let score = TifScore::from_feedback_history(&make_history(&["downvote", "downvote", "downvote", "upvote", "upvote"]));
+        assert_eq!(score.classification, TifClassification::SurfaceContradiction);
+    }
+
+    #[test]
+    fn classification_verify_before_use() {
+        // 2 upvotes, 2 downvotes, 3 flags → no dominant signal
+        let score = TifScore::from_feedback_history(&make_history(&["upvote", "upvote", "downvote", "downvote", "flag", "flag", "flag"]));
+        assert_eq!(score.classification, TifClassification::VerifyBeforeUse);
+    }
+
+    #[test]
+    fn falsity_priority_over_indeterminacy() {
+        // 3 downvotes + 3 flags: both >= 0.5, falsity wins
+        let score = TifScore::from_feedback_history(&make_history(&["downvote", "downvote", "downvote", "flag", "flag", "flag"]));
+        assert_eq!(score.classification, TifClassification::SurfaceContradiction);
+    }
+
+    #[test]
+    fn from_metadata_round_trip() {
+        use serde_json::json;
+        let data = json!({ "truth": 0.75, "indeterminacy": 0.15, "falsity": 0.10, "feedback_count": 20 });
+        let score = TifScore::from_metadata(&data).unwrap();
+        assert!((score.truth - 0.75).abs() < 1e-9);
+        assert_eq!(score.feedback_count, 20);
+        assert_eq!(score.classification, TifClassification::ConfidentReuse);
+    }
+
+    #[test]
+    fn from_metadata_missing_feedback_count() {
+        use serde_json::json;
+        let data = json!({ "truth": 0.8, "indeterminacy": 0.1, "falsity": 0.1 });
+        let score = TifScore::from_metadata(&data).unwrap();
+        assert_eq!(score.feedback_count, 0);
+    }
+
+    #[test]
+    fn classification_as_str() {
+        assert_eq!(TifClassification::SurfaceContradiction.as_str(), "surface_contradiction");
+        assert_eq!(TifClassification::AskClarification.as_str(), "ask_clarification");
+        assert_eq!(TifClassification::ConfidentReuse.as_str(), "confident_reuse");
+        assert_eq!(TifClassification::VerifyBeforeUse.as_str(), "verify_before_use");
+    }
+}
+
+// ============================================================================
 // ODE-2: GLiNER Entity Extraction (dakera-ode sidecar)
 // ============================================================================
 
