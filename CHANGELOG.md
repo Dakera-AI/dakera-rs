@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`TifScore`** — new struct in `src/types.rs` for Truth-Indeterminacy-Falsity
+  reliability scoring (T-I-F RFC Phase 3). Fields: `truth`, `indeterminacy`, `falsity`
+  (`f64`, 0–1), `feedback_count` (`u32`). Method `classification() -> TifClassification`
+  returns `ConfidentReuse`, `AskClarification`, `SurfaceContradiction`, or
+  `VerifyBeforeUse`.
+  - `TifScore::from_feedback_history(history: &FeedbackHistoryResponse) -> TifScore` —
+    compute T-I-F proportions from a feedback history response.
+  - `TifScore::from_metadata(data: &serde_json::Value) -> Result<TifScore, DakeraError>` —
+    parse a `metadata.reliability` dict stored by T-I-F Phase 1/2 scripts.
+- **`DakeraClient::evaluate_tif(memory_id: &str) -> Result<TifScore, DakeraError>`** —
+  fetches feedback history and returns a `TifScore` in one call.
+
 ## [0.11.89] - 2026-06-11
 
 ### Changed

@@ -2876,14 +2876,17 @@ mod tif_tests {
     #[test]
     fn falsity_priority_over_indeterminacy() {
         // 3 downvotes + 3 flags: both >= 0.5, falsity wins
-        let score = TifScore::from_feedback_history(&make_history(&["downvote", "downvote", "downvote", "flag", "flag", "flag"]));
+        let score = TifScore::from_feedback_history(&make_history(&[
+            "downvote", "downvote", "downvote", "flag", "flag", "flag",
+        ]));
         assert_eq!(score.classification, TifClassification::SurfaceContradiction);
     }
 
     #[test]
     fn from_metadata_round_trip() {
         use serde_json::json;
-        let data = json!({ "truth": 0.75, "indeterminacy": 0.15, "falsity": 0.10, "feedback_count": 20 });
+        let data =
+            json!({ "truth": 0.75, "indeterminacy": 0.15, "falsity": 0.10, "feedback_count": 20 });
         let score = TifScore::from_metadata(&data).unwrap();
         assert!((score.truth - 0.75).abs() < 1e-9);
         assert_eq!(score.feedback_count, 20);
@@ -2900,10 +2903,22 @@ mod tif_tests {
 
     #[test]
     fn classification_as_str() {
-        assert_eq!(TifClassification::SurfaceContradiction.as_str(), "surface_contradiction");
-        assert_eq!(TifClassification::AskClarification.as_str(), "ask_clarification");
-        assert_eq!(TifClassification::ConfidentReuse.as_str(), "confident_reuse");
-        assert_eq!(TifClassification::VerifyBeforeUse.as_str(), "verify_before_use");
+        assert_eq!(
+            TifClassification::SurfaceContradiction.as_str(),
+            "surface_contradiction"
+        );
+        assert_eq!(
+            TifClassification::AskClarification.as_str(),
+            "ask_clarification"
+        );
+        assert_eq!(
+            TifClassification::ConfidentReuse.as_str(),
+            "confident_reuse"
+        );
+        assert_eq!(
+            TifClassification::VerifyBeforeUse.as_str(),
+            "verify_before_use"
+        );
     }
 }
 
