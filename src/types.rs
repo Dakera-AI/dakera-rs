@@ -2792,7 +2792,12 @@ mod tif_tests {
                         "negative" => FeedbackSignal::Negative,
                         other => panic!("unknown signal: {other}"),
                     };
-                    FeedbackHistoryEntry { signal, timestamp: 0, old_importance: 0.5, new_importance: 0.5 }
+                    FeedbackHistoryEntry {
+                        signal,
+                        timestamp: 0,
+                        old_importance: 0.5,
+                        new_importance: 0.5,
+                    }
                 })
                 .collect(),
         }
@@ -2820,7 +2825,10 @@ mod tif_tests {
     fn all_downvotes() {
         let score = TifScore::from_feedback_history(&make_history(&["downvote", "downvote"]));
         assert!((score.falsity - 1.0).abs() < 1e-9);
-        assert_eq!(score.classification, TifClassification::SurfaceContradiction);
+        assert_eq!(
+            score.classification,
+            TifClassification::SurfaceContradiction
+        );
     }
 
     #[test]
@@ -2833,7 +2841,8 @@ mod tif_tests {
     #[test]
     fn mixed_signals() {
         let score = TifScore::from_feedback_history(&make_history(&[
-            "upvote", "upvote", "upvote", "upvote", "downvote", "downvote", "flag", "flag", "flag", "flag",
+            "upvote", "upvote", "upvote", "upvote", "downvote", "downvote", "flag", "flag", "flag",
+            "flag",
         ]));
         assert!((score.truth - 0.4).abs() < 1e-9);
         assert!((score.falsity - 0.2).abs() < 1e-9);
@@ -2843,14 +2852,16 @@ mod tif_tests {
 
     #[test]
     fn positive_alias() {
-        let score = TifScore::from_feedback_history(&make_history(&["positive", "positive", "downvote"]));
+        let score =
+            TifScore::from_feedback_history(&make_history(&["positive", "positive", "downvote"]));
         assert!((score.truth - 2.0 / 3.0).abs() < 1e-9);
         assert!((score.falsity - 1.0 / 3.0).abs() < 1e-9);
     }
 
     #[test]
     fn negative_alias() {
-        let score = TifScore::from_feedback_history(&make_history(&["upvote", "negative", "negative"]));
+        let score =
+            TifScore::from_feedback_history(&make_history(&["upvote", "negative", "negative"]));
         assert!((score.falsity - 2.0 / 3.0).abs() < 1e-9);
     }
 
