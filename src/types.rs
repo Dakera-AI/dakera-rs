@@ -2973,8 +2973,7 @@ mod tif_tests {
 
     #[test]
     fn thin_evidence_three_upvotes_no_base() {
-        let score =
-            TifScore::from_feedback_history(&make_history(&["upvote", "upvote", "upvote"]));
+        let score = TifScore::from_feedback_history(&make_history(&["upvote", "upvote", "upvote"]));
         assert!((score.truth - 1.0).abs() < 1e-9);
         assert!((score.indeterminacy - 0.0).abs() < 1e-9);
         assert_eq!(score.classification, TifClassification::ConfidentReuse);
@@ -3011,8 +3010,7 @@ mod tif_tests {
 
     #[test]
     fn golden_three_upvotes() {
-        let s =
-            TifScore::from_feedback_history(&make_history(&["upvote", "upvote", "upvote"]));
+        let s = TifScore::from_feedback_history(&make_history(&["upvote", "upvote", "upvote"]));
         assert!((s.truth - 1.0).abs() < 1e-9);
         assert!((s.indeterminacy - 0.0).abs() < 1e-9);
         assert!((s.falsity - 0.0).abs() < 1e-9);
@@ -3025,10 +3023,7 @@ mod tif_tests {
         assert!((s.truth - 0.0).abs() < 1e-9);
         assert!((s.indeterminacy - 0.2).abs() < 1e-9);
         assert!((s.falsity - 0.8).abs() < 1e-9);
-        assert_eq!(
-            s.classification,
-            TifClassification::SurfaceContradiction
-        );
+        assert_eq!(s.classification, TifClassification::SurfaceContradiction);
     }
 
     #[test]
@@ -3060,10 +3055,7 @@ mod tif_tests {
         assert!((s.truth - 0.0).abs() < 1e-9);
         assert!((s.indeterminacy - 0.5).abs() < 1e-9);
         assert!((s.falsity - 0.5).abs() < 1e-9);
-        assert_eq!(
-            s.classification,
-            TifClassification::SurfaceContradiction
-        );
+        assert_eq!(s.classification, TifClassification::SurfaceContradiction);
     }
 }
 
