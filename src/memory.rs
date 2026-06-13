@@ -9,7 +9,7 @@ use crate::error::Result;
 use crate::types::{
     AgentFeedbackSummary, EdgeType, FeedbackHealthResponse, FeedbackHistoryResponse,
     FeedbackResponse, FeedbackSignal, GraphExport, GraphLinkRequest, GraphLinkResponse,
-    GraphOptions, GraphPath, MemoryFeedbackBody, MemoryGraph, MemoryImportancePatch,
+    GraphOptions, GraphPath, MemoryFeedbackBody, MemoryGraph, MemoryImportancePatch, TifScore,
 };
 use crate::DakeraClient;
 
@@ -1346,6 +1346,18 @@ impl DakeraClient {
         let url = format!("{}/v1/memories/{}/feedback", self.base_url, memory_id);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
+    }
+
+    /// Compute a T-I-F reliability score for a memory (T-I-F RFC Phase 3).
+    ///
+    /// Fetches the full feedback history and reduces it to a [`TifScore`] with
+    /// truth/indeterminacy/falsity proportions and a [`TifClassification`] label.
+    ///
+    /// # Arguments
+    /// * `memory_id` – The memory to score.
+    pub async fn evaluate_tif(&self, memory_id: &str) -> Result<TifScore> {
+        let history = self.get_memory_feedback_history(memory_id).await?;
+        Ok(TifScore::from_feedback_history(&history))
     }
 
     /// Get aggregate feedback counts and health score for an agent (INT-1).
