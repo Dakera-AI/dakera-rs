@@ -2744,9 +2744,18 @@ impl TifScore {
             };
         }
         let total_f = total as f64;
-        let truth = upvotes as f64 / total_f;
-        let indeterminacy = flags as f64 / total_f;
-        let falsity = downvotes as f64 / total_f;
+        let base_indeterminacy = if total < 3 {
+            (3 - total) as f64 * 0.25
+        } else {
+            0.0
+        };
+        let mut truth = upvotes as f64 / total_f;
+        let mut falsity = downvotes as f64 / total_f;
+        let mut indeterminacy = flags as f64 / total_f + base_indeterminacy;
+        let sum = truth + falsity + indeterminacy;
+        truth /= sum;
+        falsity /= sum;
+        indeterminacy /= sum;
         Self {
             truth,
             indeterminacy,
@@ -2824,7 +2833,8 @@ mod tif_tests {
     #[test]
     fn all_downvotes() {
         let score = TifScore::from_feedback_history(&make_history(&["downvote", "downvote"]));
-        assert!((score.falsity - 1.0).abs() < 1e-9);
+        assert!((score.falsity - 0.8).abs() < 1e-9);
+        assert!((score.indeterminacy - 0.2).abs() < 1e-9);
         assert_eq!(
             score.classification,
             TifClassification::SurfaceContradiction
@@ -2939,6 +2949,120 @@ mod tif_tests {
         assert_eq!(
             TifClassification::VerifyBeforeUse.as_str(),
             "verify_before_use"
+        );
+    }
+
+    // ── Thin evidence ────────────────────────────────────────────────────
+
+    #[test]
+    fn thin_evidence_single_upvote_not_confident() {
+        let score = TifScore::from_feedback_history(&make_history(&["upvote"]));
+        assert!((score.truth + score.indeterminacy + score.falsity - 1.0).abs() < 1e-9);
+        assert!(score.indeterminacy > 0.0);
+        assert!(score.truth < 0.70);
+        assert_eq!(score.classification, TifClassification::VerifyBeforeUse);
+    }
+
+    #[test]
+    fn thin_evidence_two_upvotes_confident() {
+        let score = TifScore::from_feedback_history(&make_history(&["upvote", "upvote"]));
+        assert!((score.truth - 0.8).abs() < 1e-9);
+        assert!((score.indeterminacy - 0.2).abs() < 1e-9);
+        assert_eq!(score.classification, TifClassification::ConfidentReuse);
+    }
+
+    #[test]
+    fn thin_evidence_three_upvotes_no_base() {
+        let score =
+            TifScore::from_feedback_history(&make_history(&["upvote", "upvote", "upvote"]));
+        assert!((score.truth - 1.0).abs() < 1e-9);
+        assert!((score.indeterminacy - 0.0).abs() < 1e-9);
+        assert_eq!(score.classification, TifClassification::ConfidentReuse);
+    }
+
+    // ── Golden vectors (canonical T-I-F v1 contract) ─────────────────────
+
+    #[test]
+    fn golden_no_feedback() {
+        let s = TifScore::from_feedback_history(&make_history(&[]));
+        assert!((s.truth - 0.0).abs() < 1e-9);
+        assert!((s.indeterminacy - 1.0).abs() < 1e-9);
+        assert!((s.falsity - 0.0).abs() < 1e-9);
+        assert_eq!(s.classification, TifClassification::AskClarification);
+    }
+
+    #[test]
+    fn golden_one_upvote() {
+        let s = TifScore::from_feedback_history(&make_history(&["upvote"]));
+        assert!((s.truth - 2.0 / 3.0).abs() < 1e-4);
+        assert!((s.indeterminacy - 1.0 / 3.0).abs() < 1e-4);
+        assert!((s.falsity - 0.0).abs() < 1e-9);
+        assert_eq!(s.classification, TifClassification::VerifyBeforeUse);
+    }
+
+    #[test]
+    fn golden_two_upvotes() {
+        let s = TifScore::from_feedback_history(&make_history(&["upvote", "upvote"]));
+        assert!((s.truth - 0.8).abs() < 1e-9);
+        assert!((s.indeterminacy - 0.2).abs() < 1e-9);
+        assert!((s.falsity - 0.0).abs() < 1e-9);
+        assert_eq!(s.classification, TifClassification::ConfidentReuse);
+    }
+
+    #[test]
+    fn golden_three_upvotes() {
+        let s =
+            TifScore::from_feedback_history(&make_history(&["upvote", "upvote", "upvote"]));
+        assert!((s.truth - 1.0).abs() < 1e-9);
+        assert!((s.indeterminacy - 0.0).abs() < 1e-9);
+        assert!((s.falsity - 0.0).abs() < 1e-9);
+        assert_eq!(s.classification, TifClassification::ConfidentReuse);
+    }
+
+    #[test]
+    fn golden_two_downvotes() {
+        let s = TifScore::from_feedback_history(&make_history(&["downvote", "downvote"]));
+        assert!((s.truth - 0.0).abs() < 1e-9);
+        assert!((s.indeterminacy - 0.2).abs() < 1e-9);
+        assert!((s.falsity - 0.8).abs() < 1e-9);
+        assert_eq!(
+            s.classification,
+            TifClassification::SurfaceContradiction
+        );
+    }
+
+    #[test]
+    fn golden_two_flags() {
+        let s = TifScore::from_feedback_history(&make_history(&["flag", "flag"]));
+        assert!((s.truth - 0.0).abs() < 1e-9);
+        assert!((s.indeterminacy - 1.0).abs() < 1e-9);
+        assert!((s.falsity - 0.0).abs() < 1e-9);
+        assert_eq!(s.classification, TifClassification::AskClarification);
+    }
+
+    #[test]
+    fn golden_8up_1down_1flag() {
+        let s = TifScore::from_feedback_history(&make_history(&[
+            "upvote", "upvote", "upvote", "upvote", "upvote", "upvote", "upvote", "upvote",
+            "downvote", "flag",
+        ]));
+        assert!((s.truth - 0.8).abs() < 1e-9);
+        assert!((s.indeterminacy - 0.1).abs() < 1e-9);
+        assert!((s.falsity - 0.1).abs() < 1e-9);
+        assert_eq!(s.classification, TifClassification::ConfidentReuse);
+    }
+
+    #[test]
+    fn golden_3down_3flag() {
+        let s = TifScore::from_feedback_history(&make_history(&[
+            "downvote", "downvote", "downvote", "flag", "flag", "flag",
+        ]));
+        assert!((s.truth - 0.0).abs() < 1e-9);
+        assert!((s.indeterminacy - 0.5).abs() < 1e-9);
+        assert!((s.falsity - 0.5).abs() < 1e-9);
+        assert_eq!(
+            s.classification,
+            TifClassification::SurfaceContradiction
         );
     }
 }
