@@ -3399,7 +3399,7 @@ pub struct NodeReplicationLag {
     pub status: String,
 }
 
-/// Response from `GET /admin/cluster/replication`.
+/// Response from `GET /v1/admin/cluster/replication`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplicationStatus {
     pub replication_factor: u32,
@@ -3422,14 +3422,14 @@ pub struct ShardInfo {
     pub size_bytes: u64,
 }
 
-/// Response from `GET /admin/cluster/shards`.
+/// Response from `GET /v1/admin/cluster/shards`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShardListResponse {
     pub shards: Vec<ShardInfo>,
     pub total: u32,
 }
 
-/// Request for `POST /admin/cluster/shards/rebalance`.
+/// Request for `POST /v1/admin/cluster/shards/rebalance`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ShardRebalanceRequest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -3446,7 +3446,7 @@ pub struct ShardMove {
     pub to_node: String,
 }
 
-/// Response from `POST /admin/cluster/shards/rebalance`.
+/// Response from `POST /v1/admin/cluster/shards/rebalance`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShardRebalanceResponse {
     pub initiated: bool,
@@ -3458,7 +3458,7 @@ pub struct ShardRebalanceResponse {
     pub planned_moves: Vec<ShardMove>,
 }
 
-/// Response from `GET /admin/cluster/maintenance`.
+/// Response from `GET /v1/admin/cluster/maintenance`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaintenanceStatus {
     pub enabled: bool,
@@ -3473,7 +3473,7 @@ pub struct MaintenanceStatus {
     pub rejecting_requests: bool,
 }
 
-/// Request for `POST /admin/cluster/maintenance/enable`.
+/// Request for `POST /v1/admin/cluster/maintenance/enable`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnableMaintenanceRequest {
     pub reason: String,
@@ -3485,7 +3485,7 @@ pub struct EnableMaintenanceRequest {
     pub duration_minutes: Option<u32>,
 }
 
-/// Request for `POST /admin/cluster/maintenance/disable`.
+/// Request for `POST /v1/admin/cluster/maintenance/disable`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DisableMaintenanceRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3534,7 +3534,7 @@ pub struct QuotaStatus {
     pub exceeded_quotas: Vec<String>,
 }
 
-/// Response from `GET /admin/quotas`.
+/// Response from `GET /v1/admin/quotas`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuotaListResponse {
     pub quotas: Vec<QuotaStatus>,
@@ -3543,25 +3543,25 @@ pub struct QuotaListResponse {
     pub default_config: Option<QuotaConfig>,
 }
 
-/// Response from `GET /admin/quotas/default`.
+/// Response from `GET /v1/admin/quotas/default`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultQuotaResponse {
     pub config: Option<QuotaConfig>,
 }
 
-/// Request for `PUT /admin/quotas/default`.
+/// Request for `PUT /v1/admin/quotas/default`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SetDefaultQuotaRequest {
     pub config: Option<QuotaConfig>,
 }
 
-/// Request for `PUT /admin/quotas/{namespace}`.
+/// Request for `PUT /v1/admin/quotas/{namespace}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetQuotaRequest {
     pub config: QuotaConfig,
 }
 
-/// Response from `PUT /admin/quotas`.
+/// Response from `PUT /v1/admin/quotas`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetQuotaResponse {
     pub success: bool,
@@ -3570,7 +3570,7 @@ pub struct SetQuotaResponse {
     pub message: String,
 }
 
-/// Request for `POST /admin/quotas/{namespace}/check`.
+/// Request for `POST /v1/admin/quotas/{namespace}/check`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuotaCheckRequest {
     pub vector_ids: Vec<String>,
@@ -3580,7 +3580,7 @@ pub struct QuotaCheckRequest {
     pub metadata_bytes: Option<usize>,
 }
 
-/// Response from `POST /admin/quotas/{namespace}/check`.
+/// Response from `POST /v1/admin/quotas/{namespace}/check`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuotaCheckResult {
     pub allowed: bool,
@@ -3616,14 +3616,14 @@ pub struct AdminBackupInfo {
     pub compression: Option<String>,
 }
 
-/// Response from `GET /admin/backups`.
+/// Response from `GET /v1/admin/backups`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupListResponse {
     pub backups: Vec<AdminBackupInfo>,
     pub total: u64,
 }
 
-/// Request for `POST /admin/backups`.
+/// Request for `POST /v1/admin/backups`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateBackupRequest {
     pub name: String,
@@ -3637,7 +3637,7 @@ pub struct CreateBackupRequest {
     pub compression: Option<String>,
 }
 
-/// Response from `POST /admin/backups`.
+/// Response from `POST /v1/admin/backups`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateBackupResponse {
     pub backup: AdminBackupInfo,
@@ -3645,7 +3645,7 @@ pub struct CreateBackupResponse {
     pub estimated_completion: Option<u64>,
 }
 
-/// Request for `POST /admin/backups/restore`.
+/// Request for `POST /v1/admin/backups/restore`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestoreBackupRequest {
     pub backup_id: String,
@@ -3657,7 +3657,7 @@ pub struct RestoreBackupRequest {
     pub point_in_time: Option<u64>,
 }
 
-/// Response from `POST /admin/backups/restore`.
+/// Response from `POST /v1/admin/backups/restore`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestoreBackupResponse {
     pub restore_id: String,
@@ -3700,7 +3700,7 @@ pub struct BackupSchedule {
     pub next_backup_at: Option<u64>,
 }
 
-/// Request for `POST /admin/backups/schedule`.
+/// Request for `POST /v1/admin/backups/schedule`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateBackupScheduleRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3802,7 +3802,7 @@ pub struct ImportJobStatus {
 }
 
 // ============================================================================
-// Storage Tier Overview (GET /admin/storage/tiers)
+// Storage Tier Overview (GET /v1/admin/storage/tiers)
 // ============================================================================
 
 /// Information about a single storage tier.
@@ -3865,7 +3865,7 @@ pub struct TierActivity {
     pub demotions_to_cold: u64,
 }
 
-/// Overview of the tiered storage system from `GET /admin/storage/tiers`.
+/// Overview of the tiered storage system from `GET /v1/admin/storage/tiers`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageTierOverview {
     /// Whether tiered storage is enabled.
@@ -3879,10 +3879,10 @@ pub struct StorageTierOverview {
 }
 
 // ============================================================================
-// Memory Type Stats (GET /admin/memory-type-stats)
+// Memory Type Stats (GET /v1/admin/memory-type-stats)
 // ============================================================================
 
-/// Per-type memory statistics from `GET /admin/memory-type-stats`.
+/// Per-type memory statistics from `GET /v1/admin/memory-type-stats`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryTypeStatsResponse {
     /// Total number of memories.
@@ -3900,14 +3900,14 @@ pub struct MemoryTypeStatsResponse {
 }
 
 // ============================================================================
-// Migrate Namespace Dimensions (POST /admin/namespaces/migrate-dimensions)
+// Migrate Namespace Dimensions (POST /v1/admin/namespaces/migrate-dimensions)
 // ============================================================================
 
 fn default_target_dimension() -> usize {
     1024
 }
 
-/// Request for `POST /admin/namespaces/migrate-dimensions`.
+/// Request for `POST /v1/admin/namespaces/migrate-dimensions`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrateNamespaceDimensionsRequest {
     /// Namespaces to migrate (empty = all).
@@ -3936,7 +3936,7 @@ pub struct NamespaceMigrationResult {
     pub error: Option<String>,
 }
 
-/// Response from `POST /admin/namespaces/migrate-dimensions`.
+/// Response from `POST /v1/admin/namespaces/migrate-dimensions`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrateDimensionsResponse {
     /// Number of namespaces successfully migrated.
@@ -3949,7 +3949,7 @@ pub struct MigrateDimensionsResponse {
     pub results: Vec<NamespaceMigrationResult>,
 }
 
-/// Request body for `POST /admin/reembed/drain` (v0.11.82+). All fields optional.
+/// Request body for `POST /v1/admin/reembed/drain` (v0.11.82+). All fields optional.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DrainReembedRequest {
     /// Hard wall-clock cap in seconds (default 600).
@@ -3963,7 +3963,7 @@ pub struct DrainReembedRequest {
     pub min_importance: Option<f32>,
 }
 
-/// Response from `POST /admin/reembed/drain` (v0.11.82+).
+/// Response from `POST /v1/admin/reembed/drain` (v0.11.82+).
 ///
 /// A [`remaining`][DrainReembedResponse::remaining] of `0` means all
 /// `_embedding_kind=static` vectors have been upgraded to full ONNX quality.
