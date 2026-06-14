@@ -86,6 +86,14 @@ dakera-client = { version = "0.11", features = ["grpc"] }
 ## Quick Start
 
 ```rust
+// Cargo.toml: dakera-client = "0.11"
+let client = DakeraClient::builder("http://localhost:3000").api_key("dk-mykey").build()?;
+client.store_memory(StoreMemoryRequest { agent_id: "my-agent".into(), content: "User prefers brevity".into(), ..Default::default() }).await?;
+```
+
+Full example — store, recall, upsert, and hybrid search:
+
+```rust
 use dakera_client::{DakeraClient, StoreMemoryRequest, RecallRequest};
 
 #[tokio::main]
