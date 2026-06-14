@@ -17,7 +17,7 @@ use dakera_client::{
 async fn test_autopilot_status_gets_correct_endpoint() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/autopilot/status")
+        .mock("GET", "/v1/admin/autopilot/status")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -54,7 +54,7 @@ async fn test_autopilot_status_gets_correct_endpoint() {
 async fn test_autopilot_update_config_puts_correct_endpoint() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("PUT", "/admin/autopilot/config")
+        .mock("PUT", "/v1/admin/autopilot/config")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -92,7 +92,7 @@ async fn test_autopilot_update_config_omits_unset_fields() {
     let mut server = mockito::Server::new_async().await;
     // Verify the request body only contains the field we set
     let mock = server
-        .mock("PUT", "/admin/autopilot/config")
+        .mock("PUT", "/v1/admin/autopilot/config")
         .match_body(mockito::Matcher::PartialJsonString(
             r#"{"dedup_interval_hours":4}"#.to_string(),
         ))
@@ -120,7 +120,7 @@ async fn test_autopilot_update_config_omits_unset_fields() {
 async fn test_autopilot_trigger_dedup() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/autopilot/trigger")
+        .mock("POST", "/v1/admin/autopilot/trigger")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -156,7 +156,7 @@ async fn test_autopilot_trigger_dedup() {
 async fn test_autopilot_trigger_all_returns_both_results() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/autopilot/trigger")
+        .mock("POST", "/v1/admin/autopilot/trigger")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -201,7 +201,7 @@ async fn test_autopilot_trigger_all_returns_both_results() {
 async fn test_decay_config_gets_correct_endpoint() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/decay/config")
+        .mock("GET", "/v1/admin/decay/config")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -227,7 +227,7 @@ async fn test_decay_config_gets_correct_endpoint() {
 async fn test_decay_update_config_puts_correct_endpoint() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("PUT", "/admin/decay/config")
+        .mock("PUT", "/v1/admin/decay/config")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -262,7 +262,7 @@ async fn test_decay_update_config_puts_correct_endpoint() {
 async fn test_decay_update_config_omits_unset_fields() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("PUT", "/admin/decay/config")
+        .mock("PUT", "/v1/admin/decay/config")
         .match_body(mockito::Matcher::PartialJsonString(
             r#"{"min_importance":0.02}"#.to_string(),
         ))
@@ -290,7 +290,7 @@ async fn test_decay_update_config_omits_unset_fields() {
 async fn test_decay_stats_gets_correct_endpoint() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/decay/stats")
+        .mock("GET", "/v1/admin/decay/stats")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -326,7 +326,7 @@ async fn test_decay_stats_gets_correct_endpoint() {
 async fn test_decay_stats_handles_never_run_state() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/decay/stats")
+        .mock("GET", "/v1/admin/decay/stats")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"total_decayed": 0, "total_deleted": 0, "cycles_run": 0}"#)
