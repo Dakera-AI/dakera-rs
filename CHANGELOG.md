@@ -21,6 +21,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`DakeraClient::evaluate_tif(memory_id: &str) -> Result<TifScore, DakeraError>`** —
   fetches feedback history and returns a `TifScore` in one call.
 
+## [0.11.90] - 2026-06-14
+
+### Added
+
+- **`async fn batch_recall(&self, request: BatchRecallRequest) -> Result<BatchRecallResponse>`**
+  — filter-based memory listing by agent, tags, importance range, time window, or session
+  id. Returns paginated results without a query string. Useful for listing all memories
+  for an agent or inspecting session contents. (API: `POST /recall/batch`)
+- **`async fn hybrid_search(&self, namespace, query, opts) -> Result<Vec<HybridSearchResult>>`**
+  — BM25 full-text + HNSW vector similarity search in a single call. Pass a `query`
+  `&str` for server-side ONNX auto-embedding, or supply a pre-computed `vector` in
+  `HybridSearchOptions`. The `alpha` parameter (0.0–1.0) controls BM25/vector blend.
+  (API: `POST /namespaces/{ns}/search/hybrid`)
+- **`async fn store_memories_batch(&self, request: BatchStoreMemoryRequest) -> Result<BatchStoreMemoryResponse>`**
+  — batch ingest of multiple memory records in one HTTP request. Response contains
+  `stored`, `failed`, and per-item `errors`. (API: `POST /memories/batch`)
+- **`async fn autopilot_status(&self) -> Result<AutoPilotStatusResponse>`**,
+  **`async fn autopilot_update_config(&self, request: AutoPilotConfigRequest) -> Result<AutoPilotConfigResponse>`**,
+  **`async fn autopilot_trigger(&self, action: &str) -> Result<AutoPilotTriggerResponse>`**
+  — read and control the server's Autopilot dedup/consolidation engine.
+  (API: `GET/POST /admin/autopilot/*`)
+- **`async fn decay_config(&self) -> Result<DecayConfigResponse>`**,
+  **`async fn decay_update_config(&self, request: DecayConfigUpdateRequest) -> Result<DecayConfigUpdateResponse>`**,
+  **`async fn decay_stats(&self) -> Result<DecayStatsResponse>`** — introspect and tune
+  the decay engine at runtime. `decay_stats()` reports `memories_decayed`,
+  `total_decayed`, `total_hard_deleted`, `last_decay_at`, and `cycles_completed`.
+  (API: `GET/POST /admin/decay/*`)
+- **`BatchRecallRequest`, `BatchRecallResponse`, `HybridSearchResult`,
+  `BatchStoreMemoryRequest`, `BatchStoreMemoryResponse`, `AutoPilotStatusResponse`,
+  `AutoPilotConfigRequest`, `AutoPilotConfigResponse`, `AutoPilotTriggerResponse`,
+  `DecayConfigResponse`, `DecayConfigUpdateRequest`, `DecayConfigUpdateResponse`,
+  `DecayStatsResponse`** — new public types re-exported from `dakera_client`.
+
+### Documentation
+
+- **Quickstart README overhaul** — added a minimal 3-line quickstart at the top of the
+  README so new users can reach their first `store_memory` / `recall` in under 60 seconds.
+
 ## [0.11.89] - 2026-06-11
 
 ### Changed
