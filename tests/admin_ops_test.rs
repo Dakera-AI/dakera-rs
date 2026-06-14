@@ -226,7 +226,7 @@ async fn test_ops_shutdown() {
 async fn test_cluster_status() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/cluster/status")
+        .mock("GET", "/v1/admin/cluster/status")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -295,7 +295,7 @@ async fn test_ops_stats() {
 async fn test_cache_stats() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/cache/stats")
+        .mock("GET", "/v1/admin/cache/stats")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -326,7 +326,7 @@ async fn test_cache_stats() {
 async fn test_cache_clear() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/cache/clear")
+        .mock("POST", "/v1/admin/cache/clear")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"success":true,"entries_cleared":512,"message":"Cache cleared"}"#)
@@ -348,7 +348,7 @@ async fn test_cache_clear() {
 async fn test_list_backups() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/backups")
+        .mock("GET", "/v1/admin/backups")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -382,7 +382,7 @@ async fn test_list_backups() {
 async fn test_create_backup() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/backups")
+        .mock("POST", "/v1/admin/backups")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -427,7 +427,7 @@ async fn test_download_backup() {
     let mut server = mockito::Server::new_async().await;
     let data = vec![0x1f, 0x8b, 0x08, 0x00]; // fake gzip header
     let mock = server
-        .mock("GET", "/admin/backups/bk-42/download")
+        .mock("GET", "/v1/admin/backups/bk-42/download")
         .with_status(200)
         .with_header("content-type", "application/gzip")
         .with_body(data.clone())
@@ -444,7 +444,7 @@ async fn test_download_backup() {
 async fn test_upload_backup() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/backups/upload")
+        .mock("POST", "/v1/admin/backups/upload")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -480,7 +480,7 @@ async fn test_upload_backup() {
 async fn test_storage_tier_overview() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/storage/tiers")
+        .mock("GET", "/v1/admin/storage/tiers")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -508,7 +508,7 @@ async fn test_storage_tier_overview() {
 async fn test_background_activity() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/background-activity")
+        .mock("GET", "/v1/admin/background-activity")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"active_tasks":3,"completed_tasks":42,"failed_tasks":1}"#)
@@ -530,7 +530,7 @@ async fn test_background_activity() {
 async fn test_memory_type_stats() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/memory-type-stats")
+        .mock("GET", "/v1/admin/memory-type-stats")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -563,7 +563,7 @@ async fn test_memory_type_stats() {
 async fn test_migrate_namespace_dimensions() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/namespaces/migrate-dimensions")
+        .mock("POST", "/v1/admin/namespaces/migrate-dimensions")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -600,7 +600,7 @@ async fn test_migrate_namespace_dimensions() {
 async fn test_autopilot_status() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/autopilot/status")
+        .mock("GET", "/v1/admin/autopilot/status")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -634,7 +634,7 @@ async fn test_autopilot_status() {
 async fn test_decay_config() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/decay/config")
+        .mock("GET", "/v1/admin/decay/config")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"strategy":"exponential","half_life_hours":168.0,"min_importance":0.05}"#)
@@ -653,7 +653,7 @@ async fn test_decay_config() {
 async fn test_decay_stats() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/decay/stats")
+        .mock("GET", "/v1/admin/decay/stats")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -718,7 +718,7 @@ async fn test_get_kpis() {
 async fn test_admin_fulltext_reindex() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/fulltext/reindex")
+        .mock("POST", "/v1/admin/fulltext/reindex")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -753,7 +753,7 @@ async fn test_admin_fulltext_reindex() {
 async fn test_cluster_status_authorization_error() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/admin/cluster/status")
+        .mock("GET", "/v1/admin/cluster/status")
         .with_status(403)
         .with_header("content-type", "application/json")
         .with_body(r#"{"error":"Admin scope required","code":"AUTHORIZATION_ERROR"}"#)
@@ -777,7 +777,7 @@ async fn test_cluster_status_authorization_error() {
 async fn test_drain_reembed_full_drain() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/reembed/drain")
+        .mock("POST", "/v1/admin/reembed/drain")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -802,7 +802,7 @@ async fn test_drain_reembed_full_drain() {
 async fn test_drain_reembed_forwards_params() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/reembed/drain")
+        .mock("POST", "/v1/admin/reembed/drain")
         .match_body(mockito::Matcher::PartialJsonString(
             r#"{"timeout_secs":600,"batch_size":5000}"#.to_string(),
         ))
@@ -830,7 +830,7 @@ async fn test_drain_reembed_forwards_params() {
 async fn test_drain_reembed_requires_admin_scope() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/admin/reembed/drain")
+        .mock("POST", "/v1/admin/reembed/drain")
         .with_status(403)
         .with_header("content-type", "application/json")
         .with_body(r#"{"error":"Admin scope required","code":"AUTHORIZATION_ERROR"}"#)

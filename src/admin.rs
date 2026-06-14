@@ -682,7 +682,10 @@ impl DakeraClient {
         namespace: &str,
         request: OptimizeRequest,
     ) -> Result<OptimizeResponse> {
-        let url = format!("{}/v1/admin/namespaces/{}/optimize", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/namespaces/{}/optimize",
+            self.base_url, namespace
+        );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
