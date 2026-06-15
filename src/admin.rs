@@ -646,14 +646,14 @@ impl DakeraClient {
 
     /// Get cluster status overview
     pub async fn cluster_status(&self) -> Result<ClusterStatus> {
-        let url = format!("{}/admin/cluster/status", self.base_url);
+        let url = format!("{}/v1/admin/cluster/status", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// List cluster nodes
     pub async fn cluster_nodes(&self) -> Result<NodeListResponse> {
-        let url = format!("{}/admin/cluster/nodes", self.base_url);
+        let url = format!("{}/v1/admin/cluster/nodes", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -664,14 +664,14 @@ impl DakeraClient {
 
     /// List all namespaces with detailed admin statistics
     pub async fn list_namespaces_admin(&self) -> Result<NamespaceListResponse> {
-        let url = format!("{}/admin/namespaces", self.base_url);
+        let url = format!("{}/v1/admin/namespaces", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// Delete an entire namespace and all its data
     pub async fn delete_namespace_admin(&self, namespace: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/namespaces/{}", self.base_url, namespace);
+        let url = format!("{}/v1/admin/namespaces/{}", self.base_url, namespace);
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
@@ -682,7 +682,10 @@ impl DakeraClient {
         namespace: &str,
         request: OptimizeRequest,
     ) -> Result<OptimizeResponse> {
-        let url = format!("{}/admin/namespaces/{}/optimize", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/namespaces/{}/optimize",
+            self.base_url, namespace
+        );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -693,7 +696,7 @@ impl DakeraClient {
 
     /// Get index statistics for all namespaces
     pub async fn index_stats(&self) -> Result<IndexStatsResponse> {
-        let url = format!("{}/admin/indexes/stats", self.base_url);
+        let url = format!("{}/v1/admin/indexes/stats", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -703,7 +706,7 @@ impl DakeraClient {
         &self,
         request: RebuildIndexRequest,
     ) -> Result<RebuildIndexResponse> {
-        let url = format!("{}/admin/indexes/rebuild", self.base_url);
+        let url = format!("{}/v1/admin/indexes/rebuild", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -714,14 +717,14 @@ impl DakeraClient {
 
     /// Get cache statistics
     pub async fn cache_stats(&self) -> Result<CacheStats> {
-        let url = format!("{}/admin/cache/stats", self.base_url);
+        let url = format!("{}/v1/admin/cache/stats", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// Clear cache, optionally for a specific namespace
     pub async fn cache_clear(&self, namespace: Option<&str>) -> Result<ClearCacheResponse> {
-        let url = format!("{}/admin/cache/clear", self.base_url);
+        let url = format!("{}/v1/admin/cache/clear", self.base_url);
         let request = ClearCacheRequest {
             namespace: namespace.map(|s| s.to_string()),
         };
@@ -735,7 +738,7 @@ impl DakeraClient {
 
     /// Get runtime configuration
     pub async fn get_config(&self) -> Result<RuntimeConfig> {
-        let url = format!("{}/admin/config", self.base_url);
+        let url = format!("{}/v1/admin/config", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -745,7 +748,7 @@ impl DakeraClient {
         &self,
         updates: HashMap<String, serde_json::Value>,
     ) -> Result<UpdateConfigResponse> {
-        let url = format!("{}/admin/config", self.base_url);
+        let url = format!("{}/v1/admin/config", self.base_url);
         let response = self.client.put(&url).json(&updates).send().await?;
         self.handle_response(response).await
     }
@@ -756,14 +759,14 @@ impl DakeraClient {
 
     /// List all namespace quotas
     pub async fn get_quotas(&self) -> Result<QuotaListResponse> {
-        let url = format!("{}/admin/quotas", self.base_url);
+        let url = format!("{}/v1/admin/quotas", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// Get quota for a specific namespace
     pub async fn get_quota(&self, namespace: &str) -> Result<QuotaStatus> {
-        let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
+        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -774,7 +777,7 @@ impl DakeraClient {
         namespace: &str,
         config: QuotaConfig,
     ) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
+        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
         let request = serde_json::json!({ "config": config });
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -782,14 +785,14 @@ impl DakeraClient {
 
     /// Delete quota for a specific namespace
     pub async fn delete_quota(&self, namespace: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
+        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// Update quotas (alias for set_quota on default)
     pub async fn update_quotas(&self, config: Option<QuotaConfig>) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/quotas/default", self.base_url);
+        let url = format!("{}/v1/admin/quotas/default", self.base_url);
         let request = serde_json::json!({ "config": config });
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -806,7 +809,7 @@ impl DakeraClient {
         namespace: Option<&str>,
         query_type: Option<&str>,
     ) -> Result<SlowQueryListResponse> {
-        let mut url = format!("{}/admin/slow-queries", self.base_url);
+        let mut url = format!("{}/v1/admin/slow-queries", self.base_url);
         let mut params = Vec::new();
         if let Some(l) = limit {
             params.push(format!("limit={}", l));
@@ -827,14 +830,14 @@ impl DakeraClient {
 
     /// Get slow query summary and patterns
     pub async fn slow_query_summary(&self) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/slow-queries/summary", self.base_url);
+        let url = format!("{}/v1/admin/slow-queries/summary", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// Clear slow query log
     pub async fn clear_slow_queries(&self) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/slow-queries", self.base_url);
+        let url = format!("{}/v1/admin/slow-queries", self.base_url);
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
@@ -848,21 +851,21 @@ impl DakeraClient {
         &self,
         request: CreateBackupRequest,
     ) -> Result<CreateBackupResponse> {
-        let url = format!("{}/admin/backups", self.base_url);
+        let url = format!("{}/v1/admin/backups", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
     /// List all backups
     pub async fn list_backups(&self) -> Result<BackupListResponse> {
-        let url = format!("{}/admin/backups", self.base_url);
+        let url = format!("{}/v1/admin/backups", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// Get backup details by ID
     pub async fn get_backup(&self, backup_id: &str) -> Result<BackupInfo> {
-        let url = format!("{}/admin/backups/{}", self.base_url, backup_id);
+        let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -872,14 +875,14 @@ impl DakeraClient {
         &self,
         request: RestoreBackupRequest,
     ) -> Result<RestoreBackupResponse> {
-        let url = format!("{}/admin/backups/restore", self.base_url);
+        let url = format!("{}/v1/admin/backups/restore", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
     /// Delete a backup
     pub async fn delete_backup(&self, backup_id: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/backups/{}", self.base_url, backup_id);
+        let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
@@ -906,7 +909,7 @@ impl DakeraClient {
 
     /// Run TTL cleanup on expired vectors
     pub async fn ttl_cleanup(&self, namespace: Option<&str>) -> Result<TtlCleanupResponse> {
-        let url = format!("{}/admin/ttl/cleanup", self.base_url);
+        let url = format!("{}/v1/admin/ttl/cleanup", self.base_url);
         let request = TtlCleanupRequest {
             namespace: namespace.map(|s| s.to_string()),
         };
@@ -916,7 +919,7 @@ impl DakeraClient {
 
     /// Get TTL statistics
     pub async fn ttl_stats(&self) -> Result<TtlStatsResponse> {
-        let url = format!("{}/admin/ttl/stats", self.base_url);
+        let url = format!("{}/v1/admin/ttl/stats", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -927,7 +930,7 @@ impl DakeraClient {
 
     /// Get AutoPilot status: current config and last-run statistics (PILOT-1)
     pub async fn autopilot_status(&self) -> Result<AutoPilotStatusResponse> {
-        let url = format!("{}/admin/autopilot/status", self.base_url);
+        let url = format!("{}/v1/admin/autopilot/status", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -939,7 +942,7 @@ impl DakeraClient {
         &self,
         request: AutoPilotConfigRequest,
     ) -> Result<AutoPilotConfigResponse> {
-        let url = format!("{}/admin/autopilot/config", self.base_url);
+        let url = format!("{}/v1/admin/autopilot/config", self.base_url);
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -952,7 +955,7 @@ impl DakeraClient {
         &self,
         action: AutoPilotTriggerAction,
     ) -> Result<AutoPilotTriggerResponse> {
-        let url = format!("{}/admin/autopilot/trigger", self.base_url);
+        let url = format!("{}/v1/admin/autopilot/trigger", self.base_url);
         let request = AutoPilotTriggerRequest { action };
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -967,7 +970,7 @@ impl DakeraClient {
     /// Returns the active strategy, half-life, and minimum importance threshold.
     /// Requires Admin scope.
     pub async fn decay_config(&self) -> Result<DecayConfigResponse> {
-        let url = format!("{}/admin/decay/config", self.base_url);
+        let url = format!("{}/v1/admin/decay/config", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -981,7 +984,7 @@ impl DakeraClient {
         &self,
         request: DecayConfigUpdateRequest,
     ) -> Result<DecayConfigUpdateResponse> {
-        let url = format!("{}/admin/decay/config", self.base_url);
+        let url = format!("{}/v1/admin/decay/config", self.base_url);
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -991,7 +994,7 @@ impl DakeraClient {
     /// Returns cumulative totals (memories decayed/deleted, cycles run) and
     /// per-cycle statistics from the most recent run. Requires Admin scope.
     pub async fn decay_stats(&self) -> Result<DecayStatsResponse> {
-        let url = format!("{}/admin/decay/stats", self.base_url);
+        let url = format!("{}/v1/admin/decay/stats", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1026,7 +1029,7 @@ impl DakeraClient {
         &self,
         namespace: Option<&str>,
     ) -> Result<FulltextReindexResponse> {
-        let url = format!("{}/admin/fulltext/reindex", self.base_url);
+        let url = format!("{}/v1/admin/fulltext/reindex", self.base_url);
         let body = serde_json::json!({ "namespace": namespace });
         let response = self.client.post(&url).json(&body).send().await?;
         self.handle_response(response).await
@@ -1038,14 +1041,14 @@ impl DakeraClient {
 
     /// GET /admin/cluster/replication — cluster replication status.
     pub async fn admin_cluster_replication(&self) -> Result<crate::types::ReplicationStatus> {
-        let url = format!("{}/admin/cluster/replication", self.base_url);
+        let url = format!("{}/v1/admin/cluster/replication", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// GET /admin/cluster/shards — list shards.
     pub async fn admin_list_shards(&self) -> Result<crate::types::ShardListResponse> {
-        let url = format!("{}/admin/cluster/shards", self.base_url);
+        let url = format!("{}/v1/admin/cluster/shards", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1055,14 +1058,14 @@ impl DakeraClient {
         &self,
         request: crate::types::ShardRebalanceRequest,
     ) -> Result<crate::types::ShardRebalanceResponse> {
-        let url = format!("{}/admin/cluster/shards/rebalance", self.base_url);
+        let url = format!("{}/v1/admin/cluster/shards/rebalance", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
     /// GET /admin/cluster/maintenance — maintenance mode status.
     pub async fn admin_maintenance_status(&self) -> Result<crate::types::MaintenanceStatus> {
-        let url = format!("{}/admin/cluster/maintenance", self.base_url);
+        let url = format!("{}/v1/admin/cluster/maintenance", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1072,7 +1075,7 @@ impl DakeraClient {
         &self,
         request: crate::types::EnableMaintenanceRequest,
     ) -> Result<crate::types::MaintenanceStatus> {
-        let url = format!("{}/admin/cluster/maintenance/enable", self.base_url);
+        let url = format!("{}/v1/admin/cluster/maintenance/enable", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -1082,7 +1085,7 @@ impl DakeraClient {
         &self,
         request: crate::types::DisableMaintenanceRequest,
     ) -> Result<crate::types::MaintenanceStatus> {
-        let url = format!("{}/admin/cluster/maintenance/disable", self.base_url);
+        let url = format!("{}/v1/admin/cluster/maintenance/disable", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -1093,14 +1096,14 @@ impl DakeraClient {
 
     /// GET /admin/quotas — list all namespace quotas.
     pub async fn admin_list_quotas(&self) -> Result<crate::types::QuotaListResponse> {
-        let url = format!("{}/admin/quotas", self.base_url);
+        let url = format!("{}/v1/admin/quotas", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// GET /admin/quotas/default — get default quota configuration.
     pub async fn admin_get_default_quota(&self) -> Result<crate::types::DefaultQuotaResponse> {
-        let url = format!("{}/admin/quotas/default", self.base_url);
+        let url = format!("{}/v1/admin/quotas/default", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1110,14 +1113,14 @@ impl DakeraClient {
         &self,
         request: crate::types::SetDefaultQuotaRequest,
     ) -> Result<crate::types::SetQuotaResponse> {
-        let url = format!("{}/admin/quotas/default", self.base_url);
+        let url = format!("{}/v1/admin/quotas/default", self.base_url);
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
     /// GET /admin/quotas/{namespace} — get namespace quota.
     pub async fn admin_get_quota(&self, namespace: &str) -> Result<crate::types::QuotaStatus> {
-        let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
+        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1128,14 +1131,14 @@ impl DakeraClient {
         namespace: &str,
         request: crate::types::SetQuotaRequest,
     ) -> Result<crate::types::SetQuotaResponse> {
-        let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
+        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
     /// DELETE /admin/quotas/{namespace} — remove namespace quota.
     pub async fn admin_delete_quota(&self, namespace: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/quotas/{}", self.base_url, namespace);
+        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1146,7 +1149,7 @@ impl DakeraClient {
         namespace: &str,
         request: crate::types::QuotaCheckRequest,
     ) -> Result<crate::types::QuotaCheckResult> {
-        let url = format!("{}/admin/quotas/{}/check", self.base_url, namespace);
+        let url = format!("{}/v1/admin/quotas/{}/check", self.base_url, namespace);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -1162,7 +1165,7 @@ impl DakeraClient {
         query_type: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<serde_json::Value>> {
-        let mut url = format!("{}/admin/slow-queries", self.base_url);
+        let mut url = format!("{}/v1/admin/slow-queries", self.base_url);
         let mut params = Vec::new();
         if let Some(ns) = namespace {
             params.push(format!("namespace={}", ns));
@@ -1183,7 +1186,7 @@ impl DakeraClient {
 
     /// GET /admin/slow-queries/summary — slow query summary.
     pub async fn admin_slow_query_summary(&self) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/slow-queries/summary", self.base_url);
+        let url = format!("{}/v1/admin/slow-queries/summary", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1193,7 +1196,7 @@ impl DakeraClient {
         &self,
         namespace: Option<&str>,
     ) -> Result<serde_json::Value> {
-        let mut url = format!("{}/admin/slow-queries", self.base_url);
+        let mut url = format!("{}/v1/admin/slow-queries", self.base_url);
         if let Some(ns) = namespace {
             url.push_str(&format!("?namespace={}", ns));
         }
@@ -1206,7 +1209,7 @@ impl DakeraClient {
         &self,
         config: serde_json::Value,
     ) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/slow-queries/config", self.base_url);
+        let url = format!("{}/v1/admin/slow-queries/config", self.base_url);
         let response = self.client.patch(&url).json(&config).send().await?;
         self.handle_response(response).await
     }
@@ -1217,7 +1220,7 @@ impl DakeraClient {
 
     /// GET /admin/backups — list all backups.
     pub async fn admin_list_backups(&self) -> Result<crate::types::BackupListResponse> {
-        let url = format!("{}/admin/backups", self.base_url);
+        let url = format!("{}/v1/admin/backups", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1227,28 +1230,28 @@ impl DakeraClient {
         &self,
         request: crate::types::CreateBackupRequest,
     ) -> Result<crate::types::CreateBackupResponse> {
-        let url = format!("{}/admin/backups", self.base_url);
+        let url = format!("{}/v1/admin/backups", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
     /// GET /admin/backups/{id} — get backup details.
     pub async fn admin_get_backup(&self, backup_id: &str) -> Result<crate::types::AdminBackupInfo> {
-        let url = format!("{}/admin/backups/{}", self.base_url, backup_id);
+        let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// DELETE /admin/backups/{id} — delete a backup.
     pub async fn admin_delete_backup(&self, backup_id: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/backups/{}", self.base_url, backup_id);
+        let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// GET /admin/backups/schedule — get backup schedule.
     pub async fn admin_get_backup_schedule(&self) -> Result<crate::types::BackupSchedule> {
-        let url = format!("{}/admin/backups/schedule", self.base_url);
+        let url = format!("{}/v1/admin/backups/schedule", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1258,7 +1261,7 @@ impl DakeraClient {
         &self,
         request: crate::types::UpdateBackupScheduleRequest,
     ) -> Result<crate::types::BackupSchedule> {
-        let url = format!("{}/admin/backups/schedule", self.base_url);
+        let url = format!("{}/v1/admin/backups/schedule", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -1268,7 +1271,7 @@ impl DakeraClient {
         &self,
         request: crate::types::RestoreBackupRequest,
     ) -> Result<crate::types::RestoreBackupResponse> {
-        let url = format!("{}/admin/backups/restore", self.base_url);
+        let url = format!("{}/v1/admin/backups/restore", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -1278,7 +1281,7 @@ impl DakeraClient {
         &self,
         restore_id: &str,
     ) -> Result<crate::types::RestoreBackupResponse> {
-        let url = format!("{}/admin/backups/restore/{}", self.base_url, restore_id);
+        let url = format!("{}/v1/admin/backups/restore/{}", self.base_url, restore_id);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1331,7 +1334,7 @@ impl DakeraClient {
 
     /// Download a backup as gzipped bytes via `GET /admin/backups/{id}/download`.
     pub async fn download_backup(&self, backup_id: &str) -> Result<Vec<u8>> {
-        let url = format!("{}/admin/backups/{}/download", self.base_url, backup_id);
+        let url = format!("{}/v1/admin/backups/{}/download", self.base_url, backup_id);
         let response = self.client.get(&url).send().await?;
         if !response.status().is_success() {
             let status = response.status();
@@ -1347,7 +1350,7 @@ impl DakeraClient {
 
     /// Upload a backup from gzipped bytes via `POST /admin/backups/upload`.
     pub async fn upload_backup(&self, data: Vec<u8>) -> Result<crate::types::CreateBackupResponse> {
-        let url = format!("{}/admin/backups/upload", self.base_url);
+        let url = format!("{}/v1/admin/backups/upload", self.base_url);
         let response = self
             .client
             .post(&url)
@@ -1364,7 +1367,7 @@ impl DakeraClient {
 
     /// Get storage tier overview via `GET /admin/storage/tiers`.
     pub async fn storage_tier_overview(&self) -> Result<crate::types::StorageTierOverview> {
-        let url = format!("{}/admin/storage/tiers", self.base_url);
+        let url = format!("{}/v1/admin/storage/tiers", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1375,7 +1378,7 @@ impl DakeraClient {
 
     /// Get background activity metrics via `GET /admin/background-activity`.
     pub async fn background_activity(&self) -> Result<serde_json::Value> {
-        let url = format!("{}/admin/background-activity", self.base_url);
+        let url = format!("{}/v1/admin/background-activity", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1386,7 +1389,7 @@ impl DakeraClient {
 
     /// Get per-type memory statistics via `GET /admin/memory-type-stats`.
     pub async fn memory_type_stats(&self) -> Result<crate::types::MemoryTypeStatsResponse> {
-        let url = format!("{}/admin/memory-type-stats", self.base_url);
+        let url = format!("{}/v1/admin/memory-type-stats", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1400,7 +1403,7 @@ impl DakeraClient {
         &self,
         request: crate::types::MigrateNamespaceDimensionsRequest,
     ) -> Result<crate::types::MigrateDimensionsResponse> {
-        let url = format!("{}/admin/namespaces/migrate-dimensions", self.base_url);
+        let url = format!("{}/v1/admin/namespaces/migrate-dimensions", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -1423,7 +1426,7 @@ impl DakeraClient {
         &self,
         request: crate::types::DrainReembedRequest,
     ) -> Result<crate::types::DrainReembedResponse> {
-        let url = format!("{}/admin/reembed/drain", self.base_url);
+        let url = format!("{}/v1/admin/reembed/drain", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
