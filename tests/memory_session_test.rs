@@ -801,11 +801,11 @@ async fn test_evaluate_tif_confident_reuse() {
     assert!(score.falsity < 0.1);
     assert!(
         matches!(
-            score.classification(),
+            score.classification,
             dakera_client::TifClassification::ConfidentReuse
         ),
         "expected ConfidentReuse, got {:?}",
-        score.classification()
+        score.classification
     );
     mock.assert_async().await;
 }
@@ -827,11 +827,11 @@ async fn test_evaluate_tif_empty_history() {
     // No feedback → AskClarification (indeterminate)
     assert!(
         matches!(
-            score.classification(),
+            score.classification,
             dakera_client::TifClassification::AskClarification
         ),
         "expected AskClarification on empty history, got {:?}",
-        score.classification()
+        score.classification
     );
     mock.assert_async().await;
 }
