@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.91] - 2026-06-15
+
 ### Added
 
 - **`TifScore`** — new struct in `src/types.rs` for Truth-Indeterminacy-Falsity
@@ -20,6 +22,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     parse a `metadata.reliability` dict stored by T-I-F Phase 1/2 scripts.
 - **`DakeraClient::evaluate_tif(memory_id: &str) -> Result<TifScore, DakeraError>`** —
   fetches feedback history and returns a `TifScore` in one call.
+
+### Changed
+
+- **Admin routes migrated to `/v1/admin/*` (DAK-6649)** — All admin client methods now
+  use the versioned `/v1/admin/*` URL prefix, matching the server's canonical SDK-facing
+  path added in server v0.11.91. The bare `/admin/*` prefix remains on the server for
+  backward compatibility, so existing deployments are unaffected. This fixes 404s that
+  other SDK implementations observed when calling admin methods against older server
+  versions that only had `/v1/admin/*`.
+
+- **Server compatibility**: tracks Dakera server v0.11.90–v0.11.91.
+  - v0.11.90 (CE-32): list-aware sentence decomposition and supersession demotion
+    activated by default (`DAKERA_BATCH_SENTENCE_DECOMP`, `DAKERA_SUPERSEDE_DEMOTE`).
+    Both are server-side env knobs; no client API changes required.
+  - v0.11.91 (CE-36): compound recall scoring weights exposed as runtime env vars
+    (`DAKERA_SCORE_W_VEC`, `DAKERA_SCORE_W_IMP`, `DAKERA_SCORE_W_REC`,
+    `DAKERA_SCORE_RECENCY_TAU_HOURS`). Defaults are byte-identical to prior behaviour.
+    No client API changes required.
+  - v0.11.91 (DAK-6649): admin handlers now also mounted at `/v1/admin/*` on the server;
+    client updated to use versioned prefix (see above).
 
 ## [0.11.90] - 2026-06-14
 

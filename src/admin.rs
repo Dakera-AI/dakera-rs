@@ -1020,7 +1020,7 @@ impl DakeraClient {
 
     /// Backfill the BM25 fulltext index for memories stored before CE-12 auto-indexing (CE-54).
     ///
-    /// Calls `POST /admin/fulltext/reindex`. Requires Admin scope.
+    /// Calls `POST /v1/admin/fulltext/reindex`. Requires Admin scope.
     ///
     /// Scans all memories in `namespace` (or every agent namespace when `None`) and adds
     /// any missing from the BM25 index. Safe to call multiple times — already-indexed
@@ -1039,21 +1039,21 @@ impl DakeraClient {
     // Cluster & Maintenance
     // =========================================================================
 
-    /// GET /admin/cluster/replication — cluster replication status.
+    /// GET /v1/admin/cluster/replication — cluster replication status.
     pub async fn admin_cluster_replication(&self) -> Result<crate::types::ReplicationStatus> {
         let url = format!("{}/v1/admin/cluster/replication", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// GET /admin/cluster/shards — list shards.
+    /// GET /v1/admin/cluster/shards — list shards.
     pub async fn admin_list_shards(&self) -> Result<crate::types::ShardListResponse> {
         let url = format!("{}/v1/admin/cluster/shards", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// POST /admin/cluster/shards/rebalance — rebalance shards.
+    /// POST /v1/admin/cluster/shards/rebalance — rebalance shards.
     pub async fn admin_rebalance_shards(
         &self,
         request: crate::types::ShardRebalanceRequest,
@@ -1063,14 +1063,14 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// GET /admin/cluster/maintenance — maintenance mode status.
+    /// GET /v1/admin/cluster/maintenance — maintenance mode status.
     pub async fn admin_maintenance_status(&self) -> Result<crate::types::MaintenanceStatus> {
         let url = format!("{}/v1/admin/cluster/maintenance", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// POST /admin/cluster/maintenance/enable — enable maintenance mode.
+    /// POST /v1/admin/cluster/maintenance/enable — enable maintenance mode.
     pub async fn admin_enable_maintenance(
         &self,
         request: crate::types::EnableMaintenanceRequest,
@@ -1080,7 +1080,7 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// POST /admin/cluster/maintenance/disable — disable maintenance mode.
+    /// POST /v1/admin/cluster/maintenance/disable — disable maintenance mode.
     pub async fn admin_disable_maintenance(
         &self,
         request: crate::types::DisableMaintenanceRequest,
@@ -1094,21 +1094,21 @@ impl DakeraClient {
     // Quotas
     // =========================================================================
 
-    /// GET /admin/quotas — list all namespace quotas.
+    /// GET /v1/admin/quotas — list all namespace quotas.
     pub async fn admin_list_quotas(&self) -> Result<crate::types::QuotaListResponse> {
         let url = format!("{}/v1/admin/quotas", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// GET /admin/quotas/default — get default quota configuration.
+    /// GET /v1/admin/quotas/default — get default quota configuration.
     pub async fn admin_get_default_quota(&self) -> Result<crate::types::DefaultQuotaResponse> {
         let url = format!("{}/v1/admin/quotas/default", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// PUT /admin/quotas/default — set default quota configuration.
+    /// PUT /v1/admin/quotas/default — set default quota configuration.
     pub async fn admin_set_default_quota(
         &self,
         request: crate::types::SetDefaultQuotaRequest,
@@ -1118,14 +1118,14 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// GET /admin/quotas/{namespace} — get namespace quota.
+    /// GET /v1/admin/quotas/{namespace} — get namespace quota.
     pub async fn admin_get_quota(&self, namespace: &str) -> Result<crate::types::QuotaStatus> {
         let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// PUT /admin/quotas/{namespace} — set namespace quota.
+    /// PUT /v1/admin/quotas/{namespace} — set namespace quota.
     pub async fn admin_set_quota(
         &self,
         namespace: &str,
@@ -1136,14 +1136,14 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// DELETE /admin/quotas/{namespace} — remove namespace quota.
+    /// DELETE /v1/admin/quotas/{namespace} — remove namespace quota.
     pub async fn admin_delete_quota(&self, namespace: &str) -> Result<serde_json::Value> {
         let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// POST /admin/quotas/{namespace}/check — check if operation would exceed quota.
+    /// POST /v1/admin/quotas/{namespace}/check — check if operation would exceed quota.
     pub async fn admin_check_quota(
         &self,
         namespace: &str,
@@ -1158,7 +1158,7 @@ impl DakeraClient {
     // Slow Queries
     // =========================================================================
 
-    /// GET /admin/slow-queries — list recent slow queries.
+    /// GET /v1/admin/slow-queries — list recent slow queries.
     pub async fn admin_list_slow_queries(
         &self,
         namespace: Option<&str>,
@@ -1184,14 +1184,14 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// GET /admin/slow-queries/summary — slow query summary.
+    /// GET /v1/admin/slow-queries/summary — slow query summary.
     pub async fn admin_slow_query_summary(&self) -> Result<serde_json::Value> {
         let url = format!("{}/v1/admin/slow-queries/summary", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// DELETE /admin/slow-queries — clear slow query log.
+    /// DELETE /v1/admin/slow-queries — clear slow query log.
     pub async fn admin_clear_slow_queries(
         &self,
         namespace: Option<&str>,
@@ -1204,7 +1204,7 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// PATCH /admin/slow-queries/config — update slow query configuration.
+    /// PATCH /v1/admin/slow-queries/config — update slow query configuration.
     pub async fn admin_update_slow_query_config(
         &self,
         config: serde_json::Value,
@@ -1218,14 +1218,14 @@ impl DakeraClient {
     // Backups
     // =========================================================================
 
-    /// GET /admin/backups — list all backups.
+    /// GET /v1/admin/backups — list all backups.
     pub async fn admin_list_backups(&self) -> Result<crate::types::BackupListResponse> {
         let url = format!("{}/v1/admin/backups", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// POST /admin/backups — create a new backup.
+    /// POST /v1/admin/backups — create a new backup.
     pub async fn admin_create_backup(
         &self,
         request: crate::types::CreateBackupRequest,
@@ -1235,28 +1235,28 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// GET /admin/backups/{id} — get backup details.
+    /// GET /v1/admin/backups/{id} — get backup details.
     pub async fn admin_get_backup(&self, backup_id: &str) -> Result<crate::types::AdminBackupInfo> {
         let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// DELETE /admin/backups/{id} — delete a backup.
+    /// DELETE /v1/admin/backups/{id} — delete a backup.
     pub async fn admin_delete_backup(&self, backup_id: &str) -> Result<serde_json::Value> {
         let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// GET /admin/backups/schedule — get backup schedule.
+    /// GET /v1/admin/backups/schedule — get backup schedule.
     pub async fn admin_get_backup_schedule(&self) -> Result<crate::types::BackupSchedule> {
         let url = format!("{}/v1/admin/backups/schedule", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
-    /// POST /admin/backups/schedule — update backup schedule.
+    /// POST /v1/admin/backups/schedule — update backup schedule.
     pub async fn admin_update_backup_schedule(
         &self,
         request: crate::types::UpdateBackupScheduleRequest,
@@ -1266,7 +1266,7 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// POST /admin/backups/restore — restore from backup.
+    /// POST /v1/admin/backups/restore — restore from backup.
     pub async fn admin_restore_backup(
         &self,
         request: crate::types::RestoreBackupRequest,
@@ -1276,7 +1276,7 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// GET /admin/backups/restore/{id} — restore operation status.
+    /// GET /v1/admin/backups/restore/{id} — restore operation status.
     pub async fn admin_get_restore_status(
         &self,
         restore_id: &str,
@@ -1332,7 +1332,7 @@ impl DakeraClient {
     // Backup Download / Upload
     // =========================================================================
 
-    /// Download a backup as gzipped bytes via `GET /admin/backups/{id}/download`.
+    /// Download a backup as gzipped bytes via `GET /v1/admin/backups/{id}/download`.
     pub async fn download_backup(&self, backup_id: &str) -> Result<Vec<u8>> {
         let url = format!("{}/v1/admin/backups/{}/download", self.base_url, backup_id);
         let response = self.client.get(&url).send().await?;
@@ -1348,7 +1348,7 @@ impl DakeraClient {
         Ok(response.bytes().await?.to_vec())
     }
 
-    /// Upload a backup from gzipped bytes via `POST /admin/backups/upload`.
+    /// Upload a backup from gzipped bytes via `POST /v1/admin/backups/upload`.
     pub async fn upload_backup(&self, data: Vec<u8>) -> Result<crate::types::CreateBackupResponse> {
         let url = format!("{}/v1/admin/backups/upload", self.base_url);
         let response = self
@@ -1365,7 +1365,7 @@ impl DakeraClient {
     // Storage Tier Overview
     // =========================================================================
 
-    /// Get storage tier overview via `GET /admin/storage/tiers`.
+    /// Get storage tier overview via `GET /v1/admin/storage/tiers`.
     pub async fn storage_tier_overview(&self) -> Result<crate::types::StorageTierOverview> {
         let url = format!("{}/v1/admin/storage/tiers", self.base_url);
         let response = self.client.get(&url).send().await?;
@@ -1376,7 +1376,7 @@ impl DakeraClient {
     // Background Activity
     // =========================================================================
 
-    /// Get background activity metrics via `GET /admin/background-activity`.
+    /// Get background activity metrics via `GET /v1/admin/background-activity`.
     pub async fn background_activity(&self) -> Result<serde_json::Value> {
         let url = format!("{}/v1/admin/background-activity", self.base_url);
         let response = self.client.get(&url).send().await?;
@@ -1387,7 +1387,7 @@ impl DakeraClient {
     // Memory Type Stats
     // =========================================================================
 
-    /// Get per-type memory statistics via `GET /admin/memory-type-stats`.
+    /// Get per-type memory statistics via `GET /v1/admin/memory-type-stats`.
     pub async fn memory_type_stats(&self) -> Result<crate::types::MemoryTypeStatsResponse> {
         let url = format!("{}/v1/admin/memory-type-stats", self.base_url);
         let response = self.client.get(&url).send().await?;
@@ -1398,7 +1398,7 @@ impl DakeraClient {
     // Migrate Namespace Dimensions
     // =========================================================================
 
-    /// Migrate namespace embedding dimensions via `POST /admin/namespaces/migrate-dimensions`.
+    /// Migrate namespace embedding dimensions via `POST /v1/admin/namespaces/migrate-dimensions`.
     pub async fn migrate_namespace_dimensions(
         &self,
         request: crate::types::MigrateNamespaceDimensionsRequest,
@@ -1413,7 +1413,7 @@ impl DakeraClient {
     // =========================================================================
 
     /// Synchronously drain all static vectors to full ONNX quality via
-    /// `POST /admin/reembed/drain` (v0.11.82+).
+    /// `POST /v1/admin/reembed/drain` (v0.11.82+).
     ///
     /// Runs the re-embedding upgrade loop until zero `_embedding_kind=static`
     /// candidates remain across all namespaces, or `request.timeout_secs` elapses.
@@ -1466,7 +1466,7 @@ pub struct KpiSnapshot {
 // CE-54: Fulltext Reindex (Admin)
 // ============================================================================
 
-/// Per-namespace result from `POST /admin/fulltext/reindex` (CE-54).
+/// Per-namespace result from `POST /v1/admin/fulltext/reindex` (CE-54).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FulltextReindexNamespaceResult {
     /// Namespace that was scanned.
@@ -1481,7 +1481,7 @@ pub struct FulltextReindexNamespaceResult {
     pub parse_failures: usize,
 }
 
-/// Response from `POST /admin/fulltext/reindex` (CE-54).
+/// Response from `POST /v1/admin/fulltext/reindex` (CE-54).
 ///
 /// Returned by [`DakeraClient::admin_fulltext_reindex`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
