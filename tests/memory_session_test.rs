@@ -768,3 +768,70 @@ async fn test_warm_vectors_by_ids() {
     assert_eq!(result.entries_warmed, 3);
     mock.assert_async().await;
 }
+
+// ============================================================================
+// T-I-F: evaluate_tif (v0.11.91)
+// ============================================================================
+
+#[tokio::test]
+async fn test_evaluate_tif_confident_reuse() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", "/v1/memories/mem-abc/feedback")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+                "memory_id": "mem-abc",
+                "entries": [
+                    {"signal": "Upvote", "timestamp": 1000, "old_importance": 0.7, "new_importance": 0.8},
+                    {"signal": "Upvote", "timestamp": 1001, "old_importance": 0.8, "new_importance": 0.85},
+                    {"signal": "Upvote", "timestamp": 1002, "old_importance": 0.85, "new_importance": 0.9}
+                ]
+            }"#,
+        )
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let score = client.evaluate_tif("mem-abc").await.unwrap();
+    // 3 upvotes → truth=1.0, indeterminacy=0.0, falsity=0.0
+    assert_eq!(score.feedback_count, 3);
+    assert!(score.truth > 0.9);
+    assert!(score.falsity < 0.1);
+    assert!(
+        matches!(
+            score.classification(),
+            dakera_client::TifClassification::ConfidentReuse
+        ),
+        "expected ConfidentReuse, got {:?}",
+        score.classification()
+    );
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_evaluate_tif_empty_history() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", "/v1/memories/mem-xyz/feedback")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"memory_id": "mem-xyz", "entries": []}"#)
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let score = client.evaluate_tif("mem-xyz").await.unwrap();
+    assert_eq!(score.feedback_count, 0);
+    // No feedback → AskClarification (indeterminate)
+    assert!(
+        matches!(
+            score.classification(),
+            dakera_client::TifClassification::AskClarification
+        ),
+        "expected AskClarification on empty history, got {:?}",
+        score.classification()
+    );
+    mock.assert_async().await;
+}
