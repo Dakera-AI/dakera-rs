@@ -784,9 +784,9 @@ async fn test_evaluate_tif_confident_reuse() {
             r#"{
                 "memory_id": "mem-abc",
                 "entries": [
-                    {"signal": "Upvote", "timestamp": 1000, "old_importance": 0.7, "new_importance": 0.8},
-                    {"signal": "Upvote", "timestamp": 1001, "old_importance": 0.8, "new_importance": 0.85},
-                    {"signal": "Upvote", "timestamp": 1002, "old_importance": 0.85, "new_importance": 0.9}
+                    {"signal": "upvote", "timestamp": 1000, "old_importance": 0.7, "new_importance": 0.8},
+                    {"signal": "upvote", "timestamp": 1001, "old_importance": 0.8, "new_importance": 0.85},
+                    {"signal": "upvote", "timestamp": 1002, "old_importance": 0.85, "new_importance": 0.9}
                 ]
             }"#,
         )
