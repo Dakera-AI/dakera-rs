@@ -7,11 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.92] - 2026-06-16
+
 ### Added
 
 - **`admin_reembed_static_count()`** — new `DakeraClient` async method for
   `GET /v1/admin/reembed/static-count` (v0.11.91+, DAK-6781). Returns a
   `StaticCountResponse` with the count of static vectors pending ONNX upgrade.
+  ([#131](https://github.com/Dakera-AI/dakera-rs/pull/131))
+
+### Fixed
+
+- **TLS connectivity** — replaced invalid `rustls-native-certs` reqwest feature with
+  `rustls-tls-native-roots`, enabling native-roots TLS to the playground and production
+  endpoints. Previously the quickstart example failed to connect via HTTPS. (DAK-6764,
+  [#130](https://github.com/Dakera-AI/dakera-rs/pull/130))
+
+- **Sandbox KG-link restriction** — playground quickstart now handles the sandbox
+  `POST /v1/memories/{id}/links` 403 gracefully, printing an informative message
+  instead of panicking. ([#128](https://github.com/Dakera-AI/dakera-rs/pull/128))
+
+### Testing
+
+- **Playground integration tests** — `tests/playground_integration_test.rs` added;
+  covers store, recall, search, and KG-link (graceful on sandbox). Tests skip
+  automatically when `DAKERA_TEST_URL` is absent.
+  ([#129](https://github.com/Dakera-AI/dakera-rs/pull/129))
 
 ## [0.11.91] - 2026-06-15
 
