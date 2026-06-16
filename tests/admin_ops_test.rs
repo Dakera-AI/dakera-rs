@@ -848,3 +848,59 @@ async fn test_drain_reembed_requires_admin_scope() {
     );
     mock.assert_async().await;
 }
+
+// Admin: admin_reembed_static_count — GET /admin/reembed/static-count (v0.11.91+, DAK-6781)
+
+#[tokio::test]
+async fn test_admin_reembed_static_count_returns_count() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", "/v1/admin/reembed/static-count")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"static_count":42}"#)
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let result = client.admin_reembed_static_count().await.unwrap();
+    assert_eq!(result.static_count, 42);
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_admin_reembed_static_count_zero_is_steady_state() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", "/v1/admin/reembed/static-count")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"static_count":0}"#)
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let result = client.admin_reembed_static_count().await.unwrap();
+    assert_eq!(result.static_count, 0);
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_admin_reembed_static_count_requires_admin_scope() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", "/v1/admin/reembed/static-count")
+        .with_status(403)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":"Admin scope required","code":"AUTHORIZATION_ERROR"}"#)
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let err = client.admin_reembed_static_count().await.unwrap_err();
+    assert!(
+        matches!(err, dakera_client::ClientError::Authorization { .. }),
+        "expected Authorization error, got: {err:?}"
+    );
+    mock.assert_async().await;
+}
