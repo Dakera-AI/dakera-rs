@@ -8,13 +8,13 @@
 use dakera_client::{DakeraClient, EdgeType, MemoryType, RecallRequest, StoreMemoryRequest};
 
 const AGENT_ID: &str = "playground-agent";
+const DEFAULT_URL: &str = "https://5-75-177-31.sslip.io";
+const DEFAULT_KEY: &str = "playground-demo";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let url = std::env::var("DAKERA_API_URL")
-        .unwrap_or_else(|_| "http://5.75.177.31".to_string());
-    let api_key = std::env::var("DAKERA_API_KEY")
-        .unwrap_or_else(|_| "playground-demo".to_string());
+    let url = std::env::var("DAKERA_API_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
+    let api_key = std::env::var("DAKERA_API_KEY").unwrap_or_else(|_| DEFAULT_KEY.to_string());
 
     let client = DakeraClient::builder(&url).api_key(&api_key).build()?;
 
