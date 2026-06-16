@@ -19,7 +19,7 @@ full = ["http-client", "grpc"]
 
 [dependencies]
 # HTTP client (minimal features to avoid missing vendor deps)
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-native-certs", "stream"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "rustls-native-certs", "stream"], optional = true }
 
 # SSE streaming support (enabled with http-client feature)
 futures-util = { version = "0.3", optional = true }
