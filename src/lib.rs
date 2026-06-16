@@ -83,6 +83,7 @@ pub mod filter;
 pub mod keys;
 pub mod knowledge;
 pub mod memory;
+pub mod session;
 mod types;
 
 // gRPC client with connection pooling
@@ -157,6 +158,8 @@ pub use memory::{
     StoreMemoryRequest,
     StoreMemoryResponse,
 };
+#[cfg(feature = "http-client")]
+pub use session::ChatMemorySession;
 pub use types::*;
 
 // gRPC exports
