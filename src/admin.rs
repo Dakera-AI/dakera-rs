@@ -1439,9 +1439,7 @@ impl DakeraClient {
     /// means steady state — all vectors are at full ONNX quality.
     ///
     /// Requires Admin scope.
-    pub async fn admin_reembed_static_count(
-        &self,
-    ) -> Result<crate::types::StaticCountResponse> {
+    pub async fn admin_reembed_static_count(&self) -> Result<crate::types::StaticCountResponse> {
         let url = format!("{}/v1/admin/reembed/static-count", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
