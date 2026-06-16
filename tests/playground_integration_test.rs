@@ -87,7 +87,10 @@ async fn test_playground_workflow() {
         "recall must return at least one memory"
     );
     for m in &recalled.memories {
-        assert!(!m.content.is_empty(), "each recalled memory must have content");
+        assert!(
+            !m.content.is_empty(),
+            "each recalled memory must have content"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -106,7 +109,10 @@ async fn test_playground_workflow() {
         "filtered search must return at least one result"
     );
     for m in &filtered.memories {
-        assert!(!m.content.is_empty(), "each search result must have content");
+        assert!(
+            !m.content.is_empty(),
+            "each search result must have content"
+        );
     }
 
     // ------------------------------------------------------------------
