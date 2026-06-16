@@ -15,8 +15,7 @@
 //!
 //! # async fn run() -> dakera_client::Result<()> {
 //! let client = Arc::new(
-//!     DakeraClient::builder()
-//!         .base_url("http://localhost:3000")
+//!     DakeraClient::builder("http://localhost:3000")
 //!         .api_key("dk-mykey")
 //!         .build()?,
 //! );
