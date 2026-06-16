@@ -1430,6 +1430,22 @@ impl DakeraClient {
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
+
+    /// Return the count of static vectors pending re-embedding via
+    /// `GET /v1/admin/reembed/static-count` (v0.11.91+).
+    ///
+    /// Operators can poll this alongside [`drain_reembed`][Self::drain_reembed]
+    /// to monitor drain progress. A [`StaticCountResponse::static_count`] of `0`
+    /// means steady state — all vectors are at full ONNX quality.
+    ///
+    /// Requires Admin scope.
+    pub async fn admin_reembed_static_count(
+        &self,
+    ) -> Result<crate::types::StaticCountResponse> {
+        let url = format!("{}/v1/admin/reembed/static-count", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
 }
 
 // ============================================================================

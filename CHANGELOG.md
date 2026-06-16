@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`admin_reembed_static_count()`** — new `DakeraClient` async method for
+  `GET /v1/admin/reembed/static-count` (v0.11.91+, DAK-6781). Returns a
+  `StaticCountResponse` with the count of static vectors pending ONNX upgrade.
+
 ## [0.11.91] - 2026-06-15
 
 ### Added

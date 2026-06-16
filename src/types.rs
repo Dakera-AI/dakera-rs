@@ -3980,3 +3980,14 @@ pub struct DrainReembedResponse {
     /// `true` if the drain stopped on the timeout rather than reaching zero.
     pub timed_out: bool,
 }
+
+/// Response from `GET /v1/admin/reembed/static-count` (v0.11.91+).
+///
+/// Returns the number of `_embedding_kind=static` vectors pending ONNX upgrade.
+/// A [`static_count`][StaticCountResponse::static_count] of `0` means steady
+/// state — all vectors are at full ONNX quality.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaticCountResponse {
+    /// Number of static vectors pending re-embedding.
+    pub static_count: usize,
+}
