@@ -49,6 +49,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     parse a `metadata.reliability` dict stored by T-I-F Phase 1/2 scripts.
 - **`DakeraClient::evaluate_tif(memory_id: &str) -> Result<TifScore, DakeraError>`** —
   fetches feedback history and returns a `TifScore` in one call.
+- **Playground quickstart** — new `examples/playground/main.rs` demonstrating store,
+  recall, hybrid search, and knowledge graph link operations against the Dakera
+  Playground. Run with `DAKERA_API_KEY=<key> cargo run --example playground`.
+  ([#127](https://github.com/Dakera-AI/dakera-rs/pull/127))
+
+### Fixed
+
+- **`TifScore.classification`** — corrected integration tests that called
+  `.classification()` as a method; it is a field on `TifScore`. No public API
+  change required. ([#126](https://github.com/Dakera-AI/dakera-rs/pull/126))
+- **`FeedbackSignal` serialisation** — test assertions now match the wire format
+  (`"upvote"` / `"downvote"` lowercase), consistent with server expectations.
+  ([#126](https://github.com/Dakera-AI/dakera-rs/pull/126))
 
 ### Changed
 
