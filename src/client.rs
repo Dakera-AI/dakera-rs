@@ -1395,6 +1395,7 @@ pub struct DakeraClientBuilder {
     connect_timeout: Option<Duration>,
     retry_config: RetryConfig,
     user_agent: Option<String>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl DakeraClientBuilder {
@@ -1408,6 +1409,7 @@ impl DakeraClientBuilder {
             connect_timeout: None,
             retry_config: RetryConfig::default(),
             user_agent: None,
+            extra_headers: Vec::new(),
         }
     }
 
@@ -1464,6 +1466,16 @@ impl DakeraClientBuilder {
         self
     }
 
+    /// Add a custom HTTP header to every request.
+    ///
+    /// Useful for headers such as `X-Playground-Session` when targeting the
+    /// public sandbox. Multiple calls accumulate; later values win for the
+    /// same header name.
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.extra_headers.push((name.into(), value.into()));
+        self
+    }
+
     /// Build the client
     pub fn build(self) -> Result<DakeraClient> {
         // Normalize base URL (remove trailing slash)
@@ -1494,6 +1506,13 @@ impl DakeraClientBuilder {
                 .map_err(|_| ClientError::Config("invalid API key".into()))?;
             value.set_sensitive(true);
             default_headers.insert(AUTHORIZATION, value);
+        }
+        for (name, value) in &self.extra_headers {
+            let header_name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                .map_err(|_| ClientError::Config(format!("invalid header name: {name}")))?;
+            let header_value = HeaderValue::from_str(value)
+                .map_err(|_| ClientError::Config(format!("invalid header value for {name}")))?;
+            default_headers.insert(header_name, header_value);
         }
 
         let client = Client::builder()
@@ -1711,6 +1730,22 @@ mod tests {
     fn test_client_builder_trailing_slash() {
         let client = DakeraClient::new("http://localhost:3000/").unwrap();
         assert!(!client.base_url.ends_with('/'));
+    }
+
+    #[test]
+    fn test_client_builder_with_extra_header() {
+        let client = DakeraClient::builder("http://localhost:3000")
+            .header("X-Playground-Session", "pg_abc123def456")
+            .build();
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_client_builder_invalid_header_name() {
+        let client = DakeraClient::builder("http://localhost:3000")
+            .header("invalid header name!", "value")
+            .build();
+        assert!(client.is_err());
     }
 
     #[test]
