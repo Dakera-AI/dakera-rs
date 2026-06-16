@@ -109,8 +109,6 @@ pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpRespo
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
-#[cfg(feature = "http-client")]
-pub use session::ChatMemorySession;
 pub use error::{ClientError, Result};
 pub use keys::{
     ApiKeyUsageResponse, CreateKeyRequest, CreateKeyResponse, CreateNamespaceKeyRequest,
@@ -160,6 +158,8 @@ pub use memory::{
     StoreMemoryRequest,
     StoreMemoryResponse,
 };
+#[cfg(feature = "http-client")]
+pub use session::ChatMemorySession;
 pub use types::*;
 
 // gRPC exports

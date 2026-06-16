@@ -98,11 +98,7 @@ impl ChatMemorySession {
     ///
     /// The `role` (e.g. `"user"` or `"assistant"`) is appended to the memory's
     /// tags automatically.
-    pub async fn store(
-        &self,
-        role: &str,
-        content: &str,
-    ) -> Result<StoreMemoryResponse> {
+    pub async fn store(&self, role: &str, content: &str) -> Result<StoreMemoryResponse> {
         self.store_with_opts(role, content, 0.6, &[]).await
     }
 
@@ -134,11 +130,7 @@ impl ChatMemorySession {
     }
 
     /// Recall up to `top_k` memories relevant to `query`.
-    pub async fn recall_top_k(
-        &self,
-        query: &str,
-        top_k: usize,
-    ) -> Result<Vec<RecalledMemory>> {
+    pub async fn recall_top_k(&self, query: &str, top_k: usize) -> Result<Vec<RecalledMemory>> {
         let request = RecallRequest::new(&self.agent_id, query).with_top_k(top_k);
         let response = self.client.recall(request).await?;
         Ok(response.memories)

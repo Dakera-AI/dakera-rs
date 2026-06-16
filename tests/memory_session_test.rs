@@ -842,10 +842,10 @@ async fn test_evaluate_tif_empty_history() {
 
 #[cfg(test)]
 mod chat_memory_session_tests {
-    use std::sync::Arc;
+    use dakera_client::{ChatMemorySession, DakeraClient};
     use mockito::Server;
-    use dakera_client::{DakeraClient, ChatMemorySession};
     use serde_json::json;
+    use std::sync::Arc;
 
     fn make_client(base_url: &str) -> Arc<DakeraClient> {
         Arc::new(DakeraClient::new(base_url).expect("client"))
