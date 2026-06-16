@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ChatMemorySession`** — new high-level session helper in `dakera_client::session`.
+  Wraps `start_session` + `store_memory` + `recall` + `end_session` into the three-step
+  pattern used by the playground LLM comparison feature. Uses `Arc<DakeraClient>` for
+  shared ownership. Exported as `dakera_client::ChatMemorySession`.
+  (DAK-6863, parity with dakera-py/dakera-js)
+
 ## [0.11.92] - 2026-06-16
 
 ### Added

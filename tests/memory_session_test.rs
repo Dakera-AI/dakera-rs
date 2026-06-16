@@ -835,3 +835,51 @@ async fn test_evaluate_tif_empty_history() {
     );
     mock.assert_async().await;
 }
+
+// ============================================================
+// ChatMemorySession (unit tests — mock server)
+// ============================================================
+
+#[cfg(test)]
+mod chat_memory_session_tests {
+    use std::sync::Arc;
+    use mockito::Server;
+    use dakera_client::{DakeraClient, ChatMemorySession};
+    use serde_json::json;
+
+    fn make_client(base_url: &str) -> Arc<DakeraClient> {
+        Arc::new(DakeraClient::new(base_url).expect("client"))
+    }
+
+    #[tokio::test]
+    async fn test_chat_memory_session_create() {
+        let mut server = Server::new_async().await;
+        let _m = server.mock("POST", "/v1/sessions/start")
+            .with_status(200)
+            .with_body(json!({"session": {"id": "sess-001", "agent_id": "agent-a", "started_at": 0, "memory_count": 0}}).to_string())
+            .create_async().await;
+
+        let client = make_client(&server.url());
+        let session = ChatMemorySession::create(client, "agent-a").await.unwrap();
+        assert_eq!(session.session_id(), "sess-001");
+        assert_eq!(session.agent_id(), "agent-a");
+    }
+
+    #[tokio::test]
+    async fn test_chat_memory_session_store() {
+        let mut server = Server::new_async().await;
+        let _ms = server.mock("POST", "/v1/sessions/start")
+            .with_status(200)
+            .with_body(json!({"session": {"id": "sess-002", "agent_id": "agent-b", "started_at": 0, "memory_count": 0}}).to_string())
+            .create_async().await;
+        let _mm = server.mock("POST", "/v1/memory/store")
+            .with_status(200)
+            .with_body(json!({"memory": {"id": "mem-1", "content": "Hello!", "memory_type": "episodic", "importance": 0.6, "tags": ["user"], "created_at": 0, "agent_id": "agent-b"}}).to_string())
+            .create_async().await;
+
+        let client = make_client(&server.url());
+        let session = ChatMemorySession::create(client, "agent-b").await.unwrap();
+        let resp = session.store("user", "Hello!").await.unwrap();
+        assert_eq!(resp.memory_id, "mem-1");
+    }
+}

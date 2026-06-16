@@ -83,6 +83,7 @@ pub mod filter;
 pub mod keys;
 pub mod knowledge;
 pub mod memory;
+pub mod session;
 mod types;
 
 // gRPC client with connection pooling
@@ -108,6 +109,8 @@ pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpRespo
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
+#[cfg(feature = "http-client")]
+pub use session::ChatMemorySession;
 pub use error::{ClientError, Result};
 pub use keys::{
     ApiKeyUsageResponse, CreateKeyRequest, CreateKeyResponse, CreateNamespaceKeyRequest,
