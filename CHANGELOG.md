@@ -7,13 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.93] - 2026-06-16
+
 ### Added
 
 - **`ChatMemorySession`** — new high-level session helper in `dakera_client::session`.
   Wraps `start_session` + `store_memory` + `recall` + `end_session` into the three-step
   pattern used by the playground LLM comparison feature. Uses `Arc<DakeraClient>` for
   shared ownership. Exported as `dakera_client::ChatMemorySession`.
-  (DAK-6863, parity with dakera-py/dakera-js)
+  (DAK-6863, parity with dakera-py/dakera-js, [#135](https://github.com/Dakera-AI/dakera-rs/pull/135))
+
+- **`DakeraClientBuilder::header()`** — new method to inject a custom HTTP header
+  into every request (e.g. `X-Playground-Session` for sandbox isolation). Chains
+  with the existing builder API. (DAK-6806, [#133](https://github.com/Dakera-AI/dakera-rs/pull/133))
+
+### Fixed
+
+- **Playground quickstart session isolation** — `examples/playground/main.rs` now
+  sets `X-Playground-Session` via the new `header()` builder, isolating sandbox
+  runs from other concurrent users. (DAK-6806, [#133](https://github.com/Dakera-AI/dakera-rs/pull/133))
 
 ## [0.11.92] - 2026-06-16
 

@@ -1,6 +1,6 @@
 [package]
 name = "dakera-client"
-version = "0.11.92"
+version = "0.11.93"
 edition = "2021"
 description = "Rust client SDK for Dakera AI Agent Memory Platform"
 license = "MIT"
