@@ -103,16 +103,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // -------------------------------------------------------------------------
     // 4. Knowledge graph link
+    // Note: requires a full Dakera account; not available on the public sandbox.
     // -------------------------------------------------------------------------
     println!("\n--- 4. Knowledge Graph Link ---");
 
-    let link = client
+    match client
         .memory_link(&mem1.memory_id, &mem2.memory_id, EdgeType::RelatedTo)
-        .await?;
-    println!(
-        "Linked {} → {}: edge_type={:?}",
-        mem1.memory_id, mem2.memory_id, link.edge.edge_type
-    );
+        .await
+    {
+        Ok(link) => println!(
+            "Linked {} → {}: edge_type={:?}",
+            mem1.memory_id, mem2.memory_id, link.edge.edge_type
+        ),
+        Err(e) => {
+            println!("KG link not available in sandbox: {e}");
+            println!("  Sign up at https://dakera.ai for full knowledge graph access.");
+        }
+    }
 
     println!("\nPlayground quickstart complete! Visit https://dakera.ai to learn more.");
     Ok(())
