@@ -16,7 +16,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = std::env::var("DAKERA_API_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
     let api_key = std::env::var("DAKERA_API_KEY").unwrap_or_else(|_| DEFAULT_KEY.to_string());
 
-    let client = DakeraClient::builder(&url).api_key(&api_key).build()?;
+    // Generate a unique session ID so the sandbox proxy can isolate this run's
+    // memories from other concurrent playground sessions (DAK-6806).
+    // Uses nanosecond wall-clock time as a lightweight uniqueness source.
+    let session_id = format!(
+        "pg_{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+
+    let client = DakeraClient::builder(&url)
+        .api_key(&api_key)
+        .header("X-Playground-Session", &session_id)
+        .build()?;
 
     let health = client.health().await?;
     println!(
