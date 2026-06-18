@@ -22,7 +22,10 @@ fn build_context_prompt(memories: &[RecalledMemory], user_message: &str) -> Stri
     if memories.is_empty() {
         return user_message.to_owned();
     }
-    let context_lines: Vec<String> = memories.iter().map(|m| format!("- {}", m.content)).collect();
+    let context_lines: Vec<String> = memories
+        .iter()
+        .map(|m| format!("- {}", m.content))
+        .collect();
     format!(
         "[Relevant context from memory]\n{}\n\n[User message]\n{}",
         context_lines.join("\n"),
@@ -67,9 +70,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::json!({"source": "playground-seed"}),
     )
     .await?;
-    seed.store("user", "I'm building a chatbot in Rust using async Tokio.").await?;
-    seed.store("assistant", "Great choice — Tokio is the async foundation for Rust services.").await?;
-    seed.store("user", "My team prefers type-safe APIs so we use Axum on the backend.").await?;
+    seed.store("user", "I'm building a chatbot in Rust using async Tokio.")
+        .await?;
+    seed.store(
+        "assistant",
+        "Great choice — Tokio is the async foundation for Rust services.",
+    )
+    .await?;
+    seed.store(
+        "user",
+        "My team prefers type-safe APIs so we use Axum on the backend.",
+    )
+    .await?;
     println!("  Session {}: stored 3 turns\n", seed.session_id());
     seed.close().await?;
 
@@ -114,7 +126,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("└─────────────────────────────────────────────────────────────┘");
 
     if !memories.is_empty() {
-        println!("\n  Memory used: {} relevant context item(s)", memories.len());
+        println!(
+            "\n  Memory used: {} relevant context item(s)",
+            memories.len()
+        );
         for m in &memories {
             let preview: String = m.content.chars().take(80).collect();
             println!("    • [{:.2}] {}", m.score, preview);
