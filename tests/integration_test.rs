@@ -409,6 +409,6 @@ async fn test_auth_accepts_valid_key() {
         eprintln!("DAKERA_TEST_URL not set — skipping");
         return;
     };
-    let namespaces = client.list_namespaces().await.unwrap();
-    assert!(namespaces.len() >= 0);
+    // list_namespaces succeeded — the unwrap() above is the real assertion
+    let _ = client.list_namespaces().await.unwrap();
 }
