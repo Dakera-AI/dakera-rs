@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.95] - 2026-06-23
+
+### Fixed
+
+- **`admin_cache_warm()`** — add missing binding for `POST /v1/admin/cache/warm`; the
+  method was present in the other SDKs but absent here. (DAK-7069,
+  [#145](https://github.com/Dakera-AI/dakera-rs/pull/145))
+
+## [0.11.94] - 2026-06-21
+
+### Internal
+
+- Bump Cargo.toml version to align with crates.io publish (DAK-7031,
+  [#141](https://github.com/Dakera-AI/dakera-rs/pull/141))
+
 ## [0.11.93] - 2026-06-16
 
 ### Added
