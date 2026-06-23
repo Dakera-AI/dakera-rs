@@ -340,6 +340,35 @@ async fn test_cache_clear() {
     mock.assert_async().await;
 }
 
+#[tokio::test]
+async fn test_cache_warm() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/admin/cache/warm")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+                "success": true,
+                "entries_warmed": 256,
+                "entries_skipped": 10,
+                "message": "Cache warming complete",
+                "target_tier": "l2",
+                "priority": "normal"
+            }"#,
+        )
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let req = dakera_client::WarmCacheRequest::new("test-ns");
+    let result = client.cache_warm(req).await.unwrap();
+    assert!(result.success);
+    assert_eq!(result.entries_warmed, 256);
+    assert_eq!(result.entries_skipped, 10);
+    mock.assert_async().await;
+}
+
 // ============================================================================
 // Admin: backups
 // ============================================================================

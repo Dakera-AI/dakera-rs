@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+use crate::types::{WarmCacheRequest, WarmCacheResponse};
 use crate::DakeraClient;
 
 // ============================================================================
@@ -728,6 +729,13 @@ impl DakeraClient {
         let request = ClearCacheRequest {
             namespace: namespace.map(|s| s.to_string()),
         };
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Warm cache for a namespace via `POST /v1/admin/cache/warm`.
+    pub async fn cache_warm(&self, request: WarmCacheRequest) -> Result<WarmCacheResponse> {
+        let url = format!("{}/v1/admin/cache/warm", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
