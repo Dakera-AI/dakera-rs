@@ -361,7 +361,7 @@ async fn test_cache_warm() {
         .await;
 
     let client = DakeraClient::new(server.url()).unwrap();
-    let req = dakera::WarmCacheRequest::new("test-ns");
+    let req = dakera_client::WarmCacheRequest::new("test-ns");
     let result = client.cache_warm(req).await.unwrap();
     assert!(result.success);
     assert_eq!(result.entries_warmed, 256);
