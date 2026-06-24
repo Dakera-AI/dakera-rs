@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.97] - 2026-06-24
+
+### Added
+
+- **`EmbeddingModel::ModernBertEmbedBase` / `EmbeddingModel::GteModernBertBase`** — add two new
+  embedding model variants matching server DAK-7098/DAK-7102: `"modernbert-embed-base"` (768d,
+  MRL, 8192 tokens) and `"gte-modernbert-base"` (768d, MTEB retrieval 64.38). Callers can now
+  pass these models via `TextUpsertOptions::with_model()` and `TextQueryOptions::with_model()`.
+
 ## [0.11.96] - 2026-06-24
 
 ### Fixed
