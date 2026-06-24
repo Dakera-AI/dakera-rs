@@ -2077,6 +2077,10 @@ pub enum EmbeddingModel {
     BgeSmall,
     /// E5-small — High quality (384 dimensions)
     E5Small,
+    /// ModernBERT-embed-base (nomic-ai) — 768 dimensions, MRL, 8192 tokens
+    ModernBertEmbedBase,
+    /// GTE-ModernBERT-base (Alibaba-NLP) — 768 dimensions, MTEB retrieval 64.38
+    GteModernBertBase,
 }
 
 /// A text document to upsert with automatic embedding generation.
