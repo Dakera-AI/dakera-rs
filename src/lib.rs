@@ -98,12 +98,13 @@ pub use admin::{
     AutoPilotConfig, AutoPilotConfigRequest, AutoPilotConfigResponse, AutoPilotConsolidationResult,
     AutoPilotDedupResult, AutoPilotStatusResponse, AutoPilotTriggerAction, AutoPilotTriggerRequest,
     AutoPilotTriggerResponse, BackupInfo, BackupListResponse, CacheStats, ClusterStatus,
-    ConsolidationResultSnapshot, CreateBackupRequest, CreateBackupResponse, DecayConfigResponse,
-    DecayConfigUpdateRequest, DecayConfigUpdateResponse, DecayStatsResponse, DedupResultSnapshot,
-    FulltextReindexNamespaceResult, FulltextReindexResponse, IndexStats, IndexStatsResponse,
-    KpiSnapshot, LastDecayCycleStats, NodeInfo, NodeListResponse, OpsStats, QuotaConfig,
-    QuotaListResponse, QuotaStatus, RestoreBackupRequest, RestoreBackupResponse, RuntimeConfig,
-    SlowQueryListResponse,
+    ClearCacheRequest, ClearCacheResponse, ConsolidationResultSnapshot, CreateBackupRequest,
+    CreateBackupResponse, DecayConfigResponse, DecayConfigUpdateRequest, DecayConfigUpdateResponse,
+    DecayStatsResponse, DedupResultSnapshot, FulltextReindexNamespaceResult,
+    FulltextReindexResponse, IndexStats, IndexStatsResponse, KpiSnapshot, LastDecayCycleStats,
+    NodeInfo, NodeListResponse, OpsStats, QuotaConfig, QuotaListResponse, QuotaStatus,
+    RestoreBackupRequest, RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse,
+    TtlCleanupRequest, TtlCleanupResponse, TtlStats, TtlStatsResponse,
 };
 pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpResponse};
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
