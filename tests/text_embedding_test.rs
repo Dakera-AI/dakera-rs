@@ -5,8 +5,8 @@
 //! the correct wire values ("modernbert-embed-base", "gte-modernbert-base") so
 //! the server accepts them without a 422 on the model field.
 
-use dakera_client::{DakeraClient, EmbeddingModel, TextDocument};
 use dakera_client::{BatchQueryTextRequest, QueryTextRequest, UpsertTextRequest};
+use dakera_client::{DakeraClient, EmbeddingModel, TextDocument};
 
 // ============================================================================
 // upsert_text — ModernBertEmbedBase
