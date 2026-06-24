@@ -2078,8 +2078,10 @@ pub enum EmbeddingModel {
     /// E5-small — High quality (384 dimensions)
     E5Small,
     /// ModernBERT-embed-base (nomic-ai) — 768 dimensions, MRL, 8192 tokens
+    #[serde(rename = "modernbert-embed-base")]
     ModernBertEmbedBase,
     /// GTE-ModernBERT-base (Alibaba-NLP) — 768 dimensions, MTEB retrieval 64.38
+    #[serde(rename = "gte-modernbert-base")]
     GteModernBertBase,
 }
 
@@ -3994,4 +3996,44 @@ pub struct DrainReembedResponse {
 pub struct StaticCountResponse {
     /// Number of static vectors pending re-embedding.
     pub static_count: usize,
+}
+
+#[cfg(test)]
+mod embedding_model_tests {
+    use super::*;
+
+    #[test]
+    fn embedding_model_wire_values() {
+        // Verify compound names serialize correctly — kebab-case rename_all would produce
+        // "modern-bert-embed-base" (wrong); explicit #[serde(rename)] fixes these.
+        assert_eq!(
+            serde_json::to_string(&EmbeddingModel::ModernBertEmbedBase).unwrap(),
+            r#""modernbert-embed-base""#
+        );
+        assert_eq!(
+            serde_json::to_string(&EmbeddingModel::GteModernBertBase).unwrap(),
+            r#""gte-modernbert-base""#
+        );
+        // Existing variants must not regress
+        assert_eq!(
+            serde_json::to_string(&EmbeddingModel::BgeLarge).unwrap(),
+            r#""bge-large""#
+        );
+        assert_eq!(
+            serde_json::to_string(&EmbeddingModel::E5Small).unwrap(),
+            r#""e5-small""#
+        );
+    }
+
+    #[test]
+    fn embedding_model_roundtrip() {
+        for (variant, wire) in [
+            (EmbeddingModel::ModernBertEmbedBase, "modernbert-embed-base"),
+            (EmbeddingModel::GteModernBertBase, "gte-modernbert-base"),
+        ] {
+            let json = format!(r#""{wire}""#);
+            let decoded: EmbeddingModel = serde_json::from_str(&json).unwrap();
+            assert_eq!(decoded, variant);
+        }
+    }
 }
