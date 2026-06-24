@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.96] - 2026-06-24
+
+### Fixed
+
+- **Exported admin types** — six types implemented in `admin.rs` were missing from the
+  public crate API: `TtlCleanupRequest`, `TtlCleanupResponse`, `TtlStats`,
+  `TtlStatsResponse`, `ClearCacheRequest`, `ClearCacheResponse`. Users calling
+  `ttl_cleanup()` or `cache_clear()` could not name the return type in their code. (DAK-7103,
+  [#147](https://github.com/Dakera-AI/dakera-rs/pull/147))
+- **`ttl_cleanup()` test coverage** — adds two unit tests (namespace-scoped and global)
+  to close the coverage gap vs py/js/go SDK parity. (DAK-7103,
+  [#147](https://github.com/Dakera-AI/dakera-rs/pull/147))
+
 ## [0.11.95] - 2026-06-23
 
 ### Fixed
