@@ -370,6 +370,61 @@ async fn test_cache_warm() {
 }
 
 // ============================================================================
+// Admin: TTL cleanup
+// ============================================================================
+
+#[tokio::test]
+async fn test_ttl_cleanup() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/admin/ttl/cleanup")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+                "success": true,
+                "vectors_removed": 42,
+                "namespaces_cleaned": ["test-ns"],
+                "message": "TTL cleanup complete"
+            }"#,
+        )
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let result = client.ttl_cleanup(Some("test-ns")).await.unwrap();
+    assert!(result.success);
+    assert_eq!(result.vectors_removed, 42);
+    assert_eq!(result.namespaces_cleaned, vec!["test-ns"]);
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_ttl_cleanup_global() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/admin/ttl/cleanup")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+                "success": true,
+                "vectors_removed": 0,
+                "namespaces_cleaned": [],
+                "message": "Nothing to clean"
+            }"#,
+        )
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let result = client.ttl_cleanup(None).await.unwrap();
+    assert!(result.success);
+    assert_eq!(result.vectors_removed, 0);
+    mock.assert_async().await;
+}
+
+// ============================================================================
 // Admin: backups
 // ============================================================================
 
