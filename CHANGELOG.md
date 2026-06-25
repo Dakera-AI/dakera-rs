@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   MRL, 8192 tokens) and `"gte-modernbert-base"` (768d, MTEB retrieval 64.38). Callers can now
   pass these models via `TextUpsertOptions::with_model()` and `TextQueryOptions::with_model()`.
 
+### Fixed
+
+- **`EmbeddingModel` serde wire-value bug** — `#[serde(rename_all = "kebab-case")]` derived
+  incorrect JSON strings: `GteModernBertBase` serialized to `"gte-modern-bert-base"` (extra
+  hyphen) instead of the server's expected `"gte-modernbert-base"`, and `ModernBertEmbedBase`
+  serialized to `"modern-bert-embed-base"` instead of `"modernbert-embed-base"`. Requests using
+  these model variants would have been silently rejected by the server. Replaced with explicit
+  `#[serde(rename = "gte-modernbert-base")]` and `#[serde(rename = "modernbert-embed-base")]`
+  attributes on both variants. Adds two serialization roundtrip tests to guard against
+  regression. ([#149](https://github.com/Dakera-AI/dakera-rs/pull/149))
+
 ## [0.11.96] - 2026-06-24
 
 ### Fixed
