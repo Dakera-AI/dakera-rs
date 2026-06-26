@@ -16,6 +16,25 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
+
+      - name: Verify manifest version matches release tag
+        # Skip verification on workflow_dispatch from a branch (not a version tag)
+        if: startsWith(github.ref_name, 'v')
+        run: |
+          TAG_VERSION="${{ github.ref_name }}"
+          TAG_VERSION="${TAG_VERSION#v}"
+          MANIFEST_VERSION=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Version mismatch: Cargo.toml='$MANIFEST_VERSION' release tag='$TAG_VERSION'"
+            echo ""
+            echo "Fix: bump Cargo.toml version to '$TAG_VERSION',"
+            echo "commit on the target SHA, delete this release, then recreate it on the bumped commit."
+            echo ""
+            echo "Root cause of DAK-7230 — this gate prevents registry rejects on version conflict."
+            exit 1
+          fi
+          echo "✅ Version verified: Cargo.toml=$MANIFEST_VERSION matches release tag ${{ github.ref_name }}"
+
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo publish
         env:
