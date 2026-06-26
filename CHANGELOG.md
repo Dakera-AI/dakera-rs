@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.98] - 2026-06-26
+
+### Changed
+
+- changelog: document serde wire-value fix in v0.11.97 entry (#150)
+
 ## [0.11.97] - 2026-06-24
 
 ### Added
