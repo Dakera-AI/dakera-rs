@@ -474,8 +474,14 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
         // Server wraps recall results as {memory:{...}, score, weighted_score, smart_score}.
         // smart_score is the actual ranking key (server sorts by it); prefer it.
         // Fall back to flat format for direct memory-get responses.
-        let smart_score = val.get("smart_score").and_then(|v| v.as_f64()).map(|v| v as f32);
-        let weighted_score = val.get("weighted_score").and_then(|v| v.as_f64()).map(|v| v as f32);
+        let smart_score = val
+            .get("smart_score")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32);
+        let weighted_score = val
+            .get("weighted_score")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32);
         let score = smart_score
             .or(weighted_score)
             .or_else(|| val.get("score").and_then(|v| v.as_f64()).map(|v| v as f32))

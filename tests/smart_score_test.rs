@@ -28,7 +28,10 @@ fn test_weighted_score_used_when_no_smart_score() {
         "weighted_score": 0.7
     }"#;
     let m = deserialize(json);
-    assert_eq!(m.score, 0.7, ".score must equal weighted_score when smart_score absent");
+    assert_eq!(
+        m.score, 0.7,
+        ".score must equal weighted_score when smart_score absent"
+    );
     assert_eq!(m.smart_score, None);
     assert_eq!(m.weighted_score, Some(0.7));
 }
@@ -40,7 +43,10 @@ fn test_raw_score_fallback() {
         "score": 0.5
     }"#;
     let m = deserialize(json);
-    assert_eq!(m.score, 0.5, ".score must equal raw score when no smart_score or weighted_score");
+    assert_eq!(
+        m.score, 0.5,
+        ".score must equal raw score when no smart_score or weighted_score"
+    );
     assert_eq!(m.smart_score, None);
     assert_eq!(m.weighted_score, None);
 }
