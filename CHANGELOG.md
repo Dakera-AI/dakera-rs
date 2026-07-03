@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.100] - 2026-07-03
+
+### Fixed
+
+- **`RecalledMemory.score` now returns server-rank ordering** — `.score` previously exposed the
+  raw `score` field, which did not match the server's actual ranking key (`smart_score` →
+  `weighted_score` → `score` fallback). Bench analytics and consumers sorting by `.score` saw
+  incorrect ordering vs the server's returned rank. `.score` now resolves `smart_score` when
+  present, then `weighted_score`, then raw `score`, matching the server. Callers relying on `.score`
+  for ordering will see correct results after updating. New optional fields `smart_score` and
+  `weighted_score` are exposed on `RecalledMemory` for consumers that need the raw components.
+  ([#154](https://github.com/Dakera-AI/dakera-rs/pull/154))
+
 ## [0.11.99] - 2026-07-02
 
 ### Changed
