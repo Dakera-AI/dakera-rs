@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.101] - 2026-07-05
+
+### Changed
+
+- **Server sync v0.11.97** — no SDK API surface changes; bundled with server v0.11.97
+  security dep pins (quick-xml/memmap2), CI improvements (DAK-7362).
+
 ## [0.11.100] - 2026-07-03
 
 ### Fixed
