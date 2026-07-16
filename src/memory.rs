@@ -462,6 +462,12 @@ pub struct RecalledMemory {
     /// KG-3: hop depth at which this memory was found (only set on associated memories)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub depth: Option<u8>,
+    /// Hybrid sub-score: vector similarity component (server v0.11.98+, absent when BM25-only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_score: Option<f32>,
+    /// Hybrid sub-score: BM25 text component (server v0.11.98+, absent when vector-only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_score: Option<f32>,
 }
 
 impl<'de> serde::Deserialize<'de> for RecalledMemory {
@@ -471,8 +477,8 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
         use serde::de::Error as _;
         let val = serde_json::Value::deserialize(deserializer)?;
 
-        // Server wraps recall results as {memory:{...}, score, weighted_score, smart_score}.
-        // smart_score is the actual ranking key (server sorts by it); prefer it.
+        // Server wraps recall results as {memory:{...}, score, weighted_score, smart_score,
+        // vector_score, text_score}. smart_score is the actual ranking key (server sorts by it).
         // Fall back to flat format for direct memory-get responses.
         let smart_score = val
             .get("smart_score")
@@ -486,6 +492,15 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             .or(weighted_score)
             .or_else(|| val.get("score").and_then(|v| v.as_f64()).map(|v| v as f32))
             .unwrap_or(0.0);
+        // Hybrid sub-scores (server v0.11.98+): surfaced at the top level alongside smart_score.
+        let vector_score = val
+            .get("vector_score")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32);
+        let text_score = val
+            .get("text_score")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32);
 
         let mem = val.get("memory").unwrap_or(&val);
 
@@ -542,6 +557,8 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             last_accessed_at,
             access_count,
             depth,
+            vector_score,
+            text_score,
         })
     }
 }
