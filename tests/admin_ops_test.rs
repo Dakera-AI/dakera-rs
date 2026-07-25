@@ -768,7 +768,7 @@ async fn test_decay_stats() {
 async fn test_get_kpis() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("GET", "/kpis")
+        .mock("GET", "/v1/kpis")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -982,6 +982,55 @@ async fn test_admin_reembed_static_count_requires_admin_scope() {
 
     let client = DakeraClient::new(server.url()).unwrap();
     let err = client.admin_reembed_static_count().await.unwrap_err();
+    assert!(
+        matches!(err, dakera_client::ClientError::Authorization { .. }),
+        "expected Authorization error, got: {err:?}"
+    );
+    mock.assert_async().await;
+}
+
+// ============================================================================
+// Admin: debug_config (DAK-7477)
+// ============================================================================
+
+#[tokio::test]
+async fn test_debug_config_returns_env_map() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", "/debug/config")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+                "DAKERA_ENABLE_BM25": "true",
+                "DAKERA_RERANKER_ENABLED": "true",
+                "_version": "0.11.102",
+                "_build_sha": "abc1234"
+            }"#,
+        )
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let config = client.debug_config().await.unwrap();
+    assert_eq!(config["_version"], "0.11.102");
+    assert_eq!(config["DAKERA_ENABLE_BM25"], "true");
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_debug_config_requires_admin_scope() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", "/debug/config")
+        .with_status(403)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":"Admin scope required","code":"AUTHORIZATION_ERROR"}"#)
+        .create_async()
+        .await;
+
+    let client = DakeraClient::new(server.url()).unwrap();
+    let err = client.debug_config().await.unwrap_err();
     assert!(
         matches!(err, dakera_client::ClientError::Authorization { .. }),
         "expected Authorization error, got: {err:?}"

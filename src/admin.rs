@@ -645,6 +645,20 @@ impl DakeraClient {
         self.handle_text_response(response).await
     }
 
+    /// Return all active DAKERA_* env vars (non-secret) from the running server (DAK-7477).
+    ///
+    /// Requires Admin scope. Returns a JSON object mapping DAKERA_* environment variable
+    /// names to their values, plus `_version` and optionally `_build_sha`. Secret-bearing
+    /// keys (TOKEN, KEY, SECRET, PASSWORD, CRED, URL, URI, DSN) are filtered server-side.
+    ///
+    /// Used by bench harnesses to verify the server is running with the exact
+    /// feature-flag configuration requested before scoring.
+    pub async fn debug_config(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/debug/config", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
     /// Get cluster status overview
     pub async fn cluster_status(&self) -> Result<ClusterStatus> {
         let url = format!("{}/v1/admin/cluster/status", self.base_url);
@@ -1017,7 +1031,7 @@ impl DakeraClient {
     /// error rate, and retention. Sub-millisecond — served from in-memory
     /// counters. Requires Admin scope.
     pub async fn get_kpis(&self) -> Result<KpiSnapshot> {
-        let url = format!("{}/kpis", self.base_url);
+        let url = format!("{}/v1/kpis", self.base_url);
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
