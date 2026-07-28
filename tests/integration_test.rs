@@ -55,6 +55,25 @@ async fn test_health() {
     assert!(health.healthy);
 }
 
+// ---------------------------------------------------------------------------
+// StoreMemoryRequest — bi-temporal valid_from serialization (DAK-7424)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_store_memory_request_valid_from_serialized_when_set() {
+    let req = StoreMemoryRequest::new("agent-1", "temporal memory")
+        .with_valid_from(1_700_000_000);
+    let json = serde_json::to_value(&req).unwrap();
+    assert_eq!(json["valid_from"], 1_700_000_000i64);
+}
+
+#[test]
+fn test_store_memory_request_valid_from_omitted_when_none() {
+    let req = StoreMemoryRequest::new("agent-1", "non-temporal memory");
+    let json = serde_json::to_value(&req).unwrap();
+    assert!(json.get("valid_from").is_none(), "valid_from must be absent from JSON when not set");
+}
+
 #[test]
 fn test_health_response_build_sha_present() {
     let json = r#"{"healthy":true,"version":"0.11.84","build_sha":"abc1234def5678"}"#;
