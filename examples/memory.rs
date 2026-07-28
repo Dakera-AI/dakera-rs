@@ -29,6 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             session_id: None,
             ttl_seconds: None,
             expires_at: None,
+            valid_from: None,
         })
         .await?;
     println!("Stored memory: {}", mem1.memory_id);

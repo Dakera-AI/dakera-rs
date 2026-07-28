@@ -52,6 +52,11 @@ pub struct StoreMemoryRequest {
     /// decay engine on expiry (DECAY-3).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
+    /// Bi-temporal validity start — Unix timestamp (seconds) indicating when this
+    /// memory becomes temporally valid. Defaults to ingest time when omitted.
+    /// Used by temporal recall queries (server v0.11.98+, DAK-7424).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<i64>,
 }
 
 fn default_importance() -> f32 {
@@ -71,6 +76,7 @@ impl StoreMemoryRequest {
             metadata: None,
             ttl_seconds: None,
             expires_at: None,
+            valid_from: None,
         }
     }
 
@@ -115,6 +121,13 @@ impl StoreMemoryRequest {
     /// `ttl_seconds` when both are set (DECAY-3).
     pub fn with_expires_at(mut self, expires_at: u64) -> Self {
         self.expires_at = Some(expires_at);
+        self
+    }
+
+    /// Set bi-temporal validity start as a Unix timestamp (seconds).
+    /// Defaults to ingest time when omitted (server v0.11.98+, DAK-7424).
+    pub fn with_valid_from(mut self, valid_from: i64) -> Self {
+        self.valid_from = Some(valid_from);
         self
     }
 }
@@ -1064,6 +1077,10 @@ pub struct BatchStoreMemoryItem {
     pub ttl_seconds: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
+    /// Bi-temporal validity start — Unix timestamp (seconds). Defaults to ingest time when omitted.
+    /// Used by temporal recall queries (server v0.11.98+, DAK-7424).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<i64>,
     /// Optional custom ID. Auto-generated if not provided.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -1100,6 +1117,13 @@ impl BatchStoreMemoryItem {
     /// Set metadata.
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = Some(metadata);
+        self
+    }
+
+    /// Set bi-temporal validity start as a Unix timestamp (seconds).
+    /// Defaults to ingest time when omitted (server v0.11.98+, DAK-7424).
+    pub fn with_valid_from(mut self, valid_from: i64) -> Self {
+        self.valid_from = Some(valid_from);
         self
     }
 
