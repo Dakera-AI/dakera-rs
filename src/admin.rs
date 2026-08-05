@@ -1531,3 +1531,474 @@ pub struct FulltextReindexResponse {
     /// Per-namespace breakdown.
     pub details: Vec<FulltextReindexNamespaceResult>,
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // OpsStats
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ops_stats_deserializes() {
+        let json = r#"{
+            "version": "0.11.104",
+            "total_vectors": 100000,
+            "namespace_count": 5,
+            "uptime_seconds": 86400,
+            "timestamp": 1785000000,
+            "state": "healthy"
+        }"#;
+        let stats: OpsStats = serde_json::from_str(json).unwrap();
+        assert_eq!(stats.version, "0.11.104");
+        assert_eq!(stats.total_vectors, 100000);
+        assert_eq!(stats.state, "healthy");
+    }
+
+    // -------------------------------------------------------------------------
+    // ClusterStatus
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_cluster_status_deserializes_without_redis_healthy() {
+        let json = r#"{
+            "cluster_id": "cl-1",
+            "state": "active",
+            "node_count": 3,
+            "total_vectors": 500000,
+            "namespace_count": 10,
+            "version": "0.11.104",
+            "timestamp": 1785000000
+        }"#;
+        let cs: ClusterStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(cs.cluster_id, "cl-1");
+        assert_eq!(cs.node_count, 3);
+        assert!(cs.redis_healthy.is_none());
+    }
+
+    #[test]
+    fn test_cluster_status_deserializes_with_redis_healthy() {
+        let json = r#"{
+            "cluster_id": "cl-2",
+            "state": "active",
+            "node_count": 1,
+            "total_vectors": 0,
+            "namespace_count": 0,
+            "version": "0.11.104",
+            "timestamp": 1785000000,
+            "redis_healthy": true
+        }"#;
+        let cs: ClusterStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(cs.redis_healthy, Some(true));
+    }
+
+    // -------------------------------------------------------------------------
+    // NodeInfo
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_node_info_deserializes_with_defaults() {
+        let json = r#"{
+            "node_id": "n1",
+            "address": "10.0.0.1:8080",
+            "role": "primary",
+            "status": "online",
+            "version": "0.11.104",
+            "uptime_seconds": 3600,
+            "vector_count": 10000,
+            "memory_bytes": 1073741824,
+            "last_heartbeat": 1785000000
+        }"#;
+        let node: NodeInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(node.node_id, "n1");
+        assert!((node.cpu_percent - 0.0).abs() < 1e-6);
+        assert!((node.memory_percent - 0.0).abs() < 1e-6);
+    }
+
+    // -------------------------------------------------------------------------
+    // NodeListResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_node_list_response_deserializes_empty() {
+        let json = r#"{"nodes": [], "total": 0}"#;
+        let resp: NodeListResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.total, 0);
+        assert!(resp.nodes.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // IndexStats
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_index_stats_optional_last_rebuild_absent() {
+        let json = r#"{
+            "index_type": "hnsw",
+            "is_built": true,
+            "size_bytes": 2048,
+            "indexed_vectors": 100
+        }"#;
+        let stats: IndexStats = serde_json::from_str(json).unwrap();
+        assert!(stats.last_rebuild.is_none());
+        assert!(stats.is_built);
+    }
+
+    #[test]
+    fn test_index_stats_with_last_rebuild() {
+        let json = r#"{
+            "index_type": "flat",
+            "is_built": false,
+            "size_bytes": 0,
+            "indexed_vectors": 0,
+            "last_rebuild": 1785000000
+        }"#;
+        let stats: IndexStats = serde_json::from_str(json).unwrap();
+        assert_eq!(stats.last_rebuild, Some(1785000000));
+    }
+
+    // -------------------------------------------------------------------------
+    // OptimizeRequest serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_optimize_request_default_force_false() {
+        let req = OptimizeRequest {
+            force: false,
+            target_index_type: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"force\":false"));
+        assert!(!json.contains("target_index_type"));
+    }
+
+    #[test]
+    fn test_optimize_request_with_target_index_type() {
+        let req = OptimizeRequest {
+            force: true,
+            target_index_type: Some("hnsw".to_string()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"force\":true"));
+        assert!(json.contains("\"target_index_type\":\"hnsw\""));
+    }
+
+    // -------------------------------------------------------------------------
+    // OptimizeResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_optimize_response_deserializes_with_job_id() {
+        let json = r#"{"success": true, "job_id": "job-abc", "message": "started"}"#;
+        let resp: OptimizeResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.success);
+        assert_eq!(resp.job_id.as_deref(), Some("job-abc"));
+    }
+
+    #[test]
+    fn test_optimize_response_deserializes_without_job_id() {
+        let json = r#"{"success": true, "message": "done"}"#;
+        let resp: OptimizeResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.job_id.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // RebuildIndexRequest serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_rebuild_index_request_all_optional_omitted() {
+        let req = RebuildIndexRequest {
+            namespace: None,
+            index_type: None,
+            force: false,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("namespace"));
+        assert!(!json.contains("index_type"));
+        assert!(json.contains("\"force\":false"));
+    }
+
+    #[test]
+    fn test_rebuild_index_request_with_namespace() {
+        let req = RebuildIndexRequest {
+            namespace: Some("prod".to_string()),
+            index_type: Some("hnsw".to_string()),
+            force: true,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"namespace\":\"prod\""));
+        assert!(json.contains("\"index_type\":\"hnsw\""));
+        assert!(json.contains("\"force\":true"));
+    }
+
+    // -------------------------------------------------------------------------
+    // CacheStats
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_cache_stats_deserializes() {
+        let json = r#"{
+            "enabled": true,
+            "cache_type": "redis",
+            "entries": 1000,
+            "size_bytes": 524288,
+            "hits": 8000,
+            "misses": 2000,
+            "hit_rate": 0.8,
+            "evictions": 50
+        }"#;
+        let stats: CacheStats = serde_json::from_str(json).unwrap();
+        assert!(stats.enabled);
+        assert_eq!(stats.cache_type, "redis");
+        assert!((stats.hit_rate - 0.8).abs() < 1e-9);
+    }
+
+    // -------------------------------------------------------------------------
+    // ClearCacheRequest serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_clear_cache_request_without_namespace_omits_field() {
+        let req = ClearCacheRequest { namespace: None };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("namespace"));
+    }
+
+    #[test]
+    fn test_clear_cache_request_with_namespace() {
+        let req = ClearCacheRequest {
+            namespace: Some("prod-ns".to_string()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"namespace\":\"prod-ns\""));
+    }
+
+    // -------------------------------------------------------------------------
+    // ClearCacheResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_clear_cache_response_deserializes() {
+        let json = r#"{"success": true, "entries_cleared": 42, "message": "ok"}"#;
+        let resp: ClearCacheResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.success);
+        assert_eq!(resp.entries_cleared, 42);
+    }
+
+    // -------------------------------------------------------------------------
+    // RuntimeConfig defaults
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_runtime_config_autopilot_defaults() {
+        let json = r#"{
+            "default_index_type": "hnsw",
+            "cache_enabled": true,
+            "cache_max_size_bytes": 1073741824,
+            "rate_limit_enabled": false,
+            "rate_limit_rps": 1000,
+            "query_timeout_ms": 5000
+        }"#;
+        let cfg: RuntimeConfig = serde_json::from_str(json).unwrap();
+        // autopilot_enabled defaults to true
+        assert!(cfg.autopilot_enabled);
+        // autopilot_dedup_threshold defaults to 0.93
+        assert!((cfg.autopilot_dedup_threshold - 0.93).abs() < 1e-4);
+        // autopilot_dedup_interval_hours defaults to 6
+        assert_eq!(cfg.autopilot_dedup_interval_hours, 6);
+        // autopilot_consolidation_interval_hours defaults to 12
+        assert_eq!(cfg.autopilot_consolidation_interval_hours, 12);
+    }
+
+    // -------------------------------------------------------------------------
+    // UpdateConfigResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_update_config_response_warnings_default_empty() {
+        let json = r#"{
+            "success": true,
+            "config": {
+                "default_index_type": "hnsw",
+                "cache_enabled": false,
+                "cache_max_size_bytes": 0,
+                "rate_limit_enabled": false,
+                "rate_limit_rps": 0,
+                "query_timeout_ms": 5000
+            },
+            "message": "updated"
+        }"#;
+        let resp: UpdateConfigResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.success);
+        assert!(resp.warnings.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // QuotaConfig serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_quota_config_all_none_serializes_empty() {
+        let cfg = QuotaConfig {
+            max_vectors: None,
+            max_storage_bytes: None,
+            max_queries_per_minute: None,
+            max_writes_per_minute: None,
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn test_quota_config_with_max_vectors() {
+        let cfg = QuotaConfig {
+            max_vectors: Some(1_000_000),
+            max_storage_bytes: None,
+            max_queries_per_minute: None,
+            max_writes_per_minute: None,
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("\"max_vectors\":1000000"));
+        assert!(!json.contains("max_storage"));
+    }
+
+    // -------------------------------------------------------------------------
+    // QuotaUsage defaults
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_quota_usage_all_fields_default_zero() {
+        let json = r#"{}"#;
+        let usage: QuotaUsage = serde_json::from_str(json).unwrap();
+        assert_eq!(usage.current_vectors, 0);
+        assert_eq!(usage.current_storage_bytes, 0);
+        assert_eq!(usage.queries_this_minute, 0);
+        assert_eq!(usage.writes_this_minute, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // QuotaListResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_quota_list_response_optional_default_config() {
+        let json = r#"{"quotas": [], "total": 0}"#;
+        let resp: QuotaListResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.default_config.is_none());
+        assert_eq!(resp.total, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // SlowQueryListResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_slow_query_list_response_deserializes() {
+        let json = r#"{"queries": [], "total": 0, "threshold_ms": 100.0}"#;
+        let resp: SlowQueryListResponse = serde_json::from_str(json).unwrap();
+        assert!((resp.threshold_ms - 100.0).abs() < 1e-9);
+        assert!(resp.queries.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // BackupInfo
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_backup_info_deserializes_minimal() {
+        let json = r#"{
+            "backup_id": "bkp-1",
+            "name": "daily",
+            "backup_type": "full",
+            "status": "completed",
+            "namespaces": ["ns-1"],
+            "vector_count": 5000,
+            "size_bytes": 1048576,
+            "created_at": 1785000000,
+            "encrypted": true
+        }"#;
+        let bkp: BackupInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(bkp.backup_id, "bkp-1");
+        assert!(bkp.encrypted);
+        assert!(bkp.completed_at.is_none());
+        assert!(bkp.error.is_none());
+        assert!(bkp.compression.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // CreateBackupRequest serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_create_backup_request_minimal_omits_optional() {
+        let req = CreateBackupRequest {
+            name: "snapshot".to_string(),
+            backup_type: None,
+            namespaces: None,
+            encrypt: None,
+            compression: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"name\":\"snapshot\""));
+        assert!(!json.contains("backup_type"));
+        assert!(!json.contains("namespaces"));
+        assert!(!json.contains("encrypt"));
+        assert!(!json.contains("compression"));
+    }
+
+    #[test]
+    fn test_create_backup_request_with_namespaces() {
+        let req = CreateBackupRequest {
+            name: "ns-backup".to_string(),
+            backup_type: Some("incremental".to_string()),
+            namespaces: Some(vec!["ns-a".to_string(), "ns-b".to_string()]),
+            encrypt: Some(true),
+            compression: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"backup_type\":\"incremental\""));
+        assert!(json.contains("\"ns-a\""));
+        assert!(json.contains("\"encrypt\":true"));
+    }
+
+    // -------------------------------------------------------------------------
+    // NamespaceListResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_namespace_list_response_deserializes() {
+        let json = r#"{"namespaces": [], "total": 0, "total_vectors": 0}"#;
+        let resp: NamespaceListResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.total, 0);
+        assert_eq!(resp.total_vectors, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // IndexStatsResponse with HashMap
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_index_stats_response_deserializes_with_hashmap() {
+        let json = r#"{
+            "namespaces": {
+                "default": {
+                    "index_type": "hnsw",
+                    "is_built": true,
+                    "size_bytes": 4096,
+                    "indexed_vectors": 200
+                }
+            },
+            "total_indexed_vectors": 200,
+            "total_size_bytes": 4096
+        }"#;
+        let resp: IndexStatsResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.total_indexed_vectors, 200);
+        assert!(resp.namespaces.contains_key("default"));
+    }
+}
