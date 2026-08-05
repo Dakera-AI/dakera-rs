@@ -1946,3 +1946,374 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // MemoryType serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_memory_type_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&MemoryType::Episodic).unwrap(),
+            "\"episodic\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MemoryType::Semantic).unwrap(),
+            "\"semantic\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MemoryType::Procedural).unwrap(),
+            "\"procedural\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MemoryType::Working).unwrap(),
+            "\"working\""
+        );
+    }
+
+    #[test]
+    fn test_memory_type_default_is_episodic() {
+        let serialized = serde_json::to_string(&MemoryType::default()).unwrap();
+        assert_eq!(serialized, "\"episodic\"");
+    }
+
+    #[test]
+    fn test_memory_type_deserializes() {
+        let mt: MemoryType = serde_json::from_str("\"semantic\"").unwrap();
+        assert!(matches!(mt, MemoryType::Semantic));
+    }
+
+    // -------------------------------------------------------------------------
+    // FusionStrategy serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_fusion_strategy_rrf_serializes() {
+        assert_eq!(
+            serde_json::to_string(&FusionStrategy::Rrf).unwrap(),
+            "\"rrf\""
+        );
+    }
+
+    #[test]
+    fn test_fusion_strategy_minmax_serializes_as_minmax() {
+        // The rename attribute maps MinMax → "minmax" (not "min_max")
+        assert_eq!(
+            serde_json::to_string(&FusionStrategy::MinMax).unwrap(),
+            "\"minmax\""
+        );
+    }
+
+    #[test]
+    fn test_fusion_strategy_default_is_rrf() {
+        assert_eq!(FusionStrategy::default(), FusionStrategy::Rrf);
+    }
+
+    // -------------------------------------------------------------------------
+    // RoutingMode serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_routing_mode_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&RoutingMode::Auto).unwrap(),
+            "\"auto\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RoutingMode::Vector).unwrap(),
+            "\"vector\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RoutingMode::Bm25).unwrap(),
+            "\"bm25\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RoutingMode::Hybrid).unwrap(),
+            "\"hybrid\""
+        );
+    }
+
+    #[test]
+    fn test_routing_mode_deserializes() {
+        let mode: RoutingMode = serde_json::from_str("\"hybrid\"").unwrap();
+        assert_eq!(mode, RoutingMode::Hybrid);
+    }
+
+    // -------------------------------------------------------------------------
+    // StoreMemoryRequest serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_store_memory_request_minimal_no_optional_fields() {
+        let req = StoreMemoryRequest::new("agent-1", "hello world");
+        let json = serde_json::to_string(&req).unwrap();
+        // Optional fields absent — no session_id, metadata, ttl_seconds, expires_at
+        assert!(!json.contains("session_id"));
+        assert!(!json.contains("metadata"));
+        assert!(!json.contains("ttl_seconds"));
+        assert!(!json.contains("expires_at"));
+        assert!(json.contains("\"agent_id\":\"agent-1\""));
+        assert!(json.contains("\"content\":\"hello world\""));
+    }
+
+    #[test]
+    fn test_store_memory_request_with_session_emits_session_id() {
+        let req = StoreMemoryRequest::new("agent-1", "content").with_session("sess-abc");
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"session_id\":\"sess-abc\""));
+    }
+
+    #[test]
+    fn test_store_memory_request_with_ttl() {
+        let req = StoreMemoryRequest::new("agent-1", "content").with_ttl(3600);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"ttl_seconds\":3600"));
+        assert!(!json.contains("expires_at"));
+    }
+
+    #[test]
+    fn test_store_memory_request_with_expires_at() {
+        let req = StoreMemoryRequest::new("a", "c").with_expires_at(1800000000);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"expires_at\":1800000000"));
+    }
+
+    #[test]
+    fn test_store_memory_request_importance_clamps_to_zero_one() {
+        let req = StoreMemoryRequest::new("a", "c").with_importance(1.5);
+        assert!((req.importance - 1.0).abs() < 1e-6);
+
+        let req2 = StoreMemoryRequest::new("a", "c").with_importance(-0.5);
+        assert!((req2.importance - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_store_memory_request_default_importance_is_half() {
+        let req = StoreMemoryRequest::new("a", "c");
+        assert!((req.importance - 0.5).abs() < 1e-6);
+    }
+
+    // -------------------------------------------------------------------------
+    // StoreMemoryResponse custom deserialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_store_memory_response_deserializes_server_format() {
+        let json = r#"{
+            "memory": {
+                "id": "mem-abc123",
+                "agent_id": "agent-1",
+                "namespace": "default"
+            },
+            "embedding_time_ms": 42
+        }"#;
+        let resp: StoreMemoryResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.memory_id, "mem-abc123");
+        assert_eq!(resp.agent_id, "agent-1");
+        assert_eq!(resp.namespace, "default");
+        assert_eq!(resp.embedding_time_ms, Some(42));
+    }
+
+    #[test]
+    fn test_store_memory_response_server_format_namespace_defaults_to_default() {
+        let json = r#"{"memory": {"id": "mem-x", "agent_id": "a"}, "embedding_time_ms": 10}"#;
+        let resp: StoreMemoryResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.namespace, "default");
+    }
+
+    #[test]
+    fn test_store_memory_response_deserializes_legacy_format() {
+        let json = r#"{"memory_id": "mem-legacy", "agent_id": "a", "namespace": "custom"}"#;
+        let resp: StoreMemoryResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.memory_id, "mem-legacy");
+        assert_eq!(resp.namespace, "custom");
+        assert!(resp.embedding_time_ms.is_none());
+    }
+
+    #[test]
+    fn test_store_memory_response_missing_id_returns_error() {
+        // Server format without "id" should fail
+        let json = r#"{"memory": {"agent_id": "a"}, "embedding_time_ms": 5}"#;
+        assert!(serde_json::from_str::<StoreMemoryResponse>(json).is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // RecallRequest serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_recall_request_minimal_no_optional_keys() {
+        let req = RecallRequest::new("agent-1", "what did I eat?");
+        let json = serde_json::to_string(&req).unwrap();
+        // Optional fields absent
+        assert!(!json.contains("memory_type"));
+        assert!(!json.contains("session_id"));
+        assert!(!json.contains("since"));
+        assert!(!json.contains("until"));
+        assert!(!json.contains("routing"));
+        assert!(!json.contains("rerank"));
+        assert!(!json.contains("fusion"));
+        assert!(!json.contains("vector_weight"));
+        assert!(!json.contains("iterations"));
+        assert!(!json.contains("neighborhood"));
+        // include_associated is false and uses skip_serializing_if="not"
+        assert!(!json.contains("include_associated"));
+        assert!(json.contains("\"agent_id\":\"agent-1\""));
+        assert!(json.contains("\"top_k\":5"));
+    }
+
+    #[test]
+    fn test_recall_request_with_fusion_emits_fusion() {
+        let req = RecallRequest::new("a", "q").with_fusion(FusionStrategy::MinMax);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"fusion\":\"minmax\""));
+    }
+
+    #[test]
+    fn test_recall_request_with_routing_bm25() {
+        let req = RecallRequest::new("a", "q").with_routing(RoutingMode::Bm25);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"routing\":\"bm25\""));
+    }
+
+    #[test]
+    fn test_recall_request_with_associated_sets_flag() {
+        let req = RecallRequest::new("a", "q").with_associated();
+        assert!(req.include_associated);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"include_associated\":true"));
+    }
+
+    #[test]
+    fn test_recall_request_with_associated_depth_implies_associated() {
+        let req = RecallRequest::new("a", "q").with_associated_depth(2);
+        assert!(req.include_associated);
+        assert_eq!(req.associated_memories_depth, Some(2));
+    }
+
+    #[test]
+    fn test_recall_request_with_associated_cap_implies_associated() {
+        let req = RecallRequest::new("a", "q").with_associated_cap(5);
+        assert!(req.include_associated);
+        assert_eq!(req.associated_memories_cap, Some(5));
+    }
+
+    #[test]
+    fn test_recall_request_with_rerank_false() {
+        let req = RecallRequest::new("a", "q").with_rerank(false);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"rerank\":false"));
+    }
+
+    #[test]
+    fn test_recall_request_with_neighborhood_false() {
+        let req = RecallRequest::new("a", "q").with_neighborhood(false);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"neighborhood\":false"));
+    }
+
+    // -------------------------------------------------------------------------
+    // ForgetRequest factory methods
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_forget_request_by_ids_serializes() {
+        let req = ForgetRequest::by_ids("agent-1", vec!["mem-1".to_string(), "mem-2".to_string()]);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"memory_ids\":[\"mem-1\",\"mem-2\"]"));
+        assert!(json.contains("\"agent_id\":\"agent-1\""));
+        assert!(!json.contains("session_id"));
+        assert!(!json.contains("before_timestamp"));
+    }
+
+    #[test]
+    fn test_forget_request_by_tags_serializes() {
+        let req = ForgetRequest::by_tags("a", vec!["tag-x".to_string()]);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"tags\":[\"tag-x\"]"));
+    }
+
+    #[test]
+    fn test_forget_request_by_session_serializes() {
+        let req = ForgetRequest::by_session("agent-1", "sess-abc");
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"session_id\":\"sess-abc\""));
+    }
+
+    #[test]
+    fn test_forget_response_deserializes() {
+        let json = r#"{"deleted_count": 7}"#;
+        let resp: ForgetResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.deleted_count, 7);
+    }
+
+    // -------------------------------------------------------------------------
+    // Session deserialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_session_deserializes_minimal() {
+        let json = r#"{
+            "id": "sess-1",
+            "agent_id": "agent-1",
+            "started_at": 1785000000
+        }"#;
+        let session: Session = serde_json::from_str(json).unwrap();
+        assert_eq!(session.id, "sess-1");
+        assert!(session.ended_at.is_none());
+        assert!(session.summary.is_none());
+        assert_eq!(session.memory_count, 0); // default
+    }
+
+    #[test]
+    fn test_session_deserializes_with_all_fields() {
+        let json = r#"{
+            "id": "sess-2",
+            "agent_id": "agent-1",
+            "started_at": 1785000000,
+            "ended_at": 1785001000,
+            "summary": "completed task",
+            "memory_count": 5
+        }"#;
+        let session: Session = serde_json::from_str(json).unwrap();
+        assert_eq!(session.ended_at, Some(1785001000));
+        assert_eq!(session.summary.as_deref(), Some("completed task"));
+        assert_eq!(session.memory_count, 5);
+    }
+
+    // -------------------------------------------------------------------------
+    // UpdateMemoryRequest
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_update_memory_request_all_none_emits_empty_object() {
+        let req = UpdateMemoryRequest {
+            content: None,
+            metadata: None,
+            memory_type: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn test_update_memory_request_with_content_only() {
+        let req = UpdateMemoryRequest {
+            content: Some("new content".to_string()),
+            metadata: None,
+            memory_type: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"content\":\"new content\""));
+        assert!(!json.contains("metadata"));
+        assert!(!json.contains("memory_type"));
+    }
+}
