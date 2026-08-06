@@ -355,3 +355,171 @@ pub struct CompressResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<f64>,
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // AgentSummary
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_agent_summary_deserializes() {
+        let json = r#"{
+            "agent_id": "agent-xyz",
+            "memory_count": 42,
+            "session_count": 7,
+            "total_recalls": 150,
+            "total_stores": 200
+        }"#;
+        let s: AgentSummary = serde_json::from_str(json).unwrap();
+        assert_eq!(s.agent_id, "agent-xyz");
+        assert_eq!(s.memory_count, 42);
+        assert_eq!(s.session_count, 7);
+    }
+
+    // -------------------------------------------------------------------------
+    // AgentStats
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_agent_stats_memories_by_type_defaults_empty() {
+        let json = r#"{"agent_id": "a", "memory_count": 0}"#;
+        let s: AgentStats = serde_json::from_str(json).unwrap();
+        assert!(s.memories_by_type.is_empty());
+        assert!(s.avg_importance.is_none());
+        assert!(s.oldest_memory_at.is_none());
+        assert!(s.newest_memory_at.is_none());
+    }
+
+    #[test]
+    fn test_agent_stats_with_type_distribution() {
+        let json = r#"{
+            "agent_id": "a",
+            "memory_count": 10,
+            "memories_by_type": {"episodic": 5, "semantic": 5},
+            "avg_importance": 0.72
+        }"#;
+        let s: AgentStats = serde_json::from_str(json).unwrap();
+        assert_eq!(s.memories_by_type["episodic"], 5);
+        assert!((s.avg_importance.unwrap() - 0.72).abs() < 1e-6);
+    }
+
+    // -------------------------------------------------------------------------
+    // Memory struct
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_memory_optional_fields_omitted_in_serialize() {
+        let m = Memory {
+            id: "mem-1".to_string(),
+            content: "hello".to_string(),
+            memory_type: "episodic".to_string(),
+            importance: 0.8,
+            metadata: None,
+            created_at: None,
+            updated_at: None,
+            access_count: None,
+        };
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(!json.contains("metadata"));
+        assert!(!json.contains("created_at"));
+        assert!(!json.contains("updated_at"));
+        assert!(!json.contains("access_count"));
+    }
+
+    #[test]
+    fn test_memory_with_all_optional_fields() {
+        let json = r#"{
+            "id": "m1",
+            "content": "test",
+            "memory_type": "semantic",
+            "importance": 0.9,
+            "metadata": {"key": "val"},
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-02T00:00:00Z",
+            "access_count": 5
+        }"#;
+        let m: Memory = serde_json::from_str(json).unwrap();
+        assert!(m.metadata.is_some());
+        assert_eq!(m.access_count, Some(5));
+    }
+
+    // -------------------------------------------------------------------------
+    // WakeUpResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_wake_up_response_deserializes() {
+        let json = r#"{
+            "agent_id": "agent-1",
+            "memories": [],
+            "total_available": 50
+        }"#;
+        let r: WakeUpResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(r.agent_id, "agent-1");
+        assert!(r.memories.is_empty());
+        assert_eq!(r.total_available, 50);
+    }
+
+    // -------------------------------------------------------------------------
+    // CompressResponse — alias removed_count → originals_deprecated
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_compress_response_defaults_zero() {
+        let json = r#"{"agent_id": "a"}"#;
+        let r: CompressResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(r.memories_scanned, 0);
+        assert_eq!(r.originals_deprecated, 0);
+        assert_eq!(r.clusters_found, 0);
+        assert_eq!(r.summaries_created, 0);
+        assert!(r.deprecated_ids.is_empty());
+        assert!(r.duration_ms.is_none());
+    }
+
+    #[test]
+    fn test_compress_response_alias_removed_count() {
+        let json = r#"{
+            "agent_id": "a",
+            "memories_scanned": 100,
+            "removed_count": 30,
+            "clusters_found": 10,
+            "summaries_created": 10
+        }"#;
+        let r: CompressResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(r.originals_deprecated, 30);
+    }
+
+    #[test]
+    fn test_compress_response_deprecated_ids_omitted_when_empty() {
+        let r = CompressResponse {
+            agent_id: "a".to_string(),
+            memories_scanned: 0,
+            originals_deprecated: 0,
+            clusters_found: 0,
+            summaries_created: 0,
+            deprecated_ids: vec![],
+            duration_ms: None,
+        };
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(!json.contains("deprecated_ids"));
+    }
+
+    #[test]
+    fn test_compress_response_with_duration_and_ids() {
+        let json = r#"{
+            "agent_id": "a",
+            "deprecated_ids": ["m1", "m2"],
+            "duration_ms": 42.5
+        }"#;
+        let r: CompressResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(r.deprecated_ids.len(), 2);
+        assert!((r.duration_ms.unwrap() - 42.5).abs() < 1e-6);
+    }
+}
