@@ -543,7 +543,8 @@ mod tests {
 
     #[test]
     fn test_deduplicate_response_deserializes() {
-        let json = r#"{"duplicates_found": 3, "removed_count": 2, "groups": [["a","b"],["c","d","e"]]}"#;
+        let json =
+            r#"{"duplicates_found": 3, "removed_count": 2, "groups": [["a","b"],["c","d","e"]]}"#;
         let resp: DeduplicateResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.duplicates_found, 3);
         assert_eq!(resp.removed_count, 2);
