@@ -154,3 +154,149 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // AnalyticsOverview
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_analytics_overview_deserializes_all_numeric_fields() {
+        let json = r#"{
+            "total_queries": 100,
+            "avg_latency_ms": 12.5,
+            "p95_latency_ms": 30.0,
+            "p99_latency_ms": 60.0,
+            "queries_per_second": 5.0,
+            "error_rate": 0.01,
+            "cache_hit_rate": 0.87,
+            "storage_used_bytes": 1048576,
+            "total_vectors": 95,
+            "total_namespaces": 3,
+            "uptime_seconds": 86400
+        }"#;
+        let overview: AnalyticsOverview = serde_json::from_str(json).unwrap();
+        assert_eq!(overview.total_queries, 100);
+        assert!((overview.avg_latency_ms - 12.5).abs() < 1e-6);
+        assert!((overview.cache_hit_rate - 0.87).abs() < 1e-6);
+        assert_eq!(overview.uptime_seconds, 86400);
+    }
+
+    // -------------------------------------------------------------------------
+    // LatencyAnalytics
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_latency_analytics_by_operation_defaults_empty() {
+        let json = r#"{
+            "period": "1h",
+            "avg_ms": 10.0,
+            "p50_ms": 8.0,
+            "p95_ms": 25.0,
+            "p99_ms": 50.0,
+            "max_ms": 120.0
+        }"#;
+        let la: LatencyAnalytics = serde_json::from_str(json).unwrap();
+        assert_eq!(la.period, "1h");
+        assert!(la.by_operation.is_empty());
+    }
+
+    #[test]
+    fn test_latency_analytics_with_by_operation() {
+        let json = r#"{
+            "period": "24h",
+            "avg_ms": 15.0,
+            "p50_ms": 12.0,
+            "p95_ms": 40.0,
+            "p99_ms": 80.0,
+            "max_ms": 200.0,
+            "by_operation": {
+                "recall": {"avg_ms": 18.0, "p95_ms": 45.0, "count": 3000},
+                "store": {"avg_ms": 10.0, "p95_ms": 30.0, "count": 2000}
+            }
+        }"#;
+        let la: LatencyAnalytics = serde_json::from_str(json).unwrap();
+        assert_eq!(la.by_operation.len(), 2);
+        assert!((la.by_operation["recall"].avg_ms - 18.0).abs() < 1e-6);
+        assert_eq!(la.by_operation["store"].count, 2000);
+    }
+
+    // -------------------------------------------------------------------------
+    // OperationLatency
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_operation_latency_deserializes() {
+        let json = r#"{"avg_ms": 9.5, "p95_ms": 22.0, "count": 100}"#;
+        let op: OperationLatency = serde_json::from_str(json).unwrap();
+        assert!((op.avg_ms - 9.5).abs() < 1e-6);
+        assert_eq!(op.count, 100);
+    }
+
+    // -------------------------------------------------------------------------
+    // ThroughputAnalytics
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_throughput_analytics_by_operation_defaults_empty() {
+        let json = r#"{
+            "period": "1h",
+            "operations_per_second": 42.5,
+            "total_operations": 153000
+        }"#;
+        let ta: ThroughputAnalytics = serde_json::from_str(json).unwrap();
+        assert!((ta.operations_per_second - 42.5).abs() < 1e-6);
+        assert!(ta.by_operation.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // StorageAnalytics
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_storage_analytics_by_namespace_defaults_empty() {
+        let json = r#"{
+            "total_bytes": 2097152,
+            "index_bytes": 512000,
+            "data_bytes": 1585152
+        }"#;
+        let sa: StorageAnalytics = serde_json::from_str(json).unwrap();
+        assert_eq!(sa.total_bytes, 2097152);
+        assert!(sa.by_namespace.is_empty());
+    }
+
+    #[test]
+    fn test_storage_analytics_with_namespaces() {
+        let json = r#"{
+            "total_bytes": 4194304,
+            "index_bytes": 1048576,
+            "data_bytes": 3145728,
+            "by_namespace": {
+                "default": {"bytes": 2097152, "vector_count": 500},
+                "archive": {"bytes": 2097152, "vector_count": 500}
+            }
+        }"#;
+        let sa: StorageAnalytics = serde_json::from_str(json).unwrap();
+        assert_eq!(sa.by_namespace.len(), 2);
+        assert_eq!(sa.by_namespace["default"].vector_count, 500);
+    }
+
+    // -------------------------------------------------------------------------
+    // NamespaceStorage
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_namespace_storage_deserializes() {
+        let json = r#"{"bytes": 1048576, "vector_count": 256}"#;
+        let ns: NamespaceStorage = serde_json::from_str(json).unwrap();
+        assert_eq!(ns.bytes, 1048576);
+        assert_eq!(ns.vector_count, 256);
+    }
+}

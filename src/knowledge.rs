@@ -328,3 +328,262 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // KnowledgeGraphRequest serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_knowledge_graph_request_minimal_omits_optional() {
+        let req = KnowledgeGraphRequest {
+            agent_id: "agent-1".to_string(),
+            memory_id: None,
+            depth: None,
+            min_similarity: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"agent_id\":\"agent-1\""));
+        assert!(!json.contains("memory_id"));
+        assert!(!json.contains("depth"));
+        assert!(!json.contains("min_similarity"));
+    }
+
+    #[test]
+    fn test_knowledge_graph_request_with_all_fields() {
+        let req = KnowledgeGraphRequest {
+            agent_id: "agent-1".to_string(),
+            memory_id: Some("mem-abc".to_string()),
+            depth: Some(3),
+            min_similarity: Some(0.7),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"memory_id\":\"mem-abc\""));
+        assert!(json.contains("\"depth\":3"));
+        assert!(json.contains("\"min_similarity\":0.7"));
+    }
+
+    // -------------------------------------------------------------------------
+    // KnowledgeNode deserialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_knowledge_node_deserializes_minimal() {
+        let json = r#"{
+            "id": "n1",
+            "content": "user likes coffee"
+        }"#;
+        let node: KnowledgeNode = serde_json::from_str(json).unwrap();
+        assert_eq!(node.id, "n1");
+        assert!(node.memory_type.is_none());
+        assert!(node.importance.is_none());
+        assert_eq!(node.metadata, serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_knowledge_node_deserializes_with_optional_fields() {
+        let json = r#"{
+            "id": "n2",
+            "content": "works at Dakera",
+            "memory_type": "semantic",
+            "importance": 0.9
+        }"#;
+        let node: KnowledgeNode = serde_json::from_str(json).unwrap();
+        assert_eq!(node.memory_type.as_deref(), Some("semantic"));
+        assert!((node.importance.unwrap() - 0.9).abs() < 1e-6);
+    }
+
+    // -------------------------------------------------------------------------
+    // KnowledgeEdge serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_knowledge_edge_without_relationship_omits_field() {
+        let edge = KnowledgeEdge {
+            source: "n1".to_string(),
+            target: "n2".to_string(),
+            similarity: 0.85,
+            relationship: None,
+        };
+        let json = serde_json::to_string(&edge).unwrap();
+        assert!(json.contains("\"similarity\":0.85"));
+        assert!(!json.contains("relationship"));
+    }
+
+    #[test]
+    fn test_knowledge_edge_with_relationship() {
+        let edge = KnowledgeEdge {
+            source: "n1".to_string(),
+            target: "n2".to_string(),
+            similarity: 0.92,
+            relationship: Some("colleague".to_string()),
+        };
+        let json = serde_json::to_string(&edge).unwrap();
+        assert!(json.contains("\"relationship\":\"colleague\""));
+    }
+
+    // -------------------------------------------------------------------------
+    // KnowledgeGraphResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_knowledge_graph_response_deserializes_empty() {
+        let json = r#"{"nodes": [], "edges": []}"#;
+        let resp: KnowledgeGraphResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.nodes.is_empty());
+        assert!(resp.edges.is_empty());
+        assert!(resp.clusters.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // FullKnowledgeGraphRequest serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_full_knowledge_graph_request_all_optional_omitted() {
+        let req = FullKnowledgeGraphRequest {
+            agent_id: "a".to_string(),
+            max_nodes: None,
+            min_similarity: None,
+            cluster_threshold: None,
+            max_edges_per_node: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("max_nodes"));
+        assert!(!json.contains("min_similarity"));
+        assert!(!json.contains("cluster_threshold"));
+    }
+
+    // -------------------------------------------------------------------------
+    // SummarizeRequest
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_summarize_request_dry_run_default_false() {
+        let req = SummarizeRequest {
+            agent_id: "a".to_string(),
+            memory_ids: None,
+            target_type: None,
+            dry_run: false,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"dry_run\":false"));
+        assert!(!json.contains("memory_ids"));
+        assert!(!json.contains("target_type"));
+    }
+
+    #[test]
+    fn test_summarize_request_with_memory_ids() {
+        let req = SummarizeRequest {
+            agent_id: "a".to_string(),
+            memory_ids: Some(vec!["m1".to_string(), "m2".to_string()]),
+            target_type: Some("semantic".to_string()),
+            dry_run: true,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"dry_run\":true"));
+        assert!(json.contains("\"m1\""));
+        assert!(json.contains("\"target_type\":\"semantic\""));
+    }
+
+    // -------------------------------------------------------------------------
+    // SummarizeResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_summarize_response_deserializes() {
+        let json = r#"{"summary": "user is a developer", "source_count": 5}"#;
+        let resp: SummarizeResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.summary, "user is a developer");
+        assert_eq!(resp.source_count, 5);
+        assert!(resp.new_memory_id.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // DeduplicateRequest
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_deduplicate_request_dry_run_default_false() {
+        let req = DeduplicateRequest {
+            agent_id: "a".to_string(),
+            threshold: None,
+            memory_type: None,
+            dry_run: false,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"dry_run\":false"));
+        assert!(!json.contains("threshold"));
+        assert!(!json.contains("memory_type"));
+    }
+
+    #[test]
+    fn test_deduplicate_request_with_threshold() {
+        let req = DeduplicateRequest {
+            agent_id: "a".to_string(),
+            threshold: Some(0.92),
+            memory_type: Some("episodic".to_string()),
+            dry_run: true,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"threshold\":0.92"));
+        assert!(json.contains("\"memory_type\":\"episodic\""));
+    }
+
+    // -------------------------------------------------------------------------
+    // DeduplicateResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_deduplicate_response_deserializes() {
+        let json =
+            r#"{"duplicates_found": 3, "removed_count": 2, "groups": [["a","b"],["c","d","e"]]}"#;
+        let resp: DeduplicateResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.duplicates_found, 3);
+        assert_eq!(resp.removed_count, 2);
+        assert_eq!(resp.groups.len(), 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // CrossAgentNetworkRequest defaults
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_cross_agent_network_request_default_values() {
+        let req = CrossAgentNetworkRequest::default();
+        assert!(req.agent_ids.is_none());
+        assert!((req.min_similarity - 0.3).abs() < 1e-6);
+        assert_eq!(req.max_nodes_per_agent, 50);
+        assert!((req.min_importance - 0.0).abs() < 1e-6);
+        assert_eq!(req.max_cross_edges, 200);
+    }
+
+    // -------------------------------------------------------------------------
+    // CrossAgentNetworkResponse
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_cross_agent_network_response_node_count_defaults_zero() {
+        let json = r#"{
+            "agents": [],
+            "nodes": [],
+            "edges": [],
+            "stats": {
+                "total_agents": 0,
+                "total_nodes": 0,
+                "total_cross_edges": 0,
+                "density": 0.0
+            }
+        }"#;
+        let resp: CrossAgentNetworkResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.node_count, 0);
+        assert!(resp.agents.is_empty());
+    }
+}
