@@ -374,13 +374,13 @@ mod tests {
             "agent_id": "agent-xyz",
             "memory_count": 42,
             "session_count": 7,
-            "total_recalls": 150,
-            "total_stores": 200
+            "active_sessions": 2
         }"#;
         let s: AgentSummary = serde_json::from_str(json).unwrap();
         assert_eq!(s.agent_id, "agent-xyz");
         assert_eq!(s.memory_count, 42);
         assert_eq!(s.session_count, 7);
+        assert_eq!(s.active_sessions, 2);
     }
 
     // -------------------------------------------------------------------------
@@ -389,7 +389,8 @@ mod tests {
 
     #[test]
     fn test_agent_stats_memories_by_type_defaults_empty() {
-        let json = r#"{"agent_id": "a", "memory_count": 0}"#;
+        let json =
+            r#"{"agent_id": "a", "total_memories": 0, "total_sessions": 0, "active_sessions": 0}"#;
         let s: AgentStats = serde_json::from_str(json).unwrap();
         assert!(s.memories_by_type.is_empty());
         assert!(s.avg_importance.is_none());
@@ -401,7 +402,9 @@ mod tests {
     fn test_agent_stats_with_type_distribution() {
         let json = r#"{
             "agent_id": "a",
-            "memory_count": 10,
+            "total_memories": 10,
+            "total_sessions": 3,
+            "active_sessions": 1,
             "memories_by_type": {"episodic": 5, "semantic": 5},
             "avg_importance": 0.72
         }"#;

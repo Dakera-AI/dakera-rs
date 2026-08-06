@@ -170,22 +170,21 @@ mod tests {
     #[test]
     fn test_analytics_overview_deserializes_all_numeric_fields() {
         let json = r#"{
-            "total_memories": 100,
-            "total_agents": 5,
-            "total_sessions": 20,
-            "total_recalls": 500,
-            "total_stores": 300,
-            "avg_recall_latency_ms": 12.5,
-            "avg_store_latency_ms": 8.3,
-            "storage_bytes": 1048576,
-            "vector_count": 95,
+            "total_queries": 100,
+            "avg_latency_ms": 12.5,
+            "p95_latency_ms": 30.0,
+            "p99_latency_ms": 60.0,
+            "queries_per_second": 5.0,
+            "error_rate": 0.01,
             "cache_hit_rate": 0.87,
+            "storage_used_bytes": 1048576,
+            "total_vectors": 95,
+            "total_namespaces": 3,
             "uptime_seconds": 86400
         }"#;
         let overview: AnalyticsOverview = serde_json::from_str(json).unwrap();
-        assert_eq!(overview.total_memories, 100);
-        assert_eq!(overview.total_agents, 5);
-        assert!((overview.avg_recall_latency_ms - 12.5).abs() < 1e-6);
+        assert_eq!(overview.total_queries, 100);
+        assert!((overview.avg_latency_ms - 12.5).abs() < 1e-6);
         assert!((overview.cache_hit_rate - 0.87).abs() < 1e-6);
         assert_eq!(overview.uptime_seconds, 86400);
     }
@@ -202,8 +201,7 @@ mod tests {
             "p50_ms": 8.0,
             "p95_ms": 25.0,
             "p99_ms": 50.0,
-            "max_ms": 120.0,
-            "sample_count": 1000
+            "max_ms": 120.0
         }"#;
         let la: LatencyAnalytics = serde_json::from_str(json).unwrap();
         assert_eq!(la.period, "1h");
@@ -219,7 +217,6 @@ mod tests {
             "p95_ms": 40.0,
             "p99_ms": 80.0,
             "max_ms": 200.0,
-            "sample_count": 5000,
             "by_operation": {
                 "recall": {"avg_ms": 18.0, "p95_ms": 45.0, "count": 3000},
                 "store": {"avg_ms": 10.0, "p95_ms": 30.0, "count": 2000}
@@ -251,11 +248,11 @@ mod tests {
     fn test_throughput_analytics_by_operation_defaults_empty() {
         let json = r#"{
             "period": "1h",
-            "requests_per_second": 42.5,
-            "total_requests": 153000
+            "operations_per_second": 42.5,
+            "total_operations": 153000
         }"#;
         let ta: ThroughputAnalytics = serde_json::from_str(json).unwrap();
-        assert!((ta.requests_per_second - 42.5).abs() < 1e-6);
+        assert!((ta.operations_per_second - 42.5).abs() < 1e-6);
         assert!(ta.by_operation.is_empty());
     }
 
@@ -267,9 +264,8 @@ mod tests {
     fn test_storage_analytics_by_namespace_defaults_empty() {
         let json = r#"{
             "total_bytes": 2097152,
-            "total_vectors": 500,
-            "avg_memory_size_bytes": 4096.0,
-            "growth_rate_bytes_per_day": 1024.0
+            "index_bytes": 512000,
+            "data_bytes": 1585152
         }"#;
         let sa: StorageAnalytics = serde_json::from_str(json).unwrap();
         assert_eq!(sa.total_bytes, 2097152);
@@ -280,9 +276,8 @@ mod tests {
     fn test_storage_analytics_with_namespaces() {
         let json = r#"{
             "total_bytes": 4194304,
-            "total_vectors": 1000,
-            "avg_memory_size_bytes": 4096.0,
-            "growth_rate_bytes_per_day": 2048.0,
+            "index_bytes": 1048576,
+            "data_bytes": 3145728,
             "by_namespace": {
                 "default": {"bytes": 2097152, "vector_count": 500},
                 "archive": {"bytes": 2097152, "vector_count": 500}
