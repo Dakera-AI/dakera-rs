@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.106] - 2026-08-07
+
+### Added
+
+- **`debug_config()` — GET /debug/config** — new method returning a
+  `HashMap<String, String>` of live server configuration key/value pairs (DAK-7534).
+  Parity with dakera-py, dakera-js, and dakera-go.
+  ([#158](https://github.com/Dakera-AI/dakera-rs/pull/158))
+
+- **`valid_from` field on `StoreMemoryRequest` and `BatchStoreMemoryItem`** — optional
+  `chrono::DateTime<Utc>` (serialized as ISO-8601) for bi-temporal memory storage (DAK-7424).
+  Allows callers to back-date memory creation timestamps. Parity with all other SDKs.
+  ([#159](https://github.com/Dakera-AI/dakera-rs/pull/159))
+
+### Changed
+
+- **Server sync v0.11.106** — bundles server v0.11.99–v0.11.106 internal engine improvements
+  (CE-148 zero-result fallback, CE-149 precision rerank, CE-150 temporal rerank, CE-151
+  fetch_n boost, CE-153 all-evidence recall, CE-156 curated specificity boost, CE-160
+  neighborhood retrieval, CE-162 expand-only temporal gating). No additional public API
+  surface changes beyond the items listed above.
+
+### Tests
+
+- **97 new serde unit tests** — added across four modules:
+  `memory.rs` (34 tests, [#160](https://github.com/Dakera-AI/dakera-rs/pull/160)),
+  `admin.rs` (29 tests, [#161](https://github.com/Dakera-AI/dakera-rs/pull/161)),
+  `knowledge`, `analytics`, and `agents` (34 tests combined, [#162](https://github.com/Dakera-AI/dakera-rs/pull/162)).
+  Serialization/deserialization round-trips validated for all public request/response types.
+
 ## [0.11.102] - 2026-07-16
 
 ### Added
