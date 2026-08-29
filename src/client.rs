@@ -2114,7 +2114,10 @@ mod tests {
         assert_eq!(resp.total, 42);
         assert_eq!(resp.filtered, 7);
         assert!(resp.memories.is_empty());
-        assert!(!resp.truncated, "truncated should default to false when absent");
+        assert!(
+            !resp.truncated,
+            "truncated should default to false when absent"
+        );
     }
 
     #[test]
