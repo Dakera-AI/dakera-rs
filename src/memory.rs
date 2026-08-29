@@ -1050,6 +1050,9 @@ pub struct BatchRecallResponse {
     pub total: usize,
     /// Number of memories that passed the filter.
     pub filtered: usize,
+    /// True when the result set was capped by `limit` and more matching memories exist.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 // ============================================================================
