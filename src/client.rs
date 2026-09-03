@@ -2114,6 +2114,23 @@ mod tests {
         assert_eq!(resp.total, 42);
         assert_eq!(resp.filtered, 7);
         assert!(resp.memories.is_empty());
+        assert!(
+            !resp.truncated,
+            "truncated should default to false when absent"
+        );
+    }
+
+    #[test]
+    fn test_batch_recall_response_truncated_true() {
+        use crate::memory::BatchRecallResponse;
+        let json = serde_json::json!({
+            "memories": [],
+            "total": 500,
+            "filtered": 100,
+            "truncated": true
+        });
+        let resp: BatchRecallResponse = serde_json::from_value(json).unwrap();
+        assert!(resp.truncated);
     }
 
     #[test]
