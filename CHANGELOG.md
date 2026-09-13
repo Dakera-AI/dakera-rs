@@ -347,7 +347,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Replace hardcoded `api.dakera.ai` with `localhost:3300` in README examples (DAK-5329, [#112](https://github.com/Dakera-AI/dakera-rs/pull/112))
+- Replace hardcoded `api.dakera.ai` with `localhost:3000` in README examples (DAK-5329, [#112](https://github.com/Dakera-AI/dakera-rs/pull/112))
 
 ### Dependencies
 
