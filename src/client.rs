@@ -10,6 +10,7 @@ use tracing::{debug, instrument};
 
 use serde::Deserialize;
 
+use crate::capabilities::{CapabilityKind, ServerCapabilities};
 use crate::error::{ClientError, Result, ServerErrorCode};
 use crate::types::*;
 
@@ -30,9 +31,107 @@ pub struct DakeraClient {
     pub(crate) retry_config: RetryConfig,
     /// OPS-1: last seen rate-limit headers (shared across clones)
     pub(crate) last_rate_limit: Arc<Mutex<Option<RateLimitHeaders>>>,
+    /// R9: per-client capabilities cache (`GET /v1/capabilities`), shared across clones
+    pub(crate) capabilities: Arc<Mutex<Option<Arc<ServerCapabilities>>>>,
+    /// R9: the server answered 404 for capabilities (pre-0.12) — stop asking
+    pub(crate) capabilities_unavailable: Arc<Mutex<bool>>,
+    /// R9: fetch capabilities lazily and validate requests before sending
+    pub(crate) preflight: bool,
 }
 
 impl DakeraClient {
+    // ========================================================================
+    // Server capabilities (R9 / DAK-10004)
+    // ========================================================================
+
+    /// What the connected server can do — `GET /v1/capabilities` (server v0.12+).
+    ///
+    /// Returns the models the server can load (and which one is active), index
+    /// kinds, distance metrics, the search mode it runs, whether the R2
+    /// `records` surface is enabled and whether a re-embed is still pending.
+    /// The document is cached on this client (shared across clones); use
+    /// [`Self::refresh_capabilities`] to fetch it again.  Unknown fields and
+    /// unknown strings in the document are kept rather than rejected.
+    ///
+    /// A server that predates the endpoint yields a 404 `ClientError::Server`
+    /// (`is_not_found()`).
+    ///
+    /// ```rust,no_run
+    /// # use dakera_client::DakeraClient;
+    /// # async fn run() -> dakera_client::Result<()> {
+    /// let client = DakeraClient::new("http://localhost:3000")?;
+    /// let caps = client.capabilities().await?;
+    /// println!("models: {:?}", caps.model_names());
+    /// println!("records enabled: {}", caps.supports_records());
+    /// println!("re-embed pending: {}", caps.reembed_pending);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn capabilities(&self) -> Result<Arc<ServerCapabilities>> {
+        let cached = self.capabilities.lock().ok().and_then(|guard| guard.clone());
+        if let Some(caps) = cached {
+            return Ok(caps);
+        }
+        self.refresh_capabilities().await
+    }
+
+    /// Fetch `GET /v1/capabilities` again and replace the cache.
+    #[instrument(skip(self))]
+    pub async fn refresh_capabilities(&self) -> Result<Arc<ServerCapabilities>> {
+        let url = format!("{}/v1/capabilities", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        let caps: ServerCapabilities = self.handle_response(response).await?;
+        let caps = Arc::new(caps);
+        if let Ok(mut guard) = self.capabilities.lock() {
+            *guard = Some(caps.clone());
+        }
+        if let Ok(mut guard) = self.capabilities_unavailable.lock() {
+            *guard = false;
+        }
+        Ok(caps)
+    }
+
+    /// `Err(ClientError::UnsupportedCapability)` unless the server advertises
+    /// `value` for `kind`.  Fetches (and caches) capabilities on first use.
+    /// [`CapabilityKind::SearchMode`] is process-wide on the server
+    /// (`DAKERA_SEARCH_MODE`), so this is the pre-flight for tooling that
+    /// configures it rather than for a per-request field.
+    pub async fn require_supported(&self, kind: CapabilityKind, value: &str) -> Result<()> {
+        self.capabilities().await?.require(kind, value)
+    }
+
+    /// Validate `value` against cached capabilities before a request.  Uses the
+    /// cache when populated; fetches only when the builder's `preflight(true)`
+    /// was set.  A 404 (pre-0.12 server) disables the check for the lifetime
+    /// of this client.
+    async fn preflight_check(&self, kind: CapabilityKind, value: &str) -> Result<()> {
+        let cached = self.capabilities.lock().ok().and_then(|guard| guard.clone());
+        let caps = match cached {
+            Some(caps) => caps,
+            None => {
+                let unavailable = self
+                    .capabilities_unavailable
+                    .lock()
+                    .map(|guard| *guard)
+                    .unwrap_or(false);
+                if !self.preflight || unavailable {
+                    return Ok(());
+                }
+                match self.refresh_capabilities().await {
+                    Ok(caps) => caps,
+                    Err(err) if err.is_not_found() => {
+                        if let Ok(mut guard) = self.capabilities_unavailable.lock() {
+                            *guard = true;
+                        }
+                        return Ok(());
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+        };
+        caps.require(kind, value)
+    }
+
     /// Create a new client with the given base URL
     ///
     /// # Example
@@ -147,6 +246,9 @@ impl DakeraClient {
         namespace: &str,
         request: CreateNamespaceRequest,
     ) -> Result<NamespaceInfo> {
+        if let Some(kind) = &request.index_type {
+            self.preflight_check(CapabilityKind::IndexKind, kind).await?;
+        }
         let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -163,6 +265,9 @@ impl DakeraClient {
         namespace: &str,
         request: ConfigureNamespaceRequest,
     ) -> Result<ConfigureNamespaceResponse> {
+        if let Some(metric) = &request.distance {
+            self.preflight_check(CapabilityKind::DistanceMetric, metric.as_str()).await?;
+        }
         let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -979,6 +1084,9 @@ impl DakeraClient {
         namespace: &str,
         request: UpsertTextRequest,
     ) -> Result<TextUpsertResponse> {
+        if let Some(model) = &request.model {
+            self.preflight_check(CapabilityKind::Model, model.as_str()).await?;
+        }
         let url = format!("{}/v1/namespaces/{}/upsert-text", self.base_url, namespace);
         debug!(
             "Upserting {} text documents to {}",
@@ -996,6 +1104,9 @@ impl DakeraClient {
         namespace: &str,
         request: QueryTextRequest,
     ) -> Result<TextQueryResponse> {
+        if let Some(model) = &request.model {
+            self.preflight_check(CapabilityKind::Model, model.as_str()).await?;
+        }
         let url = format!("{}/v1/namespaces/{}/query-text", self.base_url, namespace);
         debug!("Text query in {} for: {}", namespace, request.text);
         let response = self.client.post(&url).json(&request).send().await?;
@@ -1021,6 +1132,9 @@ impl DakeraClient {
         namespace: &str,
         request: BatchQueryTextRequest,
     ) -> Result<BatchQueryTextResponse> {
+        if let Some(model) = &request.model {
+            self.preflight_check(CapabilityKind::Model, model.as_str()).await?;
+        }
         let url = format!(
             "{}/v1/namespaces/{}/batch-query-text",
             self.base_url, namespace
@@ -1396,6 +1510,7 @@ pub struct DakeraClientBuilder {
     retry_config: RetryConfig,
     user_agent: Option<String>,
     extra_headers: Vec<(String, String)>,
+    preflight: bool,
 }
 
 impl DakeraClientBuilder {
@@ -1410,7 +1525,21 @@ impl DakeraClientBuilder {
             retry_config: RetryConfig::default(),
             user_agent: None,
             extra_headers: Vec::new(),
+            preflight: false,
         }
+    }
+
+    /// R9: validate the requested embedding model, index kind and distance
+    /// metric against `GET /v1/capabilities` *before* sending a request,
+    /// returning [`ClientError::UnsupportedCapability`] that names what the
+    /// server supports.  Capabilities are fetched lazily on first use and
+    /// cached (see [`DakeraClient::capabilities`]); a server that predates the
+    /// endpoint (404) disables the check silently.  When off (default) the
+    /// check still runs whenever capabilities have already been fetched
+    /// through [`DakeraClient::capabilities`].
+    pub fn preflight(mut self, enabled: bool) -> Self {
+        self.preflight = enabled;
+        self
     }
 
     /// Set the API key for Bearer authentication.
@@ -1529,6 +1658,9 @@ impl DakeraClientBuilder {
             ode_url: self.ode_url,
             retry_config: self.retry_config,
             last_rate_limit: Arc::new(Mutex::new(None)),
+            capabilities: Arc::new(Mutex::new(None)),
+            capabilities_unavailable: Arc::new(Mutex::new(false)),
+            preflight: self.preflight,
         })
     }
 }

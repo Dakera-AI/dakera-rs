@@ -75,6 +75,7 @@
 pub mod admin;
 pub mod agents;
 pub mod analytics;
+mod capabilities;
 #[cfg(feature = "http-client")]
 mod client;
 mod error;
@@ -108,6 +109,11 @@ pub use admin::{
 };
 pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpResponse};
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
+// R9 / DAK-10004: GET /v1/capabilities
+pub use capabilities::{
+    parse_accepted_values, CapabilityKind, ModelCapability, RecordCapabilities,
+    ServerCapabilities,
+};
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
 pub use error::{ClientError, Result};

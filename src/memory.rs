@@ -242,6 +242,17 @@ pub enum RoutingMode {
     Bm25,
     /// Fuse ANN and BM25 scores (RRF).
     Hybrid,
+    /// A mode this SDK version does not know (a newer server sent it) — R9
+    /// forward-compat: never a deserialisation error.
+    #[serde(other)]
+    Unknown,
+}
+
+impl RoutingMode {
+    /// `false` for [`Self::Unknown`].
+    pub fn is_known(&self) -> bool {
+        !matches!(self, RoutingMode::Unknown)
+    }
 }
 
 /// Recall memories request

@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::capabilities::CapabilityKind;
+
 /// Result type alias for Dakera client operations
 pub type Result<T> = std::result::Result<T, ClientError>;
 
@@ -93,6 +95,21 @@ pub enum ClientError {
     RateLimitExceeded {
         /// Value of the `Retry-After` response header in seconds, if present.
         retry_after: Option<u64>,
+    },
+
+    /// R9 / DAK-10004: refused *before* sending because the server's
+    /// advertised capabilities (`GET /v1/capabilities`) do not include what
+    /// was asked for.  The message names what the server does accept.
+    #[error("{kind} '{requested}' is not supported by Dakera server v{server_version}; supported {kind} values: {}", .supported.join(", "))]
+    UnsupportedCapability {
+        /// Which registry was checked (`model`, `index_kind`, ...).
+        kind: CapabilityKind,
+        /// The wire string that was rejected.
+        requested: String,
+        /// The wire strings the server advertises for `kind`.
+        supported: Vec<String>,
+        /// The server's version, as it reported it.
+        server_version: String,
     },
 }
 

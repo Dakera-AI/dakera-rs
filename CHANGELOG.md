@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-22
+
+### Added
+
+- **Forward-compat contract (R9, DAK-10004)** — the server's registries (models, index kinds,
+  search modes, distance metrics, record representation kinds, block dtypes) grow over time and
+  `GET /v1/capabilities` documents the rule: every field is additive; unknown fields and unknown
+  strings inside lists MUST be ignored; `capabilities_version` bumps only on a breaking reshape.
+  This release makes the SDK honour that rule end to end and moves it to the 0.12 line.
+- **Lenient enums** — `EmbeddingModel` was a closed serde enum, so the first response naming a
+  model this crate did not know (`bge-m3`) failed with `ClientError::Json` on an unrelated call.
+  It now carries `EmbeddingModel::Unknown(String)` (the raw wire string, round-trips unchanged)
+  plus `as_str()`, `is_known()`, `known()`, `From<&str>`/`From<String>`/`Into<String>`,
+  `Display`; `EmbeddingModel::BgeM3` is declared. New enums of the same shape: `IndexKind`
+  (`IvfPq`), `SearchMode` (`RaBitQ`), `RepresentationKind`, `BlockDType`. `DistanceMetric`
+  (stays `Copy`) and `RoutingMode` gain a `#[serde(other)] Unknown` variant and `is_known()`.
+- **`DakeraClient::capabilities()` / `refresh_capabilities()`** — typed `ServerCapabilities`
+  (`Arc`, cached per client and shared across clones) for `GET /v1/capabilities`: models (name,
+  aliases, dimension, context window, active flag, MRL dims), index kinds (all / vector / live),
+  distance metrics, the search mode the server runs and every value it accepts
+  (`search_modes_accepted` — prose parsed with aliases expanded; a JSON list accepted too),
+  `records` (`supports_records()`, kinds, dtypes, limits), `query_languages`, `reembed_pending`.
+  Unknown fields are collected into `extra` (`#[serde(flatten)]`), every field is
+  `#[serde(default)]`. Helpers: `model(name_or_alias)`, `active_model()`, `model_names()`,
+  `supported_values(kind)`, `supports(kind, value)`, `require(kind, value)`; `CapabilityKind`.
+- **Pre-flight validation** — `upsert_text` / `query_text` / `batch_query_text` (model),
+  `create_namespace` (index type) and `configure_namespace` (distance metric) check the requested
+  value against cached capabilities *before* sending and return
+  `ClientError::UnsupportedCapability { kind, requested, supported, server_version }` whose
+  message names what the server accepts. Runs whenever `capabilities()` has been called;
+  `DakeraClient::builder(url).preflight(true)` fetches lazily on first use and degrades silently
+  on a pre-0.12 server (404). `require_supported(kind, value)` exposes the same check for
+  `CapabilityKind::SearchMode` and `CapabilityKind::QueryLanguage`.
+
+### Changed
+
+- Version 0.11.107 → 0.12.0 (SDK line now tracks server v0.12). `EmbeddingModel` is no longer
+  exhaustively matchable without an `Unknown(_)` arm; `DistanceMetric`/`RoutingMode` likewise
+  gain an `Unknown` arm (0.x minor: intentional).
+
 ## [0.11.106] - 2026-08-07
 
 ### Added

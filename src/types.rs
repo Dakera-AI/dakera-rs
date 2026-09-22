@@ -341,7 +341,12 @@ impl StalenessConfig {
 }
 
 /// Distance metric for similarity search
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// Forward-compatible (R9): a metric string this SDK does not know deserialises
+/// as [`DistanceMetric::Unknown`] instead of failing.  Stays `Copy`, so the
+/// unknown string itself is not carried; the authoritative list is
+/// `capabilities().distance_metrics`.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DistanceMetric {
     /// Cosine similarity (default)
@@ -351,6 +356,48 @@ pub enum DistanceMetric {
     Euclidean,
     /// Dot product
     DotProduct,
+    /// A metric this SDK version does not know (a newer server sent it).
+    #[serde(other)]
+    Unknown,
+}
+
+impl DistanceMetric {
+    /// The wire string of this value (`"unknown"` for [`Self::Unknown`]).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DistanceMetric::Cosine => "cosine",
+            DistanceMetric::Euclidean => "euclidean",
+            DistanceMetric::DotProduct => "dot_product",
+            DistanceMetric::Unknown => "unknown",
+        }
+    }
+
+    /// `false` for [`Self::Unknown`].
+    pub fn is_known(&self) -> bool {
+        !matches!(self, DistanceMetric::Unknown)
+    }
+
+    /// Every value this SDK version declares.
+    pub fn known() -> Vec<DistanceMetric> {
+        vec![DistanceMetric::Cosine, DistanceMetric::Euclidean, DistanceMetric::DotProduct]
+    }
+}
+
+impl From<&str> for DistanceMetric {
+    fn from(s: &str) -> Self {
+        match s {
+            "cosine" => DistanceMetric::Cosine,
+            "euclidean" => DistanceMetric::Euclidean,
+            "dot_product" => DistanceMetric::DotProduct,
+            _ => DistanceMetric::Unknown,
+        }
+    }
+}
+
+impl std::fmt::Display for DistanceMetric {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// Query request for vector similarity search
@@ -2064,25 +2111,170 @@ pub struct QueryExplainResponse {
 // Text Auto-Embedding Types
 // ============================================================================
 
-/// Supported embedding models for text-based operations.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum EmbeddingModel {
-    /// BGE-large — Best quality, server default (1024 dimensions)
-    #[default]
-    BgeLarge,
-    /// MiniLM-L6 — Fast, good quality (384 dimensions)
-    Minilm,
-    /// BGE-small — Balanced performance (384 dimensions)
-    BgeSmall,
-    /// E5-small — High quality (384 dimensions)
-    E5Small,
-    /// ModernBERT-embed-base (nomic-ai) — 768 dimensions, MRL, 8192 tokens
-    #[serde(rename = "modernbert-embed-base")]
-    ModernBertEmbedBase,
-    /// GTE-ModernBERT-base (Alibaba-NLP) — 768 dimensions, MTEB retrieval 64.38
-    #[serde(rename = "gte-modernbert-base")]
-    GteModernBertBase,
+/// Declares a forward-compatible wire enum (R9 / DAK-10004).
+///
+/// The server's registries (models, index kinds, search modes, ...) grow over
+/// time and the capabilities contract says clients MUST ignore strings they do
+/// not recognise.  A closed serde enum turns every new server string into a
+/// `Json` error on an unrelated call, so every wire enum declared through this
+/// macro carries an `Unknown(String)` variant: an unrecognised string
+/// deserialises into it (the raw value is preserved) and serialises back
+/// unchanged.  Generated API: `as_str()`, `is_known()`, `known()`,
+/// `From<&str>`, `From<String>`, `Into<String>`, `Display`.
+macro_rules! lenient_string_enum {
+    (
+        $(#[$meta:meta])*
+        $name:ident {
+            $( $(#[$vmeta:meta])* $variant:ident = $wire:literal ),+ $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[serde(from = "String", into = "String")]
+        pub enum $name {
+            $( $(#[$vmeta])* $variant, )+
+            /// A value this SDK version does not know (a newer server sent it).
+            /// Carries the wire string unchanged.
+            Unknown(String),
+        }
+
+        impl $name {
+            /// The wire string of this value.
+            pub fn as_str(&self) -> &str {
+                match self {
+                    $( $name::$variant => $wire, )+
+                    $name::Unknown(s) => s.as_str(),
+                }
+            }
+
+            /// `false` for [`Self::Unknown`].
+            pub fn is_known(&self) -> bool {
+                !matches!(self, $name::Unknown(_))
+            }
+
+            /// Every value this SDK version declares, in declaration order.
+            pub fn known() -> Vec<$name> {
+                vec![ $( $name::$variant ),+ ]
+            }
+        }
+
+        impl From<&str> for $name {
+            fn from(s: &str) -> Self {
+                match s {
+                    $( $wire => $name::$variant, )+
+                    other => $name::Unknown(other.to_string()),
+                }
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(s: String) -> Self {
+                Self::from(s.as_str())
+            }
+        }
+
+        impl From<$name> for String {
+            fn from(value: $name) -> String {
+                value.as_str().to_string()
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.as_str())
+            }
+        }
+    };
+}
+
+lenient_string_enum! {
+    /// Embedding models this SDK version knows for text-based operations.
+    ///
+    /// The list the *server* supports is authoritative — read it from
+    /// `DakeraClient::capabilities()`.  A model string the server returns that
+    /// this SDK does not declare deserialises as [`EmbeddingModel::Unknown`]
+    /// rather than failing.
+    EmbeddingModel {
+        /// BGE-large — Best quality, server default (1024 dimensions)
+        #[default]
+        BgeLarge = "bge-large",
+        /// MiniLM-L6 — Fast, good quality (384 dimensions)
+        Minilm = "minilm",
+        /// BGE-small — Balanced performance (384 dimensions)
+        BgeSmall = "bge-small",
+        /// E5-small — High quality (384 dimensions)
+        E5Small = "e5-small",
+        /// ModernBERT-embed-base (nomic-ai) — 768 dimensions, MRL, 8192 tokens
+        ModernBertEmbedBase = "modernbert-embed-base",
+        /// GTE-ModernBERT-base (Alibaba-NLP) — 768 dimensions, MTEB retrieval 64.38
+        GteModernBertBase = "gte-modernbert-base",
+        /// BGE-M3 multilingual — 1024 dimensions, 8192-token window (server v0.12+)
+        BgeM3 = "bge-m3",
+    }
+}
+
+lenient_string_enum! {
+    /// Index kinds the server may build or advertise (`index_type` values; the
+    /// strings are the server's stable storage keys).
+    IndexKind {
+        /// HNSW graph index — the production default.
+        #[default]
+        Hnsw = "hnsw",
+        /// Standalone product quantizer.
+        Pq = "pq",
+        /// IVF (inverted file) index.
+        Ivf = "ivf",
+        /// IVF with product-quantized residuals (server v0.12+ as a name).
+        IvfPq = "ivfpq",
+        /// SPFresh clustered index.
+        SpFresh = "spfresh",
+        /// Full-text inverted index (BM25).
+        FullText = "fulltext",
+    }
+}
+
+lenient_string_enum! {
+    /// Vector search mode a server process runs (`DAKERA_SEARCH_MODE`;
+    /// process-wide, not selectable per request).
+    SearchMode {
+        /// Binary overselection + float rerank (server default).
+        #[default]
+        Hybrid = "hybrid",
+        /// Binary-only search.
+        Binary = "binary",
+        /// Float32-only search.
+        Float = "float",
+        /// int8 scalar overselection + float rerank (alias `sq`).
+        Scalar = "scalar",
+        /// RaBitQ overselection + float rerank (server v0.12+).
+        RaBitQ = "rabitq",
+    }
+}
+
+lenient_string_enum! {
+    /// Kinds a record representation slot may have (R2 records surface).
+    RepresentationKind {
+        /// One dense vector.
+        #[default]
+        Dense = "dense",
+        /// Per-token multivector (late interaction).
+        TokenMultivector = "token_multivector",
+        /// Per-patch multivector (visual late interaction).
+        PatchMultivector = "patch_multivector",
+    }
+}
+
+lenient_string_enum! {
+    /// Payload encodings a record slot may be stored as (`store_as`).
+    BlockDType {
+        /// 32-bit float.
+        #[default]
+        F32 = "f32",
+        /// 16-bit float.
+        F16 = "f16",
+        /// 8-bit integer.
+        I8 = "i8",
+    }
 }
 
 /// A text document to upsert with automatic embedding generation.
