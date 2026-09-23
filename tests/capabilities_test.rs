@@ -63,7 +63,10 @@ fn unknown_enum_strings_deserialise_as_unknown_and_round_trip() {
     assert_eq!(model, EmbeddingModel::Unknown("colmodernvbert-v9".into()));
     assert!(!model.is_known());
     assert_eq!(model.as_str(), "colmodernvbert-v9");
-    assert_eq!(serde_json::to_string(&model).unwrap(), r#""colmodernvbert-v9""#);
+    assert_eq!(
+        serde_json::to_string(&model).unwrap(),
+        r#""colmodernvbert-v9""#
+    );
     assert_eq!(model.to_string(), "colmodernvbert-v9");
 
     // Known values are unchanged, including the v0.12 additions.
@@ -86,7 +89,10 @@ fn unknown_enum_strings_deserialise_as_unknown_and_round_trip() {
             RepresentationKind::PatchMultivector,
         ]
     );
-    assert_eq!(BlockDType::known(), vec![BlockDType::F32, BlockDType::F16, BlockDType::I8]);
+    assert_eq!(
+        BlockDType::known(),
+        vec![BlockDType::F32, BlockDType::F16, BlockDType::I8]
+    );
 
     let kind: IndexKind = serde_json::from_str(r#""muvera_fde""#).unwrap();
     assert_eq!(kind, IndexKind::Unknown("muvera_fde".into()));
@@ -97,11 +103,15 @@ fn unknown_enum_strings_deserialise_as_unknown_and_round_trip() {
     let dtype: BlockDType = serde_json::from_str(r#""e4m3""#).unwrap();
     assert_eq!(String::from(dtype), "e4m3");
 
-    // `Copy` enums use the unit `Unknown` variant.
+    // Every lenient enum CARRIES the wire string it did not recognise.
     let metric: DistanceMetric = serde_json::from_str(r#""hamming""#).unwrap();
-    assert_eq!(metric, DistanceMetric::Unknown);
+    assert_eq!(metric, DistanceMetric::Unknown("hamming".into()));
+    assert_eq!(metric.as_str(), "hamming", "the wire string must survive");
     assert!(!metric.is_known());
-    assert_eq!(DistanceMetric::from("dot_product"), DistanceMetric::DotProduct);
+    assert_eq!(
+        DistanceMetric::from("dot_product"),
+        DistanceMetric::DotProduct
+    );
     let routing: dakera_client::RoutingMode = serde_json::from_str(r#""graph""#).unwrap();
     assert!(!routing.is_known());
 }
@@ -115,7 +125,35 @@ fn responses_carrying_unknown_enum_strings_deserialise() {
         r#"{"namespace":"ns","dimension":8,"distance":"hamming","created":true}"#,
     )
     .unwrap();
-    assert_eq!(cfg.distance, DistanceMetric::Unknown);
+    assert_eq!(cfg.distance, DistanceMetric::Unknown("hamming".into()));
+}
+
+/// R9 regression: a metric the SERVER advertises but this SDK does not name must
+/// pass pre-flight.
+///
+/// `DistanceMetric` used to stay `Copy` and drop the unrecognised wire string.
+/// `Capabilities::supported_values` renders the server's list through
+/// `as_str()`, so the fixture's `"hamming"` became the literal `"unknown"` — and
+/// the pre-flight then did the exact opposite of its job in BOTH directions: it
+/// accepted `"unknown"`, which no server advertises, and refused `"hamming"`,
+/// which this one does. A client could not reach a new server metric at all,
+/// which is worse than having no pre-flight, because the call never leaves.
+#[test]
+fn a_server_metric_this_sdk_does_not_name_is_still_supported() {
+    let caps: ServerCapabilities = serde_json::from_str(FIXTURE).unwrap();
+
+    // The fixture advertises cosine, euclidean, dot_product and hamming.
+    assert!(caps.supports(CapabilityKind::DistanceMetric, "hamming"));
+    assert!(caps.supports(CapabilityKind::DistanceMetric, "cosine"));
+
+    // "unknown" is not a metric; it was only ever an artefact of the old enum.
+    assert!(!caps.supports(CapabilityKind::DistanceMetric, "unknown"));
+    assert!(!caps.supports(CapabilityKind::DistanceMetric, "manhattan"));
+
+    // And the advertised list reads back as the server's own strings.
+    let values = caps.supported_values(CapabilityKind::DistanceMetric);
+    assert!(values.contains(&"hamming".to_string()), "{values:?}");
+    assert!(!values.contains(&"unknown".to_string()), "{values:?}");
 }
 
 #[tokio::test]
@@ -137,7 +175,10 @@ async fn upsert_text_with_unknown_model_in_response_succeeds() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.model, EmbeddingModel::Unknown("colmodernvbert-v9".into()));
+    assert_eq!(
+        resp.model,
+        EmbeddingModel::Unknown("colmodernvbert-v9".into())
+    );
     mock.assert_async().await;
 }
 
@@ -154,22 +195,36 @@ fn fixture_with_unknown_strings_and_unknown_fields_parses() {
     assert_eq!(caps.default_model, EmbeddingModel::BgeLarge);
     assert_eq!(
         caps.model_names(),
-        vec!["bge-large", "modernbert-embed-base", "bge-m3", "colmodernvbert-v9"]
+        vec![
+            "bge-large",
+            "modernbert-embed-base",
+            "bge-m3",
+            "colmodernvbert-v9"
+        ]
     );
-    let unknown = caps.model("colmodernvbert-v9").expect("unknown model row kept");
+    let unknown = caps
+        .model("colmodernvbert-v9")
+        .expect("unknown model row kept");
     assert!(!unknown.name.is_known());
     assert_eq!(unknown.modality, "image");
     assert_eq!(unknown.extra["quantised"], serde_json::json!(true));
-    assert_eq!(caps.model("modernbert").unwrap().mrl_dimensions, Some(vec![256, 768]));
+    assert_eq!(
+        caps.model("modernbert").unwrap().mrl_dimensions,
+        Some(vec![256, 768])
+    );
     assert_eq!(caps.model("bge-large").unwrap().mrl_dimensions, None);
     assert_eq!(caps.active_model().unwrap().name, EmbeddingModel::BgeLarge);
     assert!(caps.index_kinds.contains(&IndexKind::IvfPq));
-    assert!(caps.index_kinds.contains(&IndexKind::Unknown("muvera_fde".into())));
+    assert!(caps
+        .index_kinds
+        .contains(&IndexKind::Unknown("muvera_fde".into())));
     assert_eq!(
         caps.live_vector_index_kinds,
         vec![IndexKind::Hnsw, IndexKind::Ivf, IndexKind::SpFresh]
     );
-    assert!(caps.distance_metrics.contains(&DistanceMetric::Unknown));
+    assert!(caps
+        .distance_metrics
+        .contains(&DistanceMetric::Unknown("hamming".into())));
     assert_eq!(caps.search_mode, SearchMode::RaBitQ);
     assert_eq!(
         caps.search_modes_accepted,
@@ -190,12 +245,18 @@ fn fixture_with_unknown_strings_and_unknown_fields_parses() {
         .records
         .representation_kinds
         .contains(&RepresentationKind::Unknown("holo".into())));
-    assert!(caps.records.dtypes.contains(&BlockDType::Unknown("e4m3".into())));
+    assert!(caps
+        .records
+        .dtypes
+        .contains(&BlockDType::Unknown("e4m3".into())));
     assert_eq!(caps.records.max_bytes, 8 * 1024 * 1024);
     assert_eq!(caps.records.extra["compression"], serde_json::json!("zstd"));
     assert_eq!(caps.query_languages.last().map(String::as_str), Some("nl"));
     assert!(caps.reembed_pending);
-    assert_eq!(caps.extra["future_top_level_field"], serde_json::json!({"anything": [1, 2, 3]}));
+    assert_eq!(
+        caps.extra["future_top_level_field"],
+        serde_json::json!({"anything": [1, 2, 3]})
+    );
 }
 
 #[test]
@@ -228,17 +289,28 @@ fn accepted_values_parser_and_support_helpers() {
             assert_eq!(requested, "minilm");
             assert_eq!(
                 supported,
-                vec!["bge-large", "modernbert-embed-base", "bge-m3", "colmodernvbert-v9"]
+                vec![
+                    "bge-large",
+                    "modernbert-embed-base",
+                    "bge-m3",
+                    "colmodernvbert-v9"
+                ]
             );
             assert_eq!(server_version, "0.12.0");
         }
         other => panic!("expected UnsupportedCapability, got {other:?}"),
     }
-    let message = caps.require(CapabilityKind::Model, "minilm").unwrap_err().to_string();
+    let message = caps
+        .require(CapabilityKind::Model, "minilm")
+        .unwrap_err()
+        .to_string();
     assert!(message.contains("minilm"), "{message}");
     assert!(message.contains("bge-m3"), "{message}");
     assert!(message.contains("v0.12.0"), "{message}");
-    assert!(!caps.require(CapabilityKind::Model, "minilm").unwrap_err().is_retryable());
+    assert!(!caps
+        .require(CapabilityKind::Model, "minilm")
+        .unwrap_err()
+        .is_retryable());
 }
 
 // ============================================================================
@@ -268,7 +340,10 @@ async fn capabilities_are_fetched_once_and_cached_then_refreshed() {
     let cloned = client.clone();
     let third = cloned.refresh_capabilities().await.unwrap();
     assert!(!std::sync::Arc::ptr_eq(&first, &third));
-    assert!(std::sync::Arc::ptr_eq(&third, &client.capabilities().await.unwrap()));
+    assert!(std::sync::Arc::ptr_eq(
+        &third,
+        &client.capabilities().await.unwrap()
+    ));
     mock.assert_async().await;
 }
 
@@ -321,10 +396,16 @@ async fn preflight_rejects_unsupported_values_before_sending() {
         .unwrap_err();
     assert!(matches!(
         err,
-        ClientError::UnsupportedCapability { kind: CapabilityKind::Model, .. }
+        ClientError::UnsupportedCapability {
+            kind: CapabilityKind::Model,
+            ..
+        }
     ));
     let err = client
-        .query_text("ns", QueryTextRequest::new("q", 3).with_model(EmbeddingModel::Minilm))
+        .query_text(
+            "ns",
+            QueryTextRequest::new("q", 3).with_model(EmbeddingModel::Minilm),
+        )
         .await
         .unwrap_err();
     assert!(matches!(err, ClientError::UnsupportedCapability { .. }));
@@ -336,21 +417,32 @@ async fn preflight_rejects_unsupported_values_before_sending() {
     let err = client.create_namespace("ns", create).await.unwrap_err();
     assert!(matches!(
         err,
-        ClientError::UnsupportedCapability { kind: CapabilityKind::IndexKind, .. }
+        ClientError::UnsupportedCapability {
+            kind: CapabilityKind::IndexKind,
+            ..
+        }
     ));
     let err = client
         .configure_namespace(
             "ns",
             ConfigureNamespaceRequest {
                 dimension: 8,
-                distance: Some(DistanceMetric::Unknown),
+                // A metric the fixture does NOT advertise. Before DistanceMetric
+                // carried its string this was unexpressible: every unknown metric
+                // rendered as the literal "unknown", which the fixture's own
+                // "hamming" row also rendered as, so this check passed vacuously
+                // in one direction and failed in the other.
+                distance: Some(DistanceMetric::Unknown("manhattan".into())),
             },
         )
         .await
         .unwrap_err();
     assert!(matches!(
         err,
-        ClientError::UnsupportedCapability { kind: CapabilityKind::DistanceMetric, .. }
+        ClientError::UnsupportedCapability {
+            kind: CapabilityKind::DistanceMetric,
+            ..
+        }
     ));
 
     caps_mock.assert_async().await;
@@ -403,10 +495,19 @@ async fn require_supported_covers_search_mode_and_query_language() {
         .create_async()
         .await;
     let client = DakeraClient::new(server.url()).unwrap();
-    client.require_supported(CapabilityKind::SearchMode, "rabitq").await.unwrap();
+    client
+        .require_supported(CapabilityKind::SearchMode, "rabitq")
+        .await
+        .unwrap();
     // "sq" is an alias expanded from the prose `search_modes_accepted` field.
-    client.require_supported(CapabilityKind::SearchMode, "sq").await.unwrap();
-    let err = client.require_supported(CapabilityKind::SearchMode, "exact").await.unwrap_err();
+    client
+        .require_supported(CapabilityKind::SearchMode, "sq")
+        .await
+        .unwrap();
+    let err = client
+        .require_supported(CapabilityKind::SearchMode, "exact")
+        .await
+        .unwrap_err();
     match err {
         ClientError::UnsupportedCapability { supported, .. } => assert_eq!(
             supported,
@@ -414,8 +515,14 @@ async fn require_supported_covers_search_mode_and_query_language() {
         ),
         other => panic!("unexpected {other:?}"),
     }
-    client.require_supported(CapabilityKind::QueryLanguage, "fr").await.unwrap();
-    assert!(client.require_supported(CapabilityKind::QueryLanguage, "ja").await.is_err());
+    client
+        .require_supported(CapabilityKind::QueryLanguage, "fr")
+        .await
+        .unwrap();
+    assert!(client
+        .require_supported(CapabilityKind::QueryLanguage, "ja")
+        .await
+        .is_err());
 }
 
 #[tokio::test]
@@ -463,7 +570,10 @@ async fn builder_preflight_fetches_lazily() {
         .expect(0)
         .create_async()
         .await;
-    let client = DakeraClient::builder(server.url()).preflight(true).build().unwrap();
+    let client = DakeraClient::builder(server.url())
+        .preflight(true)
+        .build()
+        .unwrap();
     let err = client
         .upsert_text(
             "ns",
@@ -496,7 +606,10 @@ async fn builder_preflight_degrades_silently_on_pre_012_server() {
         .expect(2)
         .create_async()
         .await;
-    let client = DakeraClient::builder(server.url()).preflight(true).build().unwrap();
+    let client = DakeraClient::builder(server.url())
+        .preflight(true)
+        .build()
+        .unwrap();
     for _ in 0..2 {
         client
             .upsert_text(

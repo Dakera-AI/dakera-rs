@@ -85,9 +85,7 @@ pub fn parse_accepted_values(value: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = value;
     while !rest.is_empty() {
-        let end = rest
-            .find(|c: char| c == ',' || c == '(')
-            .unwrap_or(rest.len());
+        let end = rest.find([',', '(']).unwrap_or(rest.len());
         let head = rest[..end].trim();
         if !head.is_empty() {
             out.push(head.to_string());
@@ -132,7 +130,11 @@ where
     enum Raw {
         Prose(String),
         List(Vec<String>),
-        Other(serde_json::Value),
+        /// Anything else the server sends for this field. The payload is never
+        /// read — it exists so the untagged match SUCCEEDS on an unexpected
+        /// shape instead of failing the whole capabilities document, which is
+        /// the forward-compatibility contract this deserializer is here for.
+        Other(#[allow(dead_code)] serde_json::Value),
     }
     let values = match Raw::deserialize(deserializer)? {
         Raw::Prose(s) => parse_accepted_values(&s),
@@ -242,7 +244,10 @@ impl ServerCapabilities {
 
     /// Wire names of every model the server can load.
     pub fn model_names(&self) -> Vec<String> {
-        self.models.iter().map(|m| m.name.as_str().to_string()).collect()
+        self.models
+            .iter()
+            .map(|m| m.name.as_str().to_string())
+            .collect()
     }
 
     /// Whether the record routes are switched on (`records.enabled`).
@@ -322,11 +327,18 @@ mod tests {
                 .unwrap();
         assert_eq!(
             prose.search_modes_accepted,
-            vec![SearchMode::Hybrid, SearchMode::Scalar, SearchMode::Unknown("sq".into())]
+            vec![
+                SearchMode::Hybrid,
+                SearchMode::Scalar,
+                SearchMode::Unknown("sq".into())
+            ]
         );
         let list: ServerCapabilities =
             serde_json::from_str(r#"{"search_modes_accepted":["hybrid","float"]}"#).unwrap();
-        assert_eq!(list.search_modes_accepted, vec![SearchMode::Hybrid, SearchMode::Float]);
+        assert_eq!(
+            list.search_modes_accepted,
+            vec![SearchMode::Hybrid, SearchMode::Float]
+        );
         let garbage: ServerCapabilities =
             serde_json::from_str(r#"{"search_modes_accepted":42}"#).unwrap();
         assert!(garbage.search_modes_accepted.is_empty());

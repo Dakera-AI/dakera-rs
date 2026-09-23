@@ -111,8 +111,7 @@ pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpRespo
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
 // R9 / DAK-10004: GET /v1/capabilities
 pub use capabilities::{
-    parse_accepted_values, CapabilityKind, ModelCapability, RecordCapabilities,
-    ServerCapabilities,
+    parse_accepted_values, CapabilityKind, ModelCapability, RecordCapabilities, ServerCapabilities,
 };
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};

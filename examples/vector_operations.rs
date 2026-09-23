@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vectors: Vec<Vector> = (0..20)
         .map(|i| {
             Vector::with_metadata(
-                &format!("vec-{:03}", i),
+                format!("vec-{:03}", i),
                 vec![i as f32 * 0.05, 0.1, 0.2, 0.3 + i as f32 * 0.01],
                 HashMap::from([
                     (

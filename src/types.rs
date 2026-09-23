@@ -340,65 +340,7 @@ impl StalenessConfig {
     }
 }
 
-/// Distance metric for similarity search
-///
-/// Forward-compatible (R9): a metric string this SDK does not know deserialises
-/// as [`DistanceMetric::Unknown`] instead of failing.  Stays `Copy`, so the
-/// unknown string itself is not carried; the authoritative list is
-/// `capabilities().distance_metrics`.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum DistanceMetric {
-    /// Cosine similarity (default)
-    #[default]
-    Cosine,
-    /// Euclidean distance
-    Euclidean,
-    /// Dot product
-    DotProduct,
-    /// A metric this SDK version does not know (a newer server sent it).
-    #[serde(other)]
-    Unknown,
-}
-
-impl DistanceMetric {
-    /// The wire string of this value (`"unknown"` for [`Self::Unknown`]).
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            DistanceMetric::Cosine => "cosine",
-            DistanceMetric::Euclidean => "euclidean",
-            DistanceMetric::DotProduct => "dot_product",
-            DistanceMetric::Unknown => "unknown",
-        }
-    }
-
-    /// `false` for [`Self::Unknown`].
-    pub fn is_known(&self) -> bool {
-        !matches!(self, DistanceMetric::Unknown)
-    }
-
-    /// Every value this SDK version declares.
-    pub fn known() -> Vec<DistanceMetric> {
-        vec![DistanceMetric::Cosine, DistanceMetric::Euclidean, DistanceMetric::DotProduct]
-    }
-}
-
-impl From<&str> for DistanceMetric {
-    fn from(s: &str) -> Self {
-        match s {
-            "cosine" => DistanceMetric::Cosine,
-            "euclidean" => DistanceMetric::Euclidean,
-            "dot_product" => DistanceMetric::DotProduct,
-            _ => DistanceMetric::Unknown,
-        }
-    }
-}
-
-impl std::fmt::Display for DistanceMetric {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+// `DistanceMetric` is declared with `lenient_string_enum!` beside its siblings.
 
 /// Query request for vector similarity search
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2261,6 +2203,31 @@ lenient_string_enum! {
         TokenMultivector = "token_multivector",
         /// Per-patch multivector (visual late interaction).
         PatchMultivector = "patch_multivector",
+    }
+}
+
+lenient_string_enum! {
+    /// Distance metric for similarity search.
+    ///
+    /// Forward-compatible (R9) through the same macro as every sibling enum, so
+    /// an unrecognised metric CARRIES its wire string rather than collapsing to
+    /// a bare `Unknown`.
+    ///
+    /// It previously stayed `Copy` and dropped the string. That looked cheap and
+    /// broke the guarantee this feature exists for: `Capabilities::supports`
+    /// renders the server's advertised metrics through `as_str()`, so every
+    /// metric this SDK did not name became the literal `"unknown"`. The result
+    /// was a pre-flight that ACCEPTED `"unknown"` (a value no server advertises)
+    /// and REJECTED a real new server metric such as `"hamming"` — refusing to
+    /// send exactly the value forward-compatibility was meant to allow through.
+    DistanceMetric {
+        /// Cosine similarity (default).
+        #[default]
+        Cosine = "cosine",
+        /// Euclidean distance.
+        Euclidean = "euclidean",
+        /// Dot product.
+        DotProduct = "dot_product",
     }
 }
 

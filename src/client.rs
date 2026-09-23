@@ -68,7 +68,11 @@ impl DakeraClient {
     /// # }
     /// ```
     pub async fn capabilities(&self) -> Result<Arc<ServerCapabilities>> {
-        let cached = self.capabilities.lock().ok().and_then(|guard| guard.clone());
+        let cached = self
+            .capabilities
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
         if let Some(caps) = cached {
             return Ok(caps);
         }
@@ -105,7 +109,11 @@ impl DakeraClient {
     /// was set.  A 404 (pre-0.12 server) disables the check for the lifetime
     /// of this client.
     async fn preflight_check(&self, kind: CapabilityKind, value: &str) -> Result<()> {
-        let cached = self.capabilities.lock().ok().and_then(|guard| guard.clone());
+        let cached = self
+            .capabilities
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
         let caps = match cached {
             Some(caps) => caps,
             None => {
@@ -247,7 +255,8 @@ impl DakeraClient {
         request: CreateNamespaceRequest,
     ) -> Result<NamespaceInfo> {
         if let Some(kind) = &request.index_type {
-            self.preflight_check(CapabilityKind::IndexKind, kind).await?;
+            self.preflight_check(CapabilityKind::IndexKind, kind)
+                .await?;
         }
         let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
         let response = self.client.put(&url).json(&request).send().await?;
@@ -266,7 +275,8 @@ impl DakeraClient {
         request: ConfigureNamespaceRequest,
     ) -> Result<ConfigureNamespaceResponse> {
         if let Some(metric) = &request.distance {
-            self.preflight_check(CapabilityKind::DistanceMetric, metric.as_str()).await?;
+            self.preflight_check(CapabilityKind::DistanceMetric, metric.as_str())
+                .await?;
         }
         let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
         let response = self.client.put(&url).json(&request).send().await?;
@@ -1085,7 +1095,8 @@ impl DakeraClient {
         request: UpsertTextRequest,
     ) -> Result<TextUpsertResponse> {
         if let Some(model) = &request.model {
-            self.preflight_check(CapabilityKind::Model, model.as_str()).await?;
+            self.preflight_check(CapabilityKind::Model, model.as_str())
+                .await?;
         }
         let url = format!("{}/v1/namespaces/{}/upsert-text", self.base_url, namespace);
         debug!(
@@ -1105,7 +1116,8 @@ impl DakeraClient {
         request: QueryTextRequest,
     ) -> Result<TextQueryResponse> {
         if let Some(model) = &request.model {
-            self.preflight_check(CapabilityKind::Model, model.as_str()).await?;
+            self.preflight_check(CapabilityKind::Model, model.as_str())
+                .await?;
         }
         let url = format!("{}/v1/namespaces/{}/query-text", self.base_url, namespace);
         debug!("Text query in {} for: {}", namespace, request.text);
@@ -1133,7 +1145,8 @@ impl DakeraClient {
         request: BatchQueryTextRequest,
     ) -> Result<BatchQueryTextResponse> {
         if let Some(model) = &request.model {
-            self.preflight_check(CapabilityKind::Model, model.as_str()).await?;
+            self.preflight_check(CapabilityKind::Model, model.as_str())
+                .await?;
         }
         let url = format!(
             "{}/v1/namespaces/{}/batch-query-text",
