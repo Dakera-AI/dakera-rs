@@ -175,8 +175,14 @@ impl std::fmt::Debug for GrpcClientConfig {
             .field("keep_alive_interval_secs", &self.keep_alive_interval_secs)
             .field("keep_alive_timeout_secs", &self.keep_alive_timeout_secs)
             .field("http2_adaptive_window", &self.http2_adaptive_window)
-            .field("initial_connection_window_size", &self.initial_connection_window_size)
-            .field("initial_stream_window_size", &self.initial_stream_window_size)
+            .field(
+                "initial_connection_window_size",
+                &self.initial_connection_window_size,
+            )
+            .field(
+                "initial_stream_window_size",
+                &self.initial_stream_window_size,
+            )
             // Never print the key.
             .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
             .finish()
@@ -288,7 +294,9 @@ impl GrpcClient {
 
         // Resolve the API key: explicit > DAKERA_API_KEY (same as the HTTP client).
         if config.api_key.is_none() {
-            config.api_key = std::env::var("DAKERA_API_KEY").ok().filter(|k| !k.is_empty());
+            config.api_key = std::env::var("DAKERA_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty());
         }
         // Fail at connect, not on the first call, if the key cannot be a header value.
         if let Some(key) = &config.api_key {
@@ -423,6 +431,7 @@ impl GrpcClient {
 
         Ok(ClientHealthResponse {
             healthy: response.status == "healthy",
+            status: Some(response.status.clone()),
             version: Some(response.version),
             uptime_seconds: None, // gRPC health doesn't include uptime
             build_sha: None,      // gRPC health proto doesn't carry build_sha

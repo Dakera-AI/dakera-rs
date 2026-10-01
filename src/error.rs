@@ -421,7 +421,11 @@ mod tests {
     #[test]
     fn auth_and_other_statuses_are_unchanged() {
         assert!(matches!(
-            map(401, None, r#"{"error":"API key required","code":"AUTHENTICATION_REQUIRED"}"#),
+            map(
+                401,
+                None,
+                r#"{"error":"API key required","code":"AUTHENTICATION_REQUIRED"}"#
+            ),
             ClientError::Server { status: 401, .. }
         ));
         assert!(matches!(

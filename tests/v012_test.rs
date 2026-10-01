@@ -849,7 +849,10 @@ async fn download_attachment_404_is_an_error() {
     .create_async()
     .await;
     let client = DakeraClient::new(server.url()).unwrap();
-    let e = client.download_attachment("uploads", REF).await.unwrap_err();
+    let e = client
+        .download_attachment("uploads", REF)
+        .await
+        .unwrap_err();
     assert!(e.is_not_found());
     m.assert_async().await;
 }

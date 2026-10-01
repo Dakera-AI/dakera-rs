@@ -1965,7 +1965,8 @@ impl DakeraClient {
         provider: Option<&str>,
         model: Option<&str>,
     ) -> Result<ExtractionResult> {
-        self.extract_text_with_lang(text, namespace, provider, model, None).await
+        self.extract_text_with_lang(text, namespace, provider, model, None)
+            .await
     }
 
     /// [`Self::extract_text`] with the language of `text` (an ISO 639-1 code or

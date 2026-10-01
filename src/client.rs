@@ -1269,7 +1269,8 @@ impl DakeraClient {
         text: &str,
         entity_types: Option<Vec<String>>,
     ) -> Result<EntityExtractionResponse> {
-        self.extract_entities_with_lang(text, entity_types, None).await
+        self.extract_entities_with_lang(text, entity_types, None)
+            .await
     }
 
     /// [`Self::extract_entities`] with the language of `text` (an ISO 639-1 code
