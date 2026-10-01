@@ -79,8 +79,14 @@ impl RateLimitHeaders {
 /// Health check response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
-    /// Overall health status
+    /// Overall health status.  `true` only when the server answered `2xx`
+    /// with status `healthy`: a `503` (for example a v0.12 server that is
+    /// still loading models, `{"status":"starting"}`) is never healthy.
     pub healthy: bool,
+    /// The server's own status word (`healthy`, `degraded`, `starting`),
+    /// when the body carried one.
+    #[serde(default)]
+    pub status: Option<String>,
     /// Service version
     pub version: Option<String>,
     /// Uptime in seconds
@@ -89,13 +95,41 @@ pub struct HealthResponse {
     pub build_sha: Option<String>,
 }
 
-/// Readiness check response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Readiness check response (`GET /health/ready`).
+///
+/// The server answers `200` when it can serve traffic and `503` (with a
+/// `Retry-After`) while it is starting or a load-bearing component has failed;
+/// both bodies are JSON and both are parsed into this type, with `ready`
+/// telling them apart.  Every field but `ready` is optional so the same type
+/// reads a v0.11.108 server's body and a v0.12.0 server's.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReadinessResponse {
     /// Is the service ready to accept requests
     pub ready: bool,
-    /// Component status details
+    /// Server version (v0.12+).
+    #[serde(default)]
+    pub version: Option<String>,
+    /// Component status details (legacy shape; absent on v0.12 servers).
+    #[serde(default)]
     pub components: Option<HashMap<String, bool>>,
+    /// Per-component checks (`storage`, `embedding_engine`, `tiered_engine`),
+    /// each `{"status": "ok" | "error" | "disabled", "message"?: ...}` (v0.12+).
+    #[serde(default)]
+    pub checks: Option<HashMap<String, serde_json::Value>>,
+    /// `true` while the server is binding its port but still loading models
+    /// (v0.12+ startup gate).
+    #[serde(default)]
+    pub starting: bool,
+    /// Why the server is not ready yet, while `starting` (v0.12+).
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Model downloads in progress while `starting` (v0.12+).
+    #[serde(default)]
+    pub downloads: Option<serde_json::Value>,
+    /// Seconds from the `Retry-After` header of a `503` answer, if present.
+    /// Never part of the JSON body.
+    #[serde(skip)]
+    pub retry_after: Option<u64>,
 }
 
 // ============================================================================
@@ -340,18 +374,7 @@ impl StalenessConfig {
     }
 }
 
-/// Distance metric for similarity search
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum DistanceMetric {
-    /// Cosine similarity (default)
-    #[default]
-    Cosine,
-    /// Euclidean distance
-    Euclidean,
-    /// Dot product
-    DotProduct,
-}
+// `DistanceMetric` is declared with `lenient_string_enum!` beside its siblings.
 
 /// Query request for vector similarity search
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -743,6 +766,19 @@ pub struct JobInfo {
     /// Job metadata
     #[serde(default)]
     pub metadata: std::collections::HashMap<String, String>,
+    /// Why a `Failed` job failed: the HTTP status and error code the same work
+    /// would have answered synchronously (server v0.12+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<JobError>,
+}
+
+/// The status and code of a failed background job (`JobInfo::error`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobError {
+    /// HTTP status the synchronous request would have answered.
+    pub status: u16,
+    /// Its error code (`INVALID_REQUEST`, `SERVICE_UNAVAILABLE`, `INTERNAL_ERROR`, ...).
+    pub code: crate::error::ServerErrorCode,
 }
 
 /// Compaction request
@@ -2064,25 +2100,197 @@ pub struct QueryExplainResponse {
 // Text Auto-Embedding Types
 // ============================================================================
 
-/// Supported embedding models for text-based operations.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum EmbeddingModel {
-    /// BGE-large — Best quality, server default (1024 dimensions)
-    #[default]
-    BgeLarge,
-    /// MiniLM-L6 — Fast, good quality (384 dimensions)
-    Minilm,
-    /// BGE-small — Balanced performance (384 dimensions)
-    BgeSmall,
-    /// E5-small — High quality (384 dimensions)
-    E5Small,
-    /// ModernBERT-embed-base (nomic-ai) — 768 dimensions, MRL, 8192 tokens
-    #[serde(rename = "modernbert-embed-base")]
-    ModernBertEmbedBase,
-    /// GTE-ModernBERT-base (Alibaba-NLP) — 768 dimensions, MTEB retrieval 64.38
-    #[serde(rename = "gte-modernbert-base")]
-    GteModernBertBase,
+/// Declares a forward-compatible wire enum (R9 / DAK-10004).
+///
+/// The server's registries (models, index kinds, search modes, ...) grow over
+/// time and the capabilities contract says clients MUST ignore strings they do
+/// not recognise.  A closed serde enum turns every new server string into a
+/// `Json` error on an unrelated call, so every wire enum declared through this
+/// macro carries an `Unknown(String)` variant: an unrecognised string
+/// deserialises into it (the raw value is preserved) and serialises back
+/// unchanged.  Generated API: `as_str()`, `is_known()`, `known()`,
+/// `From<&str>`, `From<String>`, `Into<String>`, `Display`.
+macro_rules! lenient_string_enum {
+    (
+        $(#[$meta:meta])*
+        $name:ident {
+            $( $(#[$vmeta:meta])* $variant:ident = $wire:literal ),+ $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[serde(from = "String", into = "String")]
+        pub enum $name {
+            $( $(#[$vmeta])* $variant, )+
+            /// A value this SDK version does not know (a newer server sent it).
+            /// Carries the wire string unchanged.
+            Unknown(String),
+        }
+
+        impl $name {
+            /// The wire string of this value.
+            pub fn as_str(&self) -> &str {
+                match self {
+                    $( $name::$variant => $wire, )+
+                    $name::Unknown(s) => s.as_str(),
+                }
+            }
+
+            /// `false` for [`Self::Unknown`].
+            pub fn is_known(&self) -> bool {
+                !matches!(self, $name::Unknown(_))
+            }
+
+            /// Every value this SDK version declares, in declaration order.
+            pub fn known() -> Vec<$name> {
+                vec![ $( $name::$variant ),+ ]
+            }
+        }
+
+        impl From<&str> for $name {
+            fn from(s: &str) -> Self {
+                match s {
+                    $( $wire => $name::$variant, )+
+                    other => $name::Unknown(other.to_string()),
+                }
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(s: String) -> Self {
+                Self::from(s.as_str())
+            }
+        }
+
+        impl From<$name> for String {
+            fn from(value: $name) -> String {
+                value.as_str().to_string()
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.as_str())
+            }
+        }
+    };
+}
+
+lenient_string_enum! {
+    /// Embedding models this SDK version knows for text-based operations.
+    ///
+    /// The list the *server* supports is authoritative — read it from
+    /// `DakeraClient::capabilities()`.  A model string the server returns that
+    /// this SDK does not declare deserialises as [`EmbeddingModel::Unknown`]
+    /// rather than failing.
+    EmbeddingModel {
+        /// BGE-large — Best quality, server default (1024 dimensions)
+        #[default]
+        BgeLarge = "bge-large",
+        /// MiniLM-L6 — Fast, good quality (384 dimensions)
+        Minilm = "minilm",
+        /// BGE-small — Balanced performance (384 dimensions)
+        BgeSmall = "bge-small",
+        /// E5-small — High quality (384 dimensions)
+        E5Small = "e5-small",
+        /// ModernBERT-embed-base (nomic-ai) — 768 dimensions, MRL, 8192 tokens
+        ModernBertEmbedBase = "modernbert-embed-base",
+        /// GTE-ModernBERT-base (Alibaba-NLP) — 768 dimensions, MTEB retrieval 64.38
+        GteModernBertBase = "gte-modernbert-base",
+        /// BGE-M3 multilingual — 1024 dimensions, 8192-token window (server v0.12+)
+        BgeM3 = "bge-m3",
+        /// ColBERT-small — 96-d token vectors, the late-interaction model (server v0.12+)
+        ColbertSmall = "colbert-small",
+    }
+}
+
+lenient_string_enum! {
+    /// Index kinds the server may build or advertise (`index_type` values; the
+    /// strings are the server's stable storage keys).
+    IndexKind {
+        /// HNSW graph index — the production default.
+        #[default]
+        Hnsw = "hnsw",
+        /// Standalone product quantizer.
+        Pq = "pq",
+        /// IVF (inverted file) index.
+        Ivf = "ivf",
+        /// IVF with product-quantized residuals (server v0.12+ as a name).
+        IvfPq = "ivfpq",
+        /// SPFresh clustered index.
+        SpFresh = "spfresh",
+        /// Full-text inverted index (BM25).
+        FullText = "fulltext",
+    }
+}
+
+lenient_string_enum! {
+    /// Vector search mode a server process runs (`DAKERA_SEARCH_MODE`;
+    /// process-wide, not selectable per request).
+    SearchMode {
+        /// Binary overselection + float rerank (server default).
+        #[default]
+        Hybrid = "hybrid",
+        /// Binary-only search.
+        Binary = "binary",
+        /// Float32-only search.
+        Float = "float",
+        /// int8 scalar overselection + float rerank (alias `sq`).
+        Scalar = "scalar",
+        /// RaBitQ overselection + float rerank (server v0.12+).
+        RaBitQ = "rabitq",
+    }
+}
+
+lenient_string_enum! {
+    /// Kinds a record representation slot may have (R2 records surface).
+    RepresentationKind {
+        /// One dense vector.
+        #[default]
+        Dense = "dense",
+        /// Per-token multivector (late interaction).
+        TokenMultivector = "token_multivector",
+        /// Per-patch multivector (visual late interaction).
+        PatchMultivector = "patch_multivector",
+    }
+}
+
+lenient_string_enum! {
+    /// Distance metric for similarity search.
+    ///
+    /// Forward-compatible (R9) through the same macro as every sibling enum, so
+    /// an unrecognised metric CARRIES its wire string rather than collapsing to
+    /// a bare `Unknown`.
+    ///
+    /// It previously stayed `Copy` and dropped the string. That looked cheap and
+    /// broke the guarantee this feature exists for: `Capabilities::supports`
+    /// renders the server's advertised metrics through `as_str()`, so every
+    /// metric this SDK did not name became the literal `"unknown"`. The result
+    /// was a pre-flight that ACCEPTED `"unknown"` (a value no server advertises)
+    /// and REJECTED a real new server metric such as `"hamming"` — refusing to
+    /// send exactly the value forward-compatibility was meant to allow through.
+    DistanceMetric {
+        /// Cosine similarity (default).
+        #[default]
+        Cosine = "cosine",
+        /// Euclidean distance.
+        Euclidean = "euclidean",
+        /// Dot product.
+        DotProduct = "dot_product",
+    }
+}
+
+lenient_string_enum! {
+    /// Payload encodings a record slot may be stored as (`store_as`).
+    BlockDType {
+        /// 32-bit float.
+        #[default]
+        F32 = "f32",
+        /// 16-bit float.
+        F16 = "f16",
+        /// 8-bit integer.
+        I8 = "i8",
+    }
 }
 
 /// A text document to upsert with automatic embedding generation.
@@ -2292,39 +2500,6 @@ pub struct BatchQueryTextResponse {
     pub embedding_time_ms: u64,
     /// Time spent on all searches in milliseconds.
     pub search_time_ms: u64,
-}
-
-// ============================================================================
-// Fetch by ID Types
-// ============================================================================
-
-/// Request to fetch vectors by their IDs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FetchRequest {
-    /// IDs of vectors to fetch.
-    pub ids: Vec<String>,
-    /// Whether to include vector values.
-    pub include_values: bool,
-    /// Whether to include metadata.
-    pub include_metadata: bool,
-}
-
-impl FetchRequest {
-    /// Create a new fetch request.
-    pub fn new(ids: Vec<String>) -> Self {
-        Self {
-            ids,
-            include_values: true,
-            include_metadata: true,
-        }
-    }
-}
-
-/// Response from a fetch-by-ID operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FetchResponse {
-    /// Fetched vectors.
-    pub vectors: Vec<Vector>,
 }
 
 // ============================================================================
@@ -3509,8 +3684,10 @@ pub struct QuotaConfig {
     pub max_dimensions: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_metadata_bytes: Option<usize>,
-    #[serde(default)]
-    pub enforcement: String,
+    /// `none` (track only), `soft` (warn) or `hard` (refuse writes with 413,
+    /// the server default). Omitted leaves the server default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enforcement: Option<String>,
 }
 
 /// Quota usage for a namespace.

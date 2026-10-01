@@ -49,7 +49,7 @@ curl http://localhost:3000/health  # → {"status":"ok"}
 For persistent storage with Docker Compose:
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/Dakera-AI/dakera-deploy/main/docker-compose.yml \
+curl -sSfL https://raw.githubusercontent.com/Dakera-AI/dakera-deploy/main/docker/docker-compose.yml \
   -o docker-compose.yml
 DAKERA_API_KEY=dk-mykey docker compose up -d
 ```
@@ -63,7 +63,7 @@ Full deployment guide (Docker Compose, Kubernetes, Helm): [dakera-deploy](https:
 ```toml
 # Cargo.toml
 [dependencies]
-dakera-client = "0.11"
+dakera-client = "0.12"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 ```
@@ -79,23 +79,29 @@ Feature flags:
 For gRPC (lower latency in high-throughput workloads):
 
 ```toml
-dakera-client = { version = "0.11", features = ["grpc"] }
+dakera-client = { version = "0.12", features = ["grpc"] }
 ```
 
 ---
 
 ## Quick Start
 
-```rust
-// Cargo.toml: dakera-client = "0.11"
-let client = DakeraClient::builder("http://localhost:3000").api_key("dk-mykey").build()?;
-client.store_memory(StoreMemoryRequest { agent_id: "my-agent".into(), content: "User prefers brevity".into(), ..Default::default() }).await?;
+```rust,no_run
+// Cargo.toml: dakera-client = "0.12"
+use dakera_client::{DakeraClient, StoreMemoryRequest};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::builder("http://localhost:3000").api_key("dk-mykey").build()?;
+    client.store_memory(StoreMemoryRequest::new("my-agent", "User prefers brevity")).await?;
+    Ok(())
+}
 ```
 
 Full example — store, recall, upsert, and hybrid search:
 
-```rust
-use dakera_client::{DakeraClient, StoreMemoryRequest, RecallRequest};
+```rust,no_run
+use dakera_client::{DakeraClient, HybridSearchRequest, RecallRequest, StoreMemoryRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -104,21 +110,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Store an agent memory
-    let mem = client.store_memory(StoreMemoryRequest {
-        agent_id: "my-agent".to_string(),
-        content: "User prefers concise responses with code examples".to_string(),
-        importance: Some(0.9),
-        ..Default::default()
-    }).await?;
+    let mem = client
+        .store_memory(
+            StoreMemoryRequest::new("my-agent", "User prefers concise responses with code examples")
+                .with_importance(0.9),
+        )
+        .await?;
     println!("Stored: {}", mem.memory_id);
 
     // Recall memories (semantic search)
-    let response = client.recall(RecallRequest {
-        agent_id: "my-agent".to_string(),
-        query: "what does the user prefer?".to_string(),
-        top_k: Some(5),
-        ..Default::default()
-    }).await?;
+    let response = client
+        .recall(RecallRequest::new("my-agent", "what does the user prefer?").with_top_k(5))
+        .await?;
     for m in &response.memories {
         println!("[{:.2}] {}", m.importance, m.content);
     }
@@ -133,7 +136,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }).await?;
 
     // Hybrid search (vector + BM25)
-    let results = client.hybrid_search("my-namespace", "completed task", 5).await?;
+    let results = client
+        .hybrid_search(
+            "my-namespace",
+            HybridSearchRequest::new(vec![0.1, 0.2, 0.3], "completed task", 5),
+        )
+        .await?;
     for r in &results.results {
         println!("{}: {:.3}", r.id, r.score);
     }
@@ -141,6 +149,108 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+---
+
+## What's new in v0.12.0
+
+`dakera-client` 0.12.0 supports the Dakera server **v0.12.0** and keeps working against
+**v0.11.108** servers. Every v0.12 feature is additive; the routes that need a v0.12 server
+answer `404` on v0.11.108 and the v0.12-only opt-in features answer `501 FEATURE_DISABLED` on a
+v0.12 server that did not switch them on. The server-side upgrade guide is
+`docs/v0.12/UPGRADE.md` in the server release (release notes: the
+[Dakera changelog](https://dakera.ai/docs/changelog)).
+
+- **Health that tells the truth** — `health()` is healthy only for a `2xx` answer with status
+  `healthy` (v0.11 of this crate reported a starting server's `503` as healthy). `ready()` parses the
+  `503` body of a starting server instead of failing, `live()` is the process probe, and
+  `wait_until_ready(timeout)` waits on `GET /health/ready` honouring `Retry-After`. A v0.12 server
+  binds its port while models load, so point readiness at `/health/ready`.
+- **`Retry-After`** — every v0.12 `503` carries it. `ClientError::ServiceUnavailable { retry_after, .. }`
+  and `RateLimitExceeded` expose it (`ClientError::retry_after()`), and `execute_with_retry` waits the
+  advertised time (capped at `RetryConfig::max_delay`) instead of its own backoff.
+- **Clean error mapping** — every v0.12 error body is JSON. `413` is `QuotaExceeded` (a hard namespace
+  quota, now enforced) or `PayloadTooLarge` (an over-size attachment, record or body); `501` is
+  `FeatureDisabled` (the message names the variable, for example `DAKERA_ATTACHMENTS`) or
+  `NotImplemented`; the new codes are in `ServerErrorCode` (now exported).
+- **`capabilities()`** — `GET /v1/capabilities`, now with the `scoring`, `attachments`, `vision` and
+  `unreadable_records` sections next to models, index kinds (`ivfpq`), search modes (`rabitq`,
+  `search_modes_accepted` prose parsed), record kinds and dtypes and `query_languages`.
+- **Attachments** — `upload_attachment`, `list_attachments`, `download_attachment`,
+  `delete_attachment`, speech-to-text jobs (`transcribe_attachment`, `transcription_status`), image
+  indexing jobs (`index_image_attachment`, `index_image_status`) and `wait_for_attachment_job`.
+  `StoreMemoryRequest::with_attachment_ref` points a memory at an upload.
+- **Records with named representations** — `upsert_records` and `get_record` (`RecordInput`,
+  `RepresentationInput` with kinds `dense` / `token_multivector` / `patch_multivector` and dtypes
+  `f32` / `f16` / `i8`).
+- **Per-request `lang`** — `with_lang` on `StoreMemoryRequest`, `BatchStoreMemoryRequest`,
+  `RecallRequest` (also used for search), `UpdateMemoryRequest::lang`, `extract_entities_with_lang`,
+  `extract_text_with_lang`. Supported languages: `capabilities().query_languages`.
+- **Models** — `EmbeddingModel::BgeM3` and `ColbertSmall`; unknown strings from newer servers are kept
+  as `Unknown(String)` instead of failing.
+- **Namespace config** — `put_namespace_entity_config` (`PUT`, replaces: an omitted `entity_types`
+  clears the list). `PATCH` (`configure_namespace_ner`) merges and refuses unknown fields on v0.12.
+- **gRPC** — v0.12 requires an API key on every call but `Health`. `GrpcClientConfig::with_api_key`
+  (or `DAKERA_API_KEY`) sends it as `x-api-key`; gRPC status errors are mapped
+  (`UNAUTHENTICATED` is an auth error). The RPC paths are now `/dakera.v1.VectorService/...`, the
+  server's actual proto package.
+
+### v0.12.0 in code
+
+```rust,no_run
+use std::time::Duration;
+
+use dakera_client::{
+    ClientError, DakeraClient, RecordInput, RecallRequest, RepresentationInput, StoreMemoryRequest,
+    TranscribeRequest,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::builder("http://localhost:3000").api_key("dk-mykey").build()?;
+
+    // Wait on /health/ready (a v0.12 server binds its port while models load).
+    client.wait_until_ready(Duration::from_secs(120)).await?;
+
+    // Check what this server has switched on.
+    let caps = client.capabilities().await?;
+    println!("v{} attachments={} records={}", caps.server_version,
+        caps.attachments.enabled, caps.supports_records());
+
+    // Per-request language.
+    client.store_memory(StoreMemoryRequest::new("my-agent", "Treffen morgen um drei").with_lang("de")).await?;
+    client.recall(RecallRequest::new("my-agent", "wann ist das Treffen").with_lang("de")).await?;
+
+    // Attachments: upload a WAV, transcribe it into a memory.
+    let up = client.upload_attachment("uploads", std::fs::read("note.wav")?, "audio/wav").await?;
+    let job = client
+        .transcribe_attachment("uploads", &up.attachment_ref, TranscribeRequest::new("my-agent"))
+        .await?;
+    let done = client.wait_for_attachment_job(&job.status_url, Duration::from_secs(300)).await?;
+    println!("{} -> memory {}", done.status, job.memory_id);
+
+    // Records with a named representation.
+    let record = RecordInput::new("r1", vec![0.1, 0.2, 0.3, 0.4]).with_representation(
+        RepresentationInput::token_multivector("tokens", vec![vec![0.1, 0.2], vec![0.3, 0.4]]),
+    );
+    match client.upsert_records("docs", vec![record]).await {
+        Err(ClientError::FeatureDisabled { message, .. }) => println!("{message}"),
+        other => {
+            other?;
+        }
+    }
+    Ok(())
+}
+```
+
+### Compatibility
+
+| Server | Works | Notes |
+|---|---|---|
+| v0.11.108 | yes | v0.12-only calls return `404` (capabilities, records, attachments); everything else is unchanged |
+| v0.12.0 | yes | opt-in features answer `501 FEATURE_DISABLED` until the operator enables them |
+
+Merge and publish this release only after the v0.12.0 server release.
 
 ---
 
@@ -168,25 +278,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Connect to Dakera
 
-```rust
+```rust,no_run
 use dakera_client::DakeraClient;
 
-// Self-hosted
-let client = DakeraClient::builder("http://your-server:3000")
-    .api_key("your-key")
-    .build()?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Self-hosted
+    let client = DakeraClient::builder("http://your-server:3000")
+        .api_key("your-key")
+        .build()?;
 
-// Cloud (early access)
-let client = DakeraClient::builder("http://localhost:3000")
-    .api_key("your-key")
-    .build()?;
-
-// With custom timeouts
-let client = DakeraClient::builder("http://localhost:3000")
-    .api_key("your-key")
-    .timeout_secs(60)
-    .max_retries(5)
-    .build()?;
+    // With custom timeouts
+    let client = DakeraClient::builder("http://localhost:3000")
+        .api_key("your-key")
+        .timeout_secs(60)
+        .max_retries(5)
+        .build()?;
+    Ok(())
+}
 ```
 
 ---

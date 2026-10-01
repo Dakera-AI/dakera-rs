@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::types::{WarmCacheRequest, WarmCacheResponse};
+use crate::types::{
+    QuotaConfig, QuotaListResponse, QuotaStatus, WarmCacheRequest, WarmCacheResponse,
+};
 use crate::DakeraClient;
 
 // ============================================================================
@@ -237,53 +239,6 @@ pub struct UpdateConfigResponse {
     pub message: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
-}
-
-// ============================================================================
-// Quota Types
-// ============================================================================
-
-/// Quota configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuotaConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_vectors: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_storage_bytes: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_queries_per_minute: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_writes_per_minute: Option<u64>,
-}
-
-/// Quota usage
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuotaUsage {
-    #[serde(default)]
-    pub current_vectors: u64,
-    #[serde(default)]
-    pub current_storage_bytes: u64,
-    #[serde(default)]
-    pub queries_this_minute: u64,
-    #[serde(default)]
-    pub writes_this_minute: u64,
-}
-
-/// Quota status for a namespace
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuotaStatus {
-    pub namespace: String,
-    pub config: QuotaConfig,
-    pub usage: QuotaUsage,
-}
-
-/// Quota list response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuotaListResponse {
-    pub quotas: Vec<QuotaStatus>,
-    pub total: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_config: Option<QuotaConfig>,
 }
 
 // ============================================================================
@@ -913,22 +868,6 @@ impl DakeraClient {
     // TTL Management
     // ====================================================================
 
-    /// Configure TTL for a namespace.
-    pub async fn configure_ttl(
-        &self,
-        namespace: &str,
-        ttl_seconds: u64,
-        strategy: Option<&str>,
-    ) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/admin/namespaces/{}/ttl", self.base_url, namespace);
-        let mut body = serde_json::json!({ "ttl_seconds": ttl_seconds });
-        if let Some(s) = strategy {
-            body["strategy"] = serde_json::Value::String(s.to_string());
-        }
-        let response = self.client.post(&url).json(&body).send().await?;
-        self.handle_response(response).await
-    }
-
     /// Run TTL cleanup on expired vectors
     pub async fn ttl_cleanup(&self, namespace: Option<&str>) -> Result<TtlCleanupResponse> {
         let url = format!("{}/v1/admin/ttl/cleanup", self.base_url);
@@ -1359,13 +1298,7 @@ impl DakeraClient {
         let url = format!("{}/v1/admin/backups/{}/download", self.base_url, backup_id);
         let response = self.client.get(&url).send().await?;
         if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(crate::error::ClientError::Server {
-                status: status.as_u16(),
-                message: body,
-                code: None,
-            });
+            return Err(Self::error_from_response(response).await);
         }
         Ok(response.bytes().await?.to_vec())
     }
@@ -1840,51 +1773,41 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // QuotaConfig serialization
+    // Quota types (the server's QuotaConfig / QuotaStatus shapes)
     // -------------------------------------------------------------------------
 
     #[test]
     fn test_quota_config_all_none_serializes_empty() {
-        let cfg = QuotaConfig {
-            max_vectors: None,
-            max_storage_bytes: None,
-            max_queries_per_minute: None,
-            max_writes_per_minute: None,
-        };
-        let json = serde_json::to_string(&cfg).unwrap();
+        let json = serde_json::to_string(&QuotaConfig::default()).unwrap();
         assert_eq!(json, "{}");
     }
 
     #[test]
-    fn test_quota_config_with_max_vectors() {
+    fn test_quota_config_uses_the_server_fields() {
         let cfg = QuotaConfig {
             max_vectors: Some(1_000_000),
-            max_storage_bytes: None,
-            max_queries_per_minute: None,
-            max_writes_per_minute: None,
+            max_dimensions: Some(1024),
+            enforcement: Some("hard".to_string()),
+            ..Default::default()
         };
-        let json = serde_json::to_string(&cfg).unwrap();
-        assert!(json.contains("\"max_vectors\":1000000"));
-        assert!(!json.contains("max_storage"));
+        let v = serde_json::to_value(&cfg).unwrap();
+        assert_eq!(v["max_vectors"], 1_000_000);
+        assert_eq!(v["max_dimensions"], 1024);
+        assert_eq!(v["enforcement"], "hard");
+        assert_eq!(v.as_object().unwrap().len(), 3);
     }
-
-    // -------------------------------------------------------------------------
-    // QuotaUsage defaults
-    // -------------------------------------------------------------------------
 
     #[test]
-    fn test_quota_usage_all_fields_default_zero() {
-        let json = r#"{}"#;
-        let usage: QuotaUsage = serde_json::from_str(json).unwrap();
-        assert_eq!(usage.current_vectors, 0);
-        assert_eq!(usage.current_storage_bytes, 0);
-        assert_eq!(usage.queries_this_minute, 0);
-        assert_eq!(usage.writes_this_minute, 0);
+    fn test_quota_status_parses_the_server_body() {
+        let json = r#"{"namespace":"ns","config":{"max_vectors":10,"enforcement":"hard"},
+            "usage":{"vector_count":7,"storage_bytes":512,"last_updated":1},
+            "vector_usage_percent":70.0,"is_exceeded":false}"#;
+        let st: QuotaStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(st.usage.vector_count, 7);
+        assert_eq!(st.usage.storage_bytes, 512);
+        assert_eq!(st.config.enforcement.as_deref(), Some("hard"));
+        assert!(!st.is_exceeded);
     }
-
-    // -------------------------------------------------------------------------
-    // QuotaListResponse
-    // -------------------------------------------------------------------------
 
     #[test]
     fn test_quota_list_response_optional_default_config() {

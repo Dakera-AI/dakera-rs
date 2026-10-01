@@ -75,6 +75,8 @@
 pub mod admin;
 pub mod agents;
 pub mod analytics;
+pub mod attachments;
+mod capabilities;
 #[cfg(feature = "http-client")]
 mod client;
 mod error;
@@ -83,6 +85,7 @@ pub mod filter;
 pub mod keys;
 pub mod knowledge;
 pub mod memory;
+pub mod records;
 pub mod session;
 mod types;
 
@@ -102,15 +105,27 @@ pub use admin::{
     CreateBackupResponse, DecayConfigResponse, DecayConfigUpdateRequest, DecayConfigUpdateResponse,
     DecayStatsResponse, DedupResultSnapshot, FulltextReindexNamespaceResult,
     FulltextReindexResponse, IndexStats, IndexStatsResponse, KpiSnapshot, LastDecayCycleStats,
-    NodeInfo, NodeListResponse, OpsStats, QuotaConfig, QuotaListResponse, QuotaStatus,
-    RestoreBackupRequest, RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse,
-    TtlCleanupRequest, TtlCleanupResponse, TtlStats, TtlStatsResponse,
+    NodeInfo, NodeListResponse, OpsStats, RestoreBackupRequest, RestoreBackupResponse,
+    RuntimeConfig, SlowQueryListResponse, TtlCleanupRequest, TtlCleanupResponse, TtlStats,
+    TtlStatsResponse,
 };
 pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpResponse};
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
+// v0.12: attachments, speech-to-text, image indexing
+pub use attachments::{
+    AttachmentDownload, AttachmentEntry, AttachmentJobAccepted, AttachmentListResponse,
+    AttachmentUploadResponse, IndexImageAccepted, IndexImageRequest, TranscribeAccepted,
+    TranscribeRequest,
+};
+// R9 / DAK-10004: GET /v1/capabilities
+pub use capabilities::{
+    parse_accepted_values, AttachmentCapability, CapabilityKind, LateInteractionCapability,
+    ModelCapability, RecordCapabilities, ScoringCapability, ServerCapabilities,
+    TranscriptionCapability, VisionCapability,
+};
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
-pub use error::{ClientError, Result};
+pub use error::{ClientError, Result, ServerErrorCode};
 pub use keys::{
     ApiKeyUsageResponse, CreateKeyRequest, CreateKeyResponse, CreateNamespaceKeyRequest,
     CreateNamespaceKeyResponse, KeyInfo, ListKeysResponse, ListNamespaceKeysResponse,
@@ -136,7 +151,6 @@ pub use memory::{
     // CE-6: DBSCAN Adaptive Consolidation
     ConsolidationConfig,
     ConsolidationLogEntry,
-    ExtractionProviderInfo,
     // EXT-1: External Extraction Providers
     ExtractionResult,
     ForgetRequest,
@@ -159,6 +173,11 @@ pub use memory::{
     StoreMemoryRequest,
     StoreMemoryResponse,
 };
+// v0.12: records with named representations
+pub use records::{
+    RecordInput, RecordUpsertRequest, RecordUpsertResponse, RecordView, RepresentationInfo,
+    RepresentationInput,
+};
 #[cfg(feature = "http-client")]
 pub use session::ChatMemorySession;
 pub use types::*;
@@ -174,3 +193,9 @@ pub mod grpc {
 // Re-export reqwest for CLI and other consumers
 #[cfg(feature = "http-client")]
 pub use reqwest;
+
+/// Compiles the README's Rust examples as doctests (`cargo test`), so they
+/// cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;

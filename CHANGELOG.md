@@ -7,6 +7,130 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-01
+
+### Added
+
+- **Forward-compat contract (R9, DAK-10004)** — the server's registries (models, index kinds,
+  search modes, distance metrics, record representation kinds, block dtypes) grow over time and
+  `GET /v1/capabilities` documents the rule: every field is additive; unknown fields and unknown
+  strings inside lists MUST be ignored; `capabilities_version` bumps only on a breaking reshape.
+  This release makes the SDK honour that rule end to end and moves it to the 0.12 line.
+- **Lenient enums** — `EmbeddingModel` was a closed serde enum, so the first response naming a
+  model this crate did not know (`bge-m3`) failed with `ClientError::Json` on an unrelated call.
+  It now carries `EmbeddingModel::Unknown(String)` (the raw wire string, round-trips unchanged)
+  plus `as_str()`, `is_known()`, `known()`, `From<&str>`/`From<String>`/`Into<String>`,
+  `Display`; `EmbeddingModel::BgeM3` is declared. New enums of the same shape: `IndexKind`
+  (`IvfPq`), `SearchMode` (`RaBitQ`), `RepresentationKind`, `BlockDType`. `DistanceMetric`
+  (stays `Copy`) and `RoutingMode` gain a `#[serde(other)] Unknown` variant and `is_known()`.
+- **`DakeraClient::capabilities()` / `refresh_capabilities()`** — typed `ServerCapabilities`
+  (`Arc`, cached per client and shared across clones) for `GET /v1/capabilities`: models (name,
+  aliases, dimension, context window, active flag, MRL dims), index kinds (all / vector / live),
+  distance metrics, the search mode the server runs and every value it accepts
+  (`search_modes_accepted` — prose parsed with aliases expanded; a JSON list accepted too),
+  `records` (`supports_records()`, kinds, dtypes, limits), `query_languages`, `reembed_pending`.
+  Unknown fields are collected into `extra` (`#[serde(flatten)]`), every field is
+  `#[serde(default)]`. Helpers: `model(name_or_alias)`, `active_model()`, `model_names()`,
+  `supported_values(kind)`, `supports(kind, value)`, `require(kind, value)`; `CapabilityKind`.
+- **Pre-flight validation** — `upsert_text` / `query_text` / `batch_query_text` (model),
+  `create_namespace` (index type) and `configure_namespace` (distance metric) check the requested
+  value against cached capabilities *before* sending and return
+  `ClientError::UnsupportedCapability { kind, requested, supported, server_version }` whose
+  message names what the server accepts. Runs whenever `capabilities()` has been called;
+  `DakeraClient::builder(url).preflight(true)` fetches lazily on first use and degrades silently
+  on a pre-0.12 server (404). `require_supported(kind, value)` exposes the same check for
+  `CapabilityKind::SearchMode` and `CapabilityKind::QueryLanguage`.
+
+### Added (Dakera server v0.12.0 support)
+
+- **Health (TRACKER K14)** — `health()` no longer reports a non-2xx answer as healthy: a v0.12
+  server that is still loading models answers `503 {"status":"starting"}` and v0.11 of this crate
+  returned `healthy: true` for it. `HealthResponse` gains `status`. `ready()` parses the `503` body
+  (`ReadinessResponse` gains `version`, `checks`, `starting`, `reason`, `downloads` and
+  `retry_after`), `live()` is unchanged, and `wait_until_ready(timeout)` polls `/health/ready`,
+  sleeping the server's `Retry-After` between polls.
+- **`Retry-After`** — `ClientError::ServiceUnavailable { message, details, retry_after }` for every
+  `503`; `ClientError::retry_after()`; `DakeraClient::execute_with_retry` is now public and waits the
+  server's `Retry-After` (429 and 503, capped at `RetryConfig::max_delay`) instead of its backoff.
+- **Error mapping** — one mapper for every JSON error body: `QuotaExceeded` and `PayloadTooLarge`
+  (413), `FeatureDisabled` and `NotImplemented` (501, message names the switch), `is_feature_disabled()`,
+  `is_payload_too_large()`. `ServerErrorCode` is exported and gains `PayloadTooLarge`,
+  `FeatureDisabled`, `NotImplemented`, `Conflict`, `CrossOriginRequestRefused`, `RateLimitExceeded`,
+  `QueryTimeout`, `RouteNotFound`, `MethodNotAllowed`, `UnsupportedMediaType`, `RequestTimeout`,
+  `ApiKeyNotFound`, `JobNotFound`. Errors from delete_namespace, shutdown, SSE and backup download
+  use the same mapper.
+- **Attachments (`DAKERA_ATTACHMENTS`)** — `upload_attachment`, `list_attachments`,
+  `download_attachment`, `delete_attachment`, `transcribe_attachment`, `transcription_status`,
+  `index_image_attachment` (`DAKERA_VISION`), `index_image_status`, `attachment_job_status`,
+  `wait_for_attachment_job`; `JobInfo` gains `error` (`JobError`) and `is_finished()`,
+  `is_completed()`, `is_failed()`; `attachment_ref` on `StoreMemoryRequest`,
+  `BatchStoreMemoryItem` and `RecalledMemory`.
+- **Records (`DAKERA_RECORDS`)** — `upsert_records`, `get_record`, `RecordInput`,
+  `RepresentationInput`, `RecordView`, `RepresentationInfo`.
+- **Per-request `lang`** — `StoreMemoryRequest`, `BatchStoreMemoryRequest`, `RecallRequest`,
+  `UpdateMemoryRequest`, `extract_entities_with_lang`, `extract_text_with_lang`.
+- **Capabilities** — typed `scoring`, `attachments` (with `transcription`), `vision`,
+  `unreadable_records` and `late_interaction_stats`; `EmbeddingModel::ColbertSmall`.
+- **Namespace config (TRACKER K34)** — `put_namespace_entity_config` (`PUT /v1/namespaces/{ns}/config`
+  replaces; the way to clear `entity_types` on a v0.12 server, where `PATCH` merges and refuses
+  unknown fields).
+- **gRPC** — `GrpcClientConfig::with_api_key` / `DAKERA_API_KEY` sends `x-api-key` on every call
+  (v0.12 refuses unauthenticated calls except `Health`); the key is redacted in `Debug`.
+
+### Fixed
+
+- **gRPC paths** — the client called `/dakera.VectorService/...` but the server's package is
+  `dakera.v1`, so every RPC was `UNIMPLEMENTED`; the paths are now `/dakera.v1.VectorService/...`.
+  `grpc-status` (headers or trailers) is now mapped to an error instead of surfacing as
+  "Response too short".
+- **`extract_text`** sent `provider` / `model` at the top level of `POST /v1/extract`, where the
+  server does not read them; they are sent as `extractor_override` now.
+- `README.md` quick start used `Default` / `Option` fields that do not exist; every Rust example in
+  the README is now compiled as a doctest (`cargo test`).
+- **Route sweep against the v0.12.0 router** (`crates/api/src/lib.rs`; 214 URL templates in the SDK,
+  checked by `tests/route_table_test.rs` against `tests/v012_routes.txt` from now on). Calls to routes
+  that no server version (v0.11.108 or v0.12.0) serves, or with a shape the server does not read:
+  - `update_memory` called `PUT /v1/agents/{a}/memories/{id}`; the route is
+    `PUT /v1/memory/update/{id}?agent_id=` (body gains `importance` and `tags`; the flat memory answer
+    is accepted).
+  - `memory_feedback` called `POST /v1/agents/{a}/memories/feedback`; the route is
+    `POST /v1/memory/feedback` with `{agent_id, memory_id, signal}` (`relevance_score` is not read by
+    the server and no longer sent).
+  - `export_audit` sent `POST /v1/audit/export`; the route is `GET` with query parameters (JSON or CSV
+    body returned verbatim in `data`). `AuditEvent.id` is an integer on the wire (was a `String`, so
+    `list_audit_events` failed to parse), `AuditListResponse` reads `count`.
+  - Quotas: the SDK had two `QuotaConfig` types; the exported one had `max_queries_per_minute` /
+    `max_writes_per_minute` (fields the server does not have, silently dropped) and its usage read
+    `current_vectors` / `current_storage_bytes` (always 0). The server's `QuotaConfig`
+    (`max_vectors`, `max_storage_bytes`, `max_dimensions`, `max_metadata_bytes`, `enforcement`),
+    `QuotaStatus` and `QuotaUsage` are now the only ones. The paths were right:
+    `PUT /v1/admin/quotas/{namespace}` and `PUT /v1/admin/quotas/default` (the server has no
+    `PUT /v1/admin/quotas`).
+  - `get_namespace_stats` / `get_index_stats` called `GET /v1/namespaces/{ns}/stats` (no such route);
+    they read `GET /v1/admin/indexes/stats` and return the namespace's entry.
+  - Removed, because the server has no such route (they returned 404 on every version):
+    `flush` (`POST /v1/namespaces/{ns}/flush`), `fetch` / `fetch_by_ids` and `FetchRequest` /
+    `FetchResponse` (`POST /v1/namespaces/{ns}/fetch`), `configure_ttl`
+    (`POST /v1/admin/namespaces/{ns}/ttl`; use `set_memory_policy`), `list_extract_providers` and its
+    types (`GET /v1/extract/providers`).
+  - Every other route the SDK calls exists in the v0.12.0 router.
+
+### Compatibility
+
+Works against Dakera server v0.11.108 and v0.12.0 (v0.12-only routes answer 404 on v0.11.108).
+Merge and publish only after the v0.12.0 server release. See the server's
+UPGRADE guide (`docs/v0.12/UPGRADE.md` in the server release).
+
+### Changed
+
+- Version 0.11.107 → 0.12.0 (SDK line now tracks server v0.12). `EmbeddingModel` is no longer
+  exhaustively matchable without an `Unknown(_)` arm; `DistanceMetric`/`RoutingMode` likewise
+  gain an `Unknown` arm (0.x minor: intentional). `ClientError` gains variants
+  (`QuotaExceeded`, `PayloadTooLarge`, `FeatureDisabled`, `NotImplemented`, `ServiceUnavailable`):
+  HTTP 413 / 501 / 503 no longer arrive as `ClientError::Server`. `StoreMemoryRequest`,
+  `RecallRequest`, `BatchStoreMemoryRequest`, `BatchStoreMemoryItem`, `UpdateMemoryRequest` and
+  `JobInfo` gain fields (struct literals need `..Default::default()` or the builders).
+
 ## [0.11.106] - 2026-08-07
 
 ### Added

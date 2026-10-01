@@ -100,8 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let quota_config = QuotaConfig {
         max_vectors: Some(100_000),
         max_storage_bytes: Some(1_073_741_824), // 1 GiB
-        max_queries_per_minute: Some(1000),
-        max_writes_per_minute: Some(500),
+        ..Default::default()
     };
     client.set_quota("example-quota-ns", quota_config).await?;
     println!("Set quota for namespace 'example-quota-ns'");
