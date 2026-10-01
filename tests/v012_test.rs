@@ -982,6 +982,7 @@ async fn index_image_attachment_and_status() {
         200,
         r#"{"id":"job_9_3","job_type":"attachment_image_index","status":"Completed","created_at":1,"started_at":2,"completed_at":3,"progress":100,"message":"memory mem_1 stored","metadata":{}}"#,
     )
+    .expect(2)
     .create_async()
     .await;
     let client = DakeraClient::new(server.url()).unwrap();
