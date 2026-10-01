@@ -434,6 +434,142 @@ async fn test_graph_contract_round_trip() {
     assert_eq!(got.content, "Anna moved to Berlin in June");
 }
 
+// Every call 0.12.1 fixed (decode or request mismatches against v0.12.0), live.
+#[tokio::test]
+async fn test_decode_contract_round_trip() {
+    use dakera_client::knowledge::{
+        DeduplicateRequest, FullKnowledgeGraphRequest, KnowledgeGraphRequest, SummarizeRequest,
+    };
+    let Some(client) = get_client() else {
+        eprintln!("DAKERA_TEST_URL not set — skipping");
+        return;
+    };
+    let agent = test_agent();
+    let ns = format!("_dakera_agent_{agent}");
+    let a = client
+        .store_memory(StoreMemoryRequest::new(
+            &agent,
+            "Standup: Bob fixed the login bug",
+        ))
+        .await
+        .unwrap();
+    let b = client
+        .store_memory(StoreMemoryRequest::new(
+            &agent,
+            "Standup: Bob shipped the login fix",
+        ))
+        .await
+        .unwrap();
+    let ids = vec![a.memory_id.clone(), b.memory_id.clone()];
+
+    // Knowledge: seed graph, full graph, deduplicate, summarize.
+    let kg = client
+        .knowledge_graph(KnowledgeGraphRequest {
+            agent_id: agent.clone(),
+            memory_id: Some(a.memory_id.clone()),
+            depth: None,
+            min_similarity: None,
+        })
+        .await
+        .unwrap();
+    assert!(kg.nodes.iter().any(|n| n.id == a.memory_id));
+    let no_seed = client
+        .knowledge_graph(KnowledgeGraphRequest {
+            agent_id: agent.clone(),
+            memory_id: None,
+            depth: None,
+            min_similarity: None,
+        })
+        .await;
+    assert!(no_seed.is_err(), "the server needs a seed memory_id");
+    let full = client
+        .full_knowledge_graph(FullKnowledgeGraphRequest {
+            agent_id: agent.clone(),
+            max_nodes: None,
+            min_similarity: None,
+            cluster_threshold: None,
+            max_edges_per_node: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(full.nodes.len(), 2);
+    client
+        .deduplicate(DeduplicateRequest {
+            agent_id: agent.clone(),
+            threshold: None,
+            memory_type: None,
+            dry_run: true,
+        })
+        .await
+        .unwrap();
+    let one = client
+        .summarize(SummarizeRequest {
+            agent_id: agent.clone(),
+            memory_ids: Some(vec![a.memory_id.clone()]),
+            target_type: None,
+            dry_run: false,
+        })
+        .await;
+    assert!(one.is_err(), "the server needs at least two memory_ids");
+    let summary = client
+        .summarize(SummarizeRequest {
+            agent_id: agent.clone(),
+            memory_ids: Some(ids.clone()),
+            target_type: None,
+            dry_run: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(summary.source_count, 2);
+    assert!(summary.new_memory_id.is_some());
+    assert!(!summary.summary.is_empty());
+
+    // Agents, memory importance, wake-up, export, feedback history / TIF.
+    let stats = client.agent_stats(&agent).await.unwrap();
+    assert!(stats.total_memories >= 2);
+    client.agent_sessions(&agent, None, None).await.unwrap();
+    let imp = client
+        .patch_memory_importance(&a.memory_id, &agent, 0.75)
+        .await
+        .unwrap();
+    assert_eq!(imp.memory_id, a.memory_id);
+    assert!((imp.new_importance - 0.75).abs() < 1e-6);
+    client.wake_up(&agent, Some(5), None).await.unwrap();
+    let export = client
+        .export_memories("jsonl", Some(&agent), None, None)
+        .await
+        .unwrap();
+    assert!(export.count >= 2);
+    client
+        .get_memory_feedback_history(&a.memory_id, &agent)
+        .await
+        .unwrap();
+    client.evaluate_tif(&a.memory_id, &agent).await.unwrap();
+
+    // Full-text stats, namespace creation, admin and analytics answers.
+    client.fulltext_stats(&ns).await.unwrap();
+    let new_ns = test_namespace();
+    client
+        .create_namespace(
+            &new_ns,
+            CreateNamespaceRequest {
+                dimensions: Some(8),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    client.get_kpis().await.unwrap();
+    client.admin_cluster_replication().await.unwrap();
+    client
+        .admin_list_slow_queries(None, None, Some(5))
+        .await
+        .unwrap();
+    client.analytics_latency(None, None).await.unwrap();
+    client.analytics_throughput(None, None).await.unwrap();
+    client.analytics_storage(None).await.unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // Consolidate
 // ---------------------------------------------------------------------------

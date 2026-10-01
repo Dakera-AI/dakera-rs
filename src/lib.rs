@@ -110,7 +110,10 @@ pub use admin::{
     TtlStatsResponse,
 };
 pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpResponse};
-pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
+pub use analytics::{
+    AnalyticsOverview, LatencyAnalytics, LatencyBucket, NamespaceStorage, NamespaceStorageInfo,
+    StorageAnalytics, ThroughputAnalytics, ThroughputDataPoint,
+};
 // v0.12: attachments, speech-to-text, image indexing
 pub use attachments::{
     AttachmentDownload, AttachmentEntry, AttachmentJobAccepted, AttachmentListResponse,
@@ -134,8 +137,9 @@ pub use keys::{
 pub use knowledge::{
     AgentNetworkEdge, AgentNetworkInfo, AgentNetworkNode, AgentNetworkStats,
     CrossAgentNetworkRequest, CrossAgentNetworkResponse, DeduplicateRequest, DeduplicateResponse,
-    FullKnowledgeGraphRequest, KnowledgeEdge, KnowledgeGraphRequest, KnowledgeGraphResponse,
-    KnowledgeNode, SummarizeRequest, SummarizeResponse,
+    DuplicateGroup, FullKnowledgeGraphRequest, KnowledgeCluster, KnowledgeEdge,
+    KnowledgeGraphRequest, KnowledgeGraphResponse, KnowledgeGraphRoot, KnowledgeGraphStats,
+    KnowledgeMemory, KnowledgeNode, KnowledgeRelated, SummarizeRequest, SummarizeResponse,
 };
 pub use memory::{
     // OBS-1: Business-Event Audit Log

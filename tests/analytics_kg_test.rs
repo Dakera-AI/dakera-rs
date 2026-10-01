@@ -306,31 +306,230 @@ async fn test_summarize() {
 }
 
 #[tokio::test]
-async fn test_summarize_dry_run() {
+async fn test_summarize_dry_run_is_refused_before_sending() {
+    // The server has no dry run for summarize: it always stores the summary.
+    // The client refuses rather than writing a memory the caller did not want.
     let mut server = mockito::Server::new_async().await;
     let mock = server
         .mock("POST", "/v1/knowledge/summarize")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(
-            r#"{
-                "summary": "Dry run summary output.",
-                "source_count": 3
-            }"#,
-        )
+        .expect(0)
         .create_async()
         .await;
 
     let client = DakeraClient::new(server.url()).unwrap();
     let request = dakera_client::SummarizeRequest {
         agent_id: "agent-1".to_string(),
-        memory_ids: None,
+        memory_ids: Some(vec!["m1".to_string(), "m2".to_string()]),
         target_type: None,
         dry_run: true,
     };
-    let result = client.summarize(request).await.unwrap();
-    assert_eq!(result.source_count, 3);
-    assert!(result.new_memory_id.is_none());
+    let err = client.summarize(request).await.unwrap_err();
+    assert!(matches!(err, dakera_client::ClientError::InvalidRequest(_)));
+    assert!(err.to_string().contains("dry run"));
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_summarize_needs_two_memory_ids() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/knowledge/summarize")
+        .expect(0)
+        .create_async()
+        .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    for ids in [None, Some(vec!["m1".to_string()])] {
+        let err = client
+            .summarize(dakera_client::SummarizeRequest {
+                agent_id: "agent-1".to_string(),
+                memory_ids: ids,
+                target_type: None,
+                dry_run: false,
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(err, dakera_client::ClientError::InvalidRequest(_)));
+    }
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_summarize_server_shape() {
+    // POST /v1/knowledge/summarize answers {summary_memory, source_count}; the
+    // request carries no dry_run.
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/knowledge/summarize")
+        .match_body(mockito::Matcher::Json(serde_json::json!({
+            "agent_id": "agent-1",
+            "memory_ids": ["m1", "m2"],
+            "target_type": "semantic"
+        })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"summary_memory":{"id":"mem_summary_1","memory_type":"semantic",
+                "content":"Anna lives in Berlin\n\n---\n\nAnna lives in Berlin, Germany",
+                "agent_id":"agent-1","importance":0.5,"tags":["t1"],"metadata":{},
+                "created_at":1790875861,"last_accessed_at":1790875861,"access_count":0},
+               "source_count":2}"#,
+        )
+        .create_async()
+        .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let r = client
+        .summarize(dakera_client::SummarizeRequest {
+            agent_id: "agent-1".to_string(),
+            memory_ids: Some(vec!["m1".to_string(), "m2".to_string()]),
+            target_type: Some("semantic".to_string()),
+            dry_run: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(r.source_count, 2);
+    assert_eq!(r.new_memory_id.as_deref(), Some("mem_summary_1"));
+    assert!(r.summary.starts_with("Anna lives in Berlin"));
+    let m = r.summary_memory.unwrap();
+    assert_eq!(m.memory_type, "semantic");
+    assert_eq!(m.tags, vec!["t1".to_string()]);
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_knowledge_graph_server_shape() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/knowledge/graph")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"root":{"memory":{"id":"m1","memory_type":"episodic","content":"Anna lives in Berlin",
+                "agent_id":"agent-1","importance":0.5,"tags":["t1"],"created_at":1790875861,
+                "last_accessed_at":1790875861,"access_count":0},"similarity":1.0,
+                "related":[{"memory_id":"m2","similarity":0.98,"shared_tags":["t1"]}]},
+               "total_nodes":2}"#,
+        )
+        .create_async()
+        .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let g = client
+        .knowledge_graph(dakera_client::KnowledgeGraphRequest {
+            agent_id: "agent-1".to_string(),
+            memory_id: Some("m1".to_string()),
+            depth: None,
+            min_similarity: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(g.total_nodes, 2);
+    assert_eq!(g.nodes.len(), 1);
+    assert_eq!(g.nodes[0].content, "Anna lives in Berlin");
+    assert_eq!(g.edges.len(), 1);
+    assert_eq!(g.edges[0].source, "m1");
+    assert_eq!(g.edges[0].target, "m2");
+    assert_eq!(g.edges[0].shared_tags, vec!["t1".to_string()]);
+    let root = g.root.unwrap();
+    assert_eq!(root.related[0].memory_id, "m2");
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_knowledge_graph_without_memory_id_is_refused() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/knowledge/graph")
+        .expect(0)
+        .create_async()
+        .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let err = client
+        .knowledge_graph(dakera_client::KnowledgeGraphRequest {
+            agent_id: "agent-1".to_string(),
+            memory_id: None,
+            depth: None,
+            min_similarity: None,
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(err, dakera_client::ClientError::InvalidRequest(_)));
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_full_knowledge_graph_server_shape() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/knowledge/graph/full")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"nodes":[
+                {"id":"m1","content":"Anna lives in Berlin","memory_type":"Episodic","importance":0.5,
+                 "tags":["t1"],"created_at":"1790875861","cluster_id":0,"centrality":1.0},
+                {"id":"m2","content":"Anna lives in Berlin, Germany","memory_type":"Episodic",
+                 "importance":0.5,"tags":["t1"],"created_at":"1790875861","cluster_id":0,"centrality":1.0},
+                {"id":"m3","content":"Bob likes jazz","memory_type":"Episodic","importance":0.5,
+                 "tags":[],"created_at":null,"cluster_id":1,"centrality":0.0}],
+               "edges":[{"source":"m1","target":"m2","similarity":0.98,"shared_tags":["t1"]}],
+               "clusters":[{"id":0,"node_count":2,"top_tags":["t1"],"avg_importance":0.5},
+                           {"id":1,"node_count":1,"top_tags":[],"avg_importance":0.5}],
+               "stats":{"total_memories":3,"included_memories":3,"total_edges":1,"cluster_count":2,
+                        "density":0.33,"hub_memory_id":"m1"}}"#,
+        )
+        .create_async()
+        .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let g = client
+        .full_knowledge_graph(dakera_client::FullKnowledgeGraphRequest {
+            agent_id: "agent-1".to_string(),
+            max_nodes: None,
+            min_similarity: None,
+            cluster_threshold: None,
+            max_edges_per_node: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(g.nodes.len(), 3);
+    assert_eq!(g.nodes[0].cluster_id, Some(0));
+    assert_eq!(g.edges[0].shared_tags, vec!["t1".to_string()]);
+    assert_eq!(g.cluster_info.len(), 2);
+    let clusters = g.clusters.unwrap();
+    assert_eq!(clusters[0], vec!["m1".to_string(), "m2".to_string()]);
+    assert_eq!(clusters[1], vec!["m3".to_string()]);
+    let stats = g.stats.unwrap();
+    assert_eq!(stats.cluster_count, 2);
+    assert_eq!(stats.hub_memory_id.as_deref(), Some("m1"));
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_deduplicate_server_shape() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/knowledge/deduplicate")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"groups":[{"canonical_id":"m1","duplicate_ids":["m2"],"avg_similarity":0.98}],
+               "duplicates_found":1,"duplicates_merged":0}"#,
+        )
+        .create_async()
+        .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let r = client
+        .deduplicate(dakera_client::DeduplicateRequest {
+            agent_id: "agent-1".to_string(),
+            threshold: Some(0.8),
+            memory_type: None,
+            dry_run: true,
+        })
+        .await
+        .unwrap();
+    assert_eq!(r.duplicates_found, 1);
+    assert_eq!(r.removed_count, 0);
+    assert_eq!(r.groups, vec![vec!["m1".to_string(), "m2".to_string()]]);
+    assert_eq!(r.duplicate_groups[0].canonical_id, "m1");
+    assert!((r.duplicate_groups[0].avg_similarity - 0.98).abs() < 1e-5);
     mock.assert_async().await;
 }
 

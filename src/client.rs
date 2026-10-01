@@ -297,6 +297,12 @@ impl DakeraClient {
         namespace: &str,
         request: CreateNamespaceRequest,
     ) -> Result<NamespaceInfo> {
+        // `PUT /v1/namespaces/{ns}` requires `dimension` (422 without it).
+        if request.dimensions.is_none() {
+            return Err(ClientError::InvalidRequest(
+                "create_namespace needs dimensions (the server requires `dimension`)".to_string(),
+            ));
+        }
         if let Some(kind) = &request.index_type {
             self.preflight_check(CapabilityKind::IndexKind, kind)
                 .await?;

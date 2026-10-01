@@ -1004,7 +1004,12 @@ impl DakeraClient {
     pub async fn admin_cluster_replication(&self) -> Result<crate::types::ReplicationStatus> {
         let url = format!("{}/v1/admin/cluster/replication", self.base_url);
         let response = self.client.get(&url).send().await?;
-        self.handle_response(response).await
+        let mut status: crate::types::ReplicationStatus = self.handle_response(response).await?;
+        if status.total_nodes == 0 {
+            status.total_nodes =
+                status.healthy_replicas + status.degraded_replicas + status.unhealthy_replicas;
+        }
+        Ok(status)
     }
 
     /// GET /v1/admin/cluster/shards — list shards.
@@ -1142,7 +1147,17 @@ impl DakeraClient {
             url.push_str(&params.join("&"));
         }
         let response = self.client.get(&url).send().await?;
-        self.handle_response(response).await
+        // The server answers `{queries, threshold_ms, total}`; return the
+        // entries (a bare array is accepted too).
+        let body: serde_json::Value = self.handle_response(response).await?;
+        match body {
+            serde_json::Value::Array(items) => Ok(items),
+            serde_json::Value::Object(mut obj) => match obj.remove("queries") {
+                Some(serde_json::Value::Array(items)) => Ok(items),
+                _ => Ok(Vec::new()),
+            },
+            _ => Ok(Vec::new()),
+        }
     }
 
     /// GET /v1/admin/slow-queries/summary — slow query summary.
@@ -1411,8 +1426,13 @@ impl DakeraClient {
 /// range `0.0`–`100.0`. Integer counts are unsigned.
 ///
 /// Requires Admin scope.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// The server answers `{timestamp, kpis: {...}}`; the values are read from
+/// `kpis` (a flat object is accepted too).
+#[derive(Debug, Clone, Serialize)]
 pub struct KpiSnapshot {
+    /// Unix time of the snapshot (0 when the answer carries none).
+    pub timestamp: u64,
     /// Median recall latency across all namespaces over the last minute (ms).
     pub recall_latency_p50_ms: f64,
     /// 99th-percentile recall latency across all namespaces over the last minute (ms).
@@ -1423,12 +1443,51 @@ pub struct KpiSnapshot {
     pub api_error_rate_5xx_pct: f64,
     /// Distinct agent identifiers that stored or recalled a memory in the last 24 hours.
     pub active_agents_count: u64,
-    /// Total sessions created in the rolling 7-day window.
+    /// Total sessions created in the rolling 7-day window (the server's
+    /// `session_count_weekly`).
     pub session_count_week: u64,
     /// Current number of nodes in the cross-agent knowledge graph.
     pub cross_agent_network_node_count: u64,
     /// Percentage of memories created 7 days ago that are still active.
     pub memory_retention_7d_pct: f64,
+}
+
+impl<'de> Deserialize<'de> for KpiSnapshot {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Values {
+            recall_latency_p50_ms: f64,
+            recall_latency_p99_ms: f64,
+            store_latency_p50_ms: f64,
+            api_error_rate_5xx_pct: f64,
+            active_agents_count: u64,
+            #[serde(alias = "session_count_weekly")]
+            session_count_week: u64,
+            cross_agent_network_node_count: u64,
+            memory_retention_7d_pct: f64,
+        }
+
+        let val = serde_json::Value::deserialize(deserializer)?;
+        let timestamp = val.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0);
+        let inner = match val.get("kpis") {
+            Some(k) if k.is_object() => k.clone(),
+            _ => val,
+        };
+        let v: Values = serde_json::from_value(inner).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            timestamp,
+            recall_latency_p50_ms: v.recall_latency_p50_ms,
+            recall_latency_p99_ms: v.recall_latency_p99_ms,
+            store_latency_p50_ms: v.store_latency_p50_ms,
+            api_error_rate_5xx_pct: v.api_error_rate_5xx_pct,
+            active_agents_count: v.active_agents_count,
+            session_count_week: v.session_count_week,
+            cross_agent_network_node_count: v.cross_agent_network_node_count,
+            memory_retention_7d_pct: v.memory_retention_7d_pct,
+        })
+    }
 }
 
 // ============================================================================

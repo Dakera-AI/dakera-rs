@@ -152,7 +152,7 @@ async fn ready_accepts_the_legacy_v011_body() {
     let client = DakeraClient::new(server.url()).unwrap();
     let r = client.ready().await.unwrap();
     assert!(r.ready);
-    assert_eq!(r.components.unwrap()["storage"], true);
+    assert!(r.components.unwrap()["storage"]);
     m.assert_async().await;
 }
 
@@ -1908,5 +1908,287 @@ async fn memory_graph_filters_types_client_side_and_does_not_send_them() {
         .await
         .unwrap();
     assert_eq!(all.edges.len(), 2);
+    m.assert_async().await;
+}
+
+// ============================================================================
+// Ops / analytics answers as the v0.12.0 server sends them (captured live)
+// ============================================================================
+
+#[tokio::test]
+async fn fulltext_stats_reads_unique_terms() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/namespaces/ns/fulltext/stats",
+        200,
+        r#"{"document_count":1,"unique_terms":3,"avg_doc_length":3.0}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let s = client.fulltext_stats("ns").await.unwrap();
+    assert_eq!(s.document_count, 1);
+    assert_eq!(s.term_count, 3);
+    assert_eq!(s.avg_doc_length, 3.0);
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn get_kpis_reads_the_nested_answer() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/kpis",
+        200,
+        r#"{"timestamp":1790876073,"kpis":{"recall_latency_p50_ms":0.0,"recall_latency_p99_ms":0.0,
+            "store_latency_p50_ms":92.677484,"api_error_rate_5xx_pct":25.0,"active_agents_count":1,
+            "session_count_weekly":4,"cross_agent_network_node_count":0,"memory_retention_7d_pct":100.0}}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let k = client.get_kpis().await.unwrap();
+    assert_eq!(k.timestamp, 1_790_876_073);
+    assert_eq!(k.session_count_week, 4);
+    assert_eq!(k.active_agents_count, 1);
+    assert!((k.store_latency_p50_ms - 92.677484).abs() < 1e-9);
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn cluster_replication_reads_the_server_answer() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/admin/cluster/replication",
+        200,
+        r#"{"enabled":true,"replication_factor":3,"healthy_replicas":2,"degraded_replicas":1,
+            "unhealthy_replicas":0,"replication_lag":[{"node_id":"n2","lag_ms":40,"pending_ops":7,
+            "last_sync":1790876000}],"health":"degraded"}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let r = client.admin_cluster_replication().await.unwrap();
+    assert!(r.enabled);
+    assert_eq!(r.total_nodes, 3);
+    assert_eq!(r.health, "degraded");
+    assert_eq!(r.replication_lag[0].pending_ops, 7);
+    assert_eq!(r.replication_lag[0].last_sync, 1_790_876_000);
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn admin_list_slow_queries_returns_the_entries() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/admin/slow-queries",
+        200,
+        r#"{"queries":[{"namespace":"ns","query_type":"vector","duration_ms":250.0}],
+            "threshold_ms":100.0,"total":1}"#,
+    )
+    .match_query(Matcher::Any)
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let q = client
+        .admin_list_slow_queries(None, None, Some(5))
+        .await
+        .unwrap();
+    assert_eq!(q.len(), 1);
+    assert_eq!(q[0]["namespace"], "ns");
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn analytics_latency_reads_the_histogram() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/analytics/latency",
+        200,
+        r#"{"buckets":[{"lower_ms":0.0,"upper_ms":1.0,"count":61,"percentage":76.25},
+            {"lower_ms":1000.0,"upper_ms":null,"count":0,"percentage":0.0}],
+            "avg_ms":8.2,"p50_ms":0.4,"p95_ms":91.4,"p99_ms":104.4,"period":"24h"}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let l = client.analytics_latency(None, None).await.unwrap();
+    assert_eq!(l.period, "24h");
+    assert_eq!(l.buckets.len(), 2);
+    assert_eq!(l.buckets[0].count, 61);
+    assert_eq!(l.buckets[1].upper_ms, None);
+    assert!((l.p99_ms - 104.4).abs() < 1e-9);
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn analytics_throughput_reads_the_rates() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/analytics/throughput",
+        200,
+        r#"{"queries_per_second":1.5,"inserts_per_second":0.5,"deletes_per_second":0.25,
+            "data_points":[{"timestamp":1790876054,"queries_per_second":1.0,"inserts_per_second":0.0,
+            "deletes_per_second":0.0}],"period":"24h"}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let t = client.analytics_throughput(None, None).await.unwrap();
+    assert_eq!(t.queries_per_second, 1.5);
+    assert_eq!(t.operations_per_second, 2.25);
+    assert_eq!(t.data_points.len(), 1);
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn analytics_storage_reads_the_breakdown() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/analytics/storage",
+        200,
+        r#"{"total_bytes":10548,"index_bytes":1640,"vector_bytes":8204,"metadata_bytes":320,
+            "fulltext_bytes":384,"namespace_breakdown":[
+            {"namespace":"_dakera_agent_a","total_bytes":8320,"vector_count":2,"dimension":1024},
+            {"namespace":"pfx","total_bytes":0,"vector_count":0}]}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let s = client.analytics_storage(None).await.unwrap();
+    assert_eq!(s.data_bytes, 8204 + 320 + 384);
+    assert_eq!(s.namespace_breakdown.len(), 2);
+    assert_eq!(s.by_namespace["_dakera_agent_a"].bytes, 8320);
+    assert_eq!(s.by_namespace["pfx"].vector_count, 0);
+    assert_eq!(s.namespace_breakdown[1].dimension, None);
+    m.assert_async().await;
+}
+
+// ============================================================================
+// Agents / feedback answers as the v0.12.0 server sends them (captured live)
+// ============================================================================
+
+#[tokio::test]
+async fn agent_stats_reads_numeric_timestamps() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/agents/a1/stats",
+        200,
+        r#"{"agent_id":"a1","total_memories":2,"memories_by_type":{"episodic":2},"total_sessions":0,
+            "active_sessions":0,"avg_importance":0.65,"oldest_memory_at":1790876257,
+            "newest_memory_at":1790876258}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let s = client.agent_stats("a1").await.unwrap();
+    assert_eq!(s.total_memories, 2);
+    assert_eq!(s.oldest_memory_at.as_deref(), Some("1790876257"));
+    assert_eq!(s.newest_memory_at.as_deref(), Some("1790876258"));
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn wake_up_reads_numeric_memory_timestamps() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/agents/a1/wake-up",
+        200,
+        r#"{"agent_id":"a1","memories":[{"id":"m1","memory_type":"episodic","content":"Anna lives in Berlin",
+            "agent_id":"a1","importance":0.8,"tags":[],"created_at":1790876257,
+            "last_accessed_at":1790876257,"access_count":0}],"total_available":2}"#,
+    )
+    .match_query(Matcher::Any)
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let w = client.wake_up("a1", Some(3), None).await.unwrap();
+    assert_eq!(w.total_available, 2);
+    assert_eq!(w.memories[0].created_at.as_deref(), Some("1790876257"));
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn consolidate_agent_reads_the_skipped_answer() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "POST",
+        "/v1/agents/a1/consolidate",
+        200,
+        r#"{"agent_id":"a1","reason":"consolidation disabled for this agent","skipped":true}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let r = client.consolidate_agent("a1").await.unwrap();
+    assert_eq!(r.skipped, Some(true));
+    assert_eq!(r.memories_scanned, 0);
+    assert!(r.reason.unwrap().contains("disabled"));
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn patch_memory_importance_reads_the_updated_memory() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "PATCH",
+        "/v1/memories/m1/importance",
+        200,
+        r#"{"id":"m1","memory_type":"episodic","content":"Anna lives in Berlin","agent_id":"a1",
+            "importance":0.7,"tags":[],"created_at":1790876257,"last_accessed_at":1790876257,"access_count":0}"#,
+    )
+    .match_body(Matcher::PartialJson(json!({"agent_id": "a1"})))
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let r = client
+        .patch_memory_importance("m1", "a1", 0.7)
+        .await
+        .unwrap();
+    assert_eq!(r.memory_id, "m1");
+    assert!((r.new_importance - 0.7).abs() < 1e-6);
+    assert_eq!(r.agent_id, "a1");
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn feedback_history_sends_agent_id() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/memories/m1/feedback",
+        200,
+        r#"{"memory_id":"m1","entries":[{"signal":"upvote","timestamp":1790876274,
+            "old_importance":0.5,"new_importance":0.575}]}"#,
+    )
+    .match_query(Matcher::UrlEncoded("agent_id".into(), "a1".into()))
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let h = client
+        .get_memory_feedback_history("m1", "a1")
+        .await
+        .unwrap();
+    assert_eq!(h.entries.len(), 1);
     m.assert_async().await;
 }

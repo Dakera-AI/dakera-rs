@@ -9,7 +9,7 @@ use crate::error::Result;
 use crate::types::{
     AgentFeedbackSummary, FeedbackHealthResponse, FeedbackHistoryResponse, FeedbackResponse,
     FeedbackSignal, GraphExport, GraphLinkRequest, GraphLinkResponse, GraphOptions, GraphPath,
-    MemoryFeedbackBody, MemoryGraph, MemoryImportancePatch, TifScore,
+    MemoryFeedbackBody, MemoryGraph, MemoryImportancePatch, MemoryImportanceResponse, TifScore,
 };
 use crate::DakeraClient;
 
@@ -892,9 +892,15 @@ pub struct MemoryImportResponse {
 /// Response from `GET /v1/export` (DX-1).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryExportResponse {
+    /// The exported records: one JSON object per memory for `jsonl`, the
+    /// `memories` (mem0) or `messages` (zep) entries, and one string per data
+    /// line for `csv` (the header is in `raw`'s first line).
     pub data: Vec<serde_json::Value>,
     pub format: String,
     pub count: usize,
+    /// The body exactly as the server sent it.
+    #[serde(default)]
+    pub raw: String,
 }
 
 // ============================================================================
@@ -1528,13 +1534,22 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// Get the full feedback history for a memory (INT-1).
+    /// Get the full feedback history for a memory of `agent_id` (INT-1).
+    ///
+    /// The server reads the agent from the `agent_id` query parameter
+    /// (400 without it).
     pub async fn get_memory_feedback_history(
         &self,
         memory_id: &str,
+        agent_id: &str,
     ) -> Result<FeedbackHistoryResponse> {
         let url = format!("{}/v1/memories/{}/feedback", self.base_url, memory_id);
-        let response = self.client.get(&url).send().await?;
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("agent_id", agent_id)])
+            .send()
+            .await?;
         self.handle_response(response).await
     }
 
@@ -1545,8 +1560,11 @@ impl DakeraClient {
     ///
     /// # Arguments
     /// * `memory_id` – The memory to score.
-    pub async fn evaluate_tif(&self, memory_id: &str) -> Result<TifScore> {
-        let history = self.get_memory_feedback_history(memory_id).await?;
+    /// * `agent_id` – The agent that owns the memory.
+    pub async fn evaluate_tif(&self, memory_id: &str, agent_id: &str) -> Result<TifScore> {
+        let history = self
+            .get_memory_feedback_history(memory_id, agent_id)
+            .await?;
         Ok(TifScore::from_feedback_history(&history))
     }
 
@@ -1568,7 +1586,7 @@ impl DakeraClient {
         memory_id: &str,
         agent_id: &str,
         importance: f32,
-    ) -> Result<FeedbackResponse> {
+    ) -> Result<MemoryImportanceResponse> {
         let url = format!("{}/v1/memories/{}/importance", self.base_url, memory_id);
         let body = MemoryImportancePatch {
             agent_id: agent_id.to_string(),
@@ -1916,6 +1934,13 @@ impl DakeraClient {
     /// Export memories in a portable format (DX-1).
     ///
     /// Supported formats: `"jsonl"`, `"mem0"`, `"zep"`, `"csv"`.
+    ///
+    /// `GET /v1/export` exports one agent's memories and requires `agent_id`
+    /// (refused with [`ClientError::InvalidRequest`](crate::ClientError::InvalidRequest)
+    /// before sending when `None`). The server answers the format itself
+    /// (NDJSON, CSV, or the mem0 / zep JSON documents), which is parsed into
+    /// [`MemoryExportResponse::data`]. The route reads neither `namespace` nor
+    /// `limit`: `namespace` is not sent, and `limit` is applied here to `data`.
     pub async fn export_memories(
         &self,
         format: &str,
@@ -1923,19 +1948,29 @@ impl DakeraClient {
         namespace: Option<&str>,
         limit: Option<u32>,
     ) -> Result<MemoryExportResponse> {
-        let mut params = vec![("format", format.to_string())];
-        if let Some(aid) = agent_id {
-            params.push(("agent_id", aid.to_string()));
-        }
-        if let Some(ns) = namespace {
-            params.push(("namespace", ns.to_string()));
-        }
-        if let Some(l) = limit {
-            params.push(("limit", l.to_string()));
-        }
+        let _ = namespace;
+        let Some(aid) = agent_id else {
+            return Err(crate::ClientError::InvalidRequest(
+                "export_memories needs agent_id (GET /v1/export exports one agent)".to_string(),
+            ));
+        };
+        let params = vec![
+            ("format", format.to_string()),
+            ("agent_id", aid.to_string()),
+        ];
         let url = format!("{}/v1/export", self.base_url);
         let response = self.client.get(&url).query(&params).send().await?;
-        self.handle_response(response).await
+        let raw = self.handle_text_response(response).await?;
+        let mut data = parse_memory_export(format, &raw)?;
+        if let Some(l) = limit {
+            data.truncate(l as usize);
+        }
+        Ok(MemoryExportResponse {
+            count: data.len(),
+            data,
+            format: format.to_string(),
+            raw,
+        })
     }
 
     // ========================================================================
@@ -2128,6 +2163,40 @@ impl DakeraClient {
 // ============================================================================
 // Tests
 // ============================================================================
+
+/// Parse the body of `GET /v1/export` for [`DakeraClient::export_memories`].
+fn parse_memory_export(format: &str, raw: &str) -> Result<Vec<serde_json::Value>> {
+    let fmt = format.to_ascii_lowercase();
+    if fmt == "csv" {
+        return Ok(raw
+            .lines()
+            .skip(1)
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::Value::String(l.to_string()))
+            .collect());
+    }
+    if fmt == "jsonl" {
+        return raw
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).map_err(Into::into))
+            .collect();
+    }
+    let doc: serde_json::Value = serde_json::from_str(raw)?;
+    Ok(match doc {
+        serde_json::Value::Array(items) => items,
+        serde_json::Value::Object(mut obj) => {
+            match ["memories", "messages", "data"]
+                .iter()
+                .find_map(|k| obj.remove(*k))
+            {
+                Some(serde_json::Value::Array(items)) => items,
+                _ => vec![serde_json::Value::Object(obj)],
+            }
+        }
+        other => vec![other],
+    })
+}
 
 #[cfg(test)]
 mod tests {

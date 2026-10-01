@@ -597,8 +597,12 @@ pub struct FullTextSearchResponse {
 pub struct FullTextStats {
     /// Number of documents indexed
     pub document_count: u64,
-    /// Number of unique terms
+    /// Number of unique terms (the server's `unique_terms`)
+    #[serde(alias = "unique_terms")]
     pub term_count: u64,
+    /// Average document length in terms
+    #[serde(default)]
+    pub avg_doc_length: f64,
 }
 
 // ============================================================================
@@ -2506,10 +2510,15 @@ pub struct BatchQueryTextResponse {
 // Namespace Management Types
 // ============================================================================
 
-/// Request to create a new namespace.
+/// Request to create a new namespace (`PUT /v1/namespaces/{namespace}`).
+///
+/// The route requires `dimension` and reads only `dimension` and `distance`:
+/// `index_type` is checked against the server's capabilities but not applied
+/// by this route, and `metadata` is not stored.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateNamespaceRequest {
-    /// Vector dimensions (inferred from first upsert if omitted).
+    /// Vector dimensions (required by the server: a request without it is
+    /// refused with `ClientError::InvalidRequest` before it is sent).
     #[serde(rename = "dimension", skip_serializing_if = "Option::is_none")]
     pub dimensions: Option<u32>,
     /// Index type (e.g. "hnsw", "flat").
@@ -2919,6 +2928,25 @@ pub struct FeedbackResponse {
     /// New importance score after the feedback was applied (0.0–1.0).
     pub new_importance: f32,
     pub signal: FeedbackSignal,
+}
+
+/// Response from `PATCH /v1/memories/{id}/importance`: the updated memory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryImportanceResponse {
+    /// Memory id (the server's `id`).
+    #[serde(alias = "id")]
+    pub memory_id: String,
+    /// The importance now stored (the server's `importance`).
+    #[serde(alias = "importance")]
+    pub new_importance: f32,
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub memory_type: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Response from `GET /v1/memories/:id/feedback` (INT-1).
@@ -3624,10 +3652,17 @@ pub struct CountVectorsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConsolidateResponse {
     pub agent_id: String,
+    /// The counts and id lists are absent (0 / empty) when the run was
+    /// `skipped` (consolidation disabled for the agent).
+    #[serde(default)]
     pub memories_scanned: u64,
+    #[serde(default)]
     pub clusters_found: u64,
+    #[serde(default)]
     pub memories_deprecated: u64,
+    #[serde(default)]
     pub anchor_ids: Vec<String>,
+    #[serde(default)]
     pub deprecated_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped: Option<bool>,
@@ -3694,17 +3729,41 @@ pub struct NamespaceExtractorConfig {
 pub struct NodeReplicationLag {
     pub node_id: String,
     pub lag_ms: u64,
+    /// Not sent by the server (empty).
+    #[serde(default)]
     pub status: String,
+    /// Operations not yet replicated to the node.
+    #[serde(default)]
+    pub pending_ops: u64,
+    /// Unix time of the node's last sync.
+    #[serde(default)]
+    pub last_sync: u64,
 }
 
 /// Response from `GET /v1/admin/cluster/replication`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplicationStatus {
+    /// Whether replication is enabled.
+    #[serde(default)]
+    pub enabled: bool,
     pub replication_factor: u32,
     pub healthy_replicas: u32,
+    /// Replicas behind but serving.
+    #[serde(default)]
+    pub degraded_replicas: u32,
+    /// Replicas not serving.
+    #[serde(default)]
+    pub unhealthy_replicas: u32,
+    /// Healthy + degraded + unhealthy replicas (the server does not send a
+    /// node total; [`DakeraClient::admin_cluster_replication`](crate::DakeraClient::admin_cluster_replication)
+    /// fills it from the replica counts).
+    #[serde(default)]
     pub total_nodes: u32,
     #[serde(default)]
     pub replication_lag: Vec<NodeReplicationLag>,
+    /// Overall health (`healthy`, `degraded`, `unhealthy`).
+    #[serde(default)]
+    pub health: String,
 }
 
 /// Shard information.
