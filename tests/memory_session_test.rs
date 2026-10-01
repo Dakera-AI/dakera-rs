@@ -778,6 +778,10 @@ async fn test_evaluate_tif_confident_reuse() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
         .mock("GET", "/v1/memories/mem-abc/feedback")
+        .match_query(mockito::Matcher::UrlEncoded(
+            "agent_id".into(),
+            "agent-1".into(),
+        ))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -794,7 +798,7 @@ async fn test_evaluate_tif_confident_reuse() {
         .await;
 
     let client = DakeraClient::new(server.url()).unwrap();
-    let score = client.evaluate_tif("mem-abc").await.unwrap();
+    let score = client.evaluate_tif("mem-abc", "agent-1").await.unwrap();
     // 3 upvotes → truth=1.0, indeterminacy=0.0, falsity=0.0
     assert_eq!(score.feedback_count, 3);
     assert!(score.truth > 0.9);
@@ -815,6 +819,10 @@ async fn test_evaluate_tif_empty_history() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
         .mock("GET", "/v1/memories/mem-xyz/feedback")
+        .match_query(mockito::Matcher::UrlEncoded(
+            "agent_id".into(),
+            "agent-1".into(),
+        ))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"memory_id": "mem-xyz", "entries": []}"#)
@@ -822,7 +830,7 @@ async fn test_evaluate_tif_empty_history() {
         .await;
 
     let client = DakeraClient::new(server.url()).unwrap();
-    let score = client.evaluate_tif("mem-xyz").await.unwrap();
+    let score = client.evaluate_tif("mem-xyz", "agent-1").await.unwrap();
     assert_eq!(score.feedback_count, 0);
     // No feedback → AskClarification (indeterminate)
     assert!(

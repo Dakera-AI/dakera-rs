@@ -34,10 +34,35 @@ pub struct AgentStats {
     pub active_sessions: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avg_importance: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Creation time of the oldest memory. The server sends Unix seconds as
+    /// a number; it is kept here as its decimal string.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "opt_string_or_number"
+    )]
     pub oldest_memory_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Creation time of the newest memory (Unix seconds as a decimal string).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "opt_string_or_number"
+    )]
     pub newest_memory_at: Option<String>,
+}
+
+/// Reads a timestamp the server sends as a number (Unix seconds) or a
+/// string into `Option<String>`.
+fn opt_string_or_number<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(match v {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) => Some(s),
+        Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+        Some(other) => Some(other.to_string()),
+    })
 }
 
 // ============================================================================
@@ -296,11 +321,20 @@ pub struct Memory {
     /// Optional metadata
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
-    /// Creation timestamp (ISO 8601)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Creation time. The server sends Unix seconds as a number; it is kept
+    /// here as its decimal string (an ISO 8601 string is kept as is).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "opt_string_or_number"
+    )]
     pub created_at: Option<String>,
-    /// Last update timestamp (ISO 8601)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Last update time (same encoding as `created_at`).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "opt_string_or_number"
+    )]
     pub updated_at: Option<String>,
     /// Number of times this memory has been accessed
     #[serde(skip_serializing_if = "Option::is_none")]

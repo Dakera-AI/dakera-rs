@@ -117,6 +117,11 @@ pub enum ClientError {
     #[error("Request timeout")]
     Timeout,
 
+    /// The request was refused by the client before it was sent, because
+    /// the server would reject it (or would not honour a flag it carries).
+    #[error("Invalid request: {0}")]
+    InvalidRequest(String),
+
     /// HTTP 413 with code `QUOTA_EXCEEDED`: a `hard` namespace quota refused
     /// the write (enforced from server v0.12).  Not retryable: free space or
     /// raise the quota.

@@ -26,16 +26,38 @@ pub struct AnalyticsOverview {
 }
 
 /// Latency analytics response
+///
+/// The server answers `{buckets, avg_ms, p50_ms, p95_ms, p99_ms, period}`;
+/// `max_ms` and `by_operation` are not part of it (0 / empty).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LatencyAnalytics {
     pub period: String,
     pub avg_ms: f64,
+    #[serde(default)]
     pub p50_ms: f64,
+    #[serde(default)]
     pub p95_ms: f64,
+    #[serde(default)]
     pub p99_ms: f64,
+    #[serde(default)]
     pub max_ms: f64,
     #[serde(default)]
     pub by_operation: std::collections::HashMap<String, OperationLatency>,
+    /// Latency histogram.
+    #[serde(default)]
+    pub buckets: Vec<LatencyBucket>,
+}
+
+/// One bucket of the latency histogram.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatencyBucket {
+    pub lower_ms: f64,
+    /// Upper bound; `None` for the open-ended last bucket.
+    #[serde(default)]
+    pub upper_ms: Option<f64>,
+    pub count: u64,
+    #[serde(default)]
+    pub percentage: f64,
 }
 
 /// Per-operation latency stats
@@ -47,23 +69,72 @@ pub struct OperationLatency {
 }
 
 /// Throughput analytics response
+///
+/// The server answers `{queries_per_second, inserts_per_second,
+/// deletes_per_second, data_points, period}`. `operations_per_second` is
+/// their sum; `total_operations` and `by_operation` are not reported (0 /
+/// empty).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThroughputAnalytics {
     pub period: String,
+    #[serde(default)]
     pub total_operations: u64,
+    #[serde(default)]
     pub operations_per_second: f64,
     #[serde(default)]
     pub by_operation: std::collections::HashMap<String, u64>,
+    #[serde(default)]
+    pub queries_per_second: f64,
+    #[serde(default)]
+    pub inserts_per_second: f64,
+    #[serde(default)]
+    pub deletes_per_second: f64,
+    /// Time series of the rates.
+    #[serde(default)]
+    pub data_points: Vec<ThroughputDataPoint>,
+}
+
+/// One sample of the throughput time series.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThroughputDataPoint {
+    pub timestamp: u64,
+    pub queries_per_second: f64,
+    pub inserts_per_second: f64,
+    pub deletes_per_second: f64,
 }
 
 /// Storage analytics response
+///
+/// The server answers `{total_bytes, index_bytes, vector_bytes,
+/// metadata_bytes, fulltext_bytes, namespace_breakdown}`. `data_bytes` is
+/// vector + metadata + full-text bytes and `by_namespace` is built from
+/// `namespace_breakdown`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageAnalytics {
     pub total_bytes: u64,
     pub index_bytes: u64,
+    #[serde(default)]
     pub data_bytes: u64,
     #[serde(default)]
     pub by_namespace: std::collections::HashMap<String, NamespaceStorage>,
+    #[serde(default)]
+    pub vector_bytes: u64,
+    #[serde(default)]
+    pub metadata_bytes: u64,
+    #[serde(default)]
+    pub fulltext_bytes: u64,
+    #[serde(default)]
+    pub namespace_breakdown: Vec<NamespaceStorageInfo>,
+}
+
+/// One namespace of the storage breakdown.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamespaceStorageInfo {
+    pub namespace: String,
+    pub total_bytes: u64,
+    pub vector_count: u64,
+    #[serde(default)]
+    pub dimension: Option<usize>,
 }
 
 /// Per-namespace storage stats
@@ -141,7 +212,12 @@ impl DakeraClient {
             url.push_str(&params.join("&"));
         }
         let response = self.client.get(&url).send().await?;
-        self.handle_response(response).await
+        let mut t: ThroughputAnalytics = self.handle_response(response).await?;
+        if t.operations_per_second == 0.0 {
+            t.operations_per_second =
+                t.queries_per_second + t.inserts_per_second + t.deletes_per_second;
+        }
+        Ok(t)
     }
 
     /// Get storage analytics
@@ -151,7 +227,26 @@ impl DakeraClient {
             url.push_str(&format!("?namespace={}", ns));
         }
         let response = self.client.get(&url).send().await?;
-        self.handle_response(response).await
+        let mut st: StorageAnalytics = self.handle_response(response).await?;
+        if st.data_bytes == 0 {
+            st.data_bytes = st.vector_bytes + st.metadata_bytes + st.fulltext_bytes;
+        }
+        if st.by_namespace.is_empty() {
+            st.by_namespace = st
+                .namespace_breakdown
+                .iter()
+                .map(|n| {
+                    (
+                        n.namespace.clone(),
+                        NamespaceStorage {
+                            bytes: n.total_bytes,
+                            vector_count: n.vector_count,
+                        },
+                    )
+                })
+                .collect();
+        }
+        Ok(st)
     }
 }
 

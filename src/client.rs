@@ -297,6 +297,12 @@ impl DakeraClient {
         namespace: &str,
         request: CreateNamespaceRequest,
     ) -> Result<NamespaceInfo> {
+        // `PUT /v1/namespaces/{ns}` requires `dimension` (422 without it).
+        if request.dimensions.is_none() {
+            return Err(ClientError::InvalidRequest(
+                "create_namespace needs dimensions (the server requires `dimension`)".to_string(),
+            ));
+        }
         if let Some(kind) = &request.index_type {
             self.preflight_check(CapabilityKind::IndexKind, kind)
                 .await?;
@@ -1284,7 +1290,12 @@ impl DakeraClient {
     pub async fn memory_entities(&self, memory_id: &str) -> Result<MemoryEntitiesResponse> {
         let url = format!("{}/v1/memory/entities/{}", self.base_url, memory_id);
         let response = self.client.get(&url).send().await?;
-        self.handle_response(response).await
+        let mut result: MemoryEntitiesResponse = self.handle_response(response).await?;
+        // The server answers `{entities, count}` without the id.
+        if result.memory_id.is_empty() {
+            result.memory_id = memory_id.to_string();
+        }
+        Ok(result)
     }
 
     // ========================================================================

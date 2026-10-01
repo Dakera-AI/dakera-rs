@@ -597,8 +597,12 @@ pub struct FullTextSearchResponse {
 pub struct FullTextStats {
     /// Number of documents indexed
     pub document_count: u64,
-    /// Number of unique terms
+    /// Number of unique terms (the server's `unique_terms`)
+    #[serde(alias = "unique_terms")]
     pub term_count: u64,
+    /// Average document length in terms
+    #[serde(default)]
+    pub avg_doc_length: f64,
 }
 
 // ============================================================================
@@ -2506,10 +2510,15 @@ pub struct BatchQueryTextResponse {
 // Namespace Management Types
 // ============================================================================
 
-/// Request to create a new namespace.
+/// Request to create a new namespace (`PUT /v1/namespaces/{namespace}`).
+///
+/// The route requires `dimension` and reads only `dimension` and `distance`:
+/// `index_type` is checked against the server's capabilities but not applied
+/// by this route, and `metadata` is not stored.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateNamespaceRequest {
-    /// Vector dimensions (inferred from first upsert if omitted).
+    /// Vector dimensions (required by the server: a request without it is
+    /// refused with `ClientError::InvalidRequest` before it is sent).
     #[serde(rename = "dimension", skip_serializing_if = "Option::is_none")]
     pub dimensions: Option<u32>,
     /// Index type (e.g. "hnsw", "flat").
@@ -2598,22 +2607,39 @@ pub enum EdgeType {
     /// Explicit user/agent-created link.
     #[default]
     LinkedBy,
+    /// The source (newer) memory supersedes the target (older) one; recall
+    /// uses it to demote stale facts (server v0.11.100+).
+    Supersedes,
+    /// An edge type this SDK version does not know yet (forward compatibility:
+    /// a newer server may add types).
+    #[serde(other)]
+    Unknown,
 }
 
 /// A directed edge in the memory knowledge graph.
+///
+/// The server sends edges as `{from_id, to_id, edge_type, weight, created_at}`;
+/// `from_id` / `to_id` fill `source_id` / `target_id`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
-    /// Unique edge identifier.
+    /// Edge identifier. The server does not send one (an edge is identified by
+    /// its endpoints and type), so this is empty for server answers.
+    #[serde(default)]
     pub id: String,
-    /// Source memory ID.
+    /// Source memory ID (the server's `from_id`).
+    #[serde(alias = "from_id")]
     pub source_id: String,
-    /// Target memory ID.
+    /// Target memory ID (the server's `to_id`).
+    #[serde(alias = "to_id")]
     pub target_id: String,
     /// Relationship type between the two memories.
     pub edge_type: EdgeType,
-    /// Edge weight (0.0–1.0). For `RelatedTo` this is the cosine similarity score.
+    /// Edge weight (0.0–1.0). For `RelatedTo` this is the cosine similarity score;
+    /// explicit and entity edges carry 1.0.
+    #[serde(default)]
     pub weight: f64,
-    /// Unix timestamp of edge creation.
+    /// Unix timestamp of edge creation (0 when unknown).
+    #[serde(default)]
     pub created_at: i64,
 }
 
@@ -2622,12 +2648,18 @@ pub struct GraphEdge {
 pub struct GraphNode {
     /// Memory identifier.
     pub memory_id: String,
-    /// First 200 characters of memory content.
+    /// First 200 characters of memory content. The server's traversal answer
+    /// does not include it, so it is empty there.
+    #[serde(default)]
     pub content_preview: String,
-    /// Memory importance score.
+    /// Memory importance score. Not part of the server's traversal answer (0.0).
+    #[serde(default)]
     pub importance: f64,
     /// Traversal depth from the root node (root = 0).
     pub depth: u32,
+    /// Edges through which the traversal reached this node (empty for the root).
+    #[serde(default)]
+    pub edges: Vec<GraphEdge>,
 }
 
 /// Graph traversal result from `GET /v1/memories/{id}/graph`.
@@ -2637,56 +2669,140 @@ pub struct MemoryGraph {
     pub root_id: String,
     /// Maximum traversal depth used.
     pub depth: u32,
+    /// Number of nodes returned.
+    #[serde(default)]
+    pub node_count: usize,
     /// All memory nodes reachable within the requested depth.
     pub nodes: Vec<GraphNode>,
-    /// All edges connecting the returned nodes.
+    /// All edges connecting the returned nodes. The server sends them per node
+    /// ([`GraphNode::edges`]); [`DakeraClient::memory_graph`](crate::DakeraClient::memory_graph)
+    /// collects them here.
+    #[serde(default)]
     pub edges: Vec<GraphEdge>,
 }
 
 /// Shortest path between two memories from `GET /v1/memories/{id}/path`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphPath {
-    /// Starting memory ID.
+    /// Starting memory ID (the server's `from_id`).
+    #[serde(alias = "from_id")]
     pub source_id: String,
-    /// Destination memory ID.
+    /// Destination memory ID (the server's `to_id`).
+    #[serde(alias = "to_id")]
     pub target_id: String,
     /// Ordered list of memory IDs from source to target (inclusive).
     pub path: Vec<String>,
-    /// Number of edges traversed (`path.len() - 1`). `-1` if no path exists.
+    /// Number of edges traversed (`path.len() - 1`; the server's `hop_count`).
+    /// A missing path is a 404 from the server, not a value here.
+    #[serde(alias = "hop_count")]
     pub hops: i32,
-    /// Edges along the path, in traversal order.
+    /// Edges along the path. The server answers with the memory IDs only, so
+    /// this is empty for server answers.
+    #[serde(default)]
     pub edges: Vec<GraphEdge>,
 }
 
 /// Request body for `POST /v1/memories/{id}/links`.
+///
+/// The server always records an explicit link as a `linked_by` edge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphLinkRequest {
     /// Target memory ID to link to.
     pub target_id: String,
-    /// Edge type — must be `LinkedBy` for explicit links.
-    pub edge_type: EdgeType,
+    /// Agent that owns both memories (required by the server).
+    pub agent_id: String,
+    /// Optional human-readable label for the link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// Response from `POST /v1/memories/{id}/links`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// The server answers `{from_id, to_id, edge_type}`; [`edge`](Self::edge) is
+/// built from it (weight 1.0, as for every explicit link; `created_at` 0 =
+/// unknown). An `{"edge": {...}}` answer is accepted too.
+#[derive(Debug, Clone, Serialize)]
 pub struct GraphLinkResponse {
     /// The newly created edge.
     pub edge: GraphEdge,
+    /// Source memory ID.
+    pub from_id: String,
+    /// Target memory ID.
+    pub to_id: String,
+    /// Recorded edge type (`linked_by`).
+    pub edge_type: EdgeType,
+}
+
+impl<'de> Deserialize<'de> for GraphLinkResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::de::Error;
+
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(default)]
+            edge: Option<GraphEdge>,
+            #[serde(default)]
+            from_id: Option<String>,
+            #[serde(default)]
+            to_id: Option<String>,
+            #[serde(default)]
+            edge_type: Option<EdgeType>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        let edge = match raw.edge {
+            Some(edge) => edge,
+            None => GraphEdge {
+                id: String::new(),
+                source_id: raw
+                    .from_id
+                    .clone()
+                    .ok_or_else(|| D::Error::missing_field("from_id"))?,
+                target_id: raw
+                    .to_id
+                    .clone()
+                    .ok_or_else(|| D::Error::missing_field("to_id"))?,
+                edge_type: raw.edge_type.clone().unwrap_or_default(),
+                weight: 1.0,
+                created_at: 0,
+            },
+        };
+        Ok(Self {
+            from_id: raw.from_id.unwrap_or_else(|| edge.source_id.clone()),
+            to_id: raw.to_id.unwrap_or_else(|| edge.target_id.clone()),
+            edge_type: raw.edge_type.unwrap_or_else(|| edge.edge_type.clone()),
+            edge,
+        })
+    }
 }
 
 /// Agent graph export from `GET /v1/agents/{id}/graph/export`.
+///
+/// The server always answers JSON: `{agent_id, namespace, node_count,
+/// edge_count, edges}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphExport {
     /// Agent whose graph was exported.
     pub agent_id: String,
-    /// Export format: `json`, `graphml`, or `csv`.
+    /// The agent's memory namespace (`_dakera_agent_{agent_id}`).
+    #[serde(default)]
+    pub namespace: String,
+    /// Export format. The server always answers JSON, so this is `json`.
+    #[serde(default)]
     pub format: String,
-    /// Serialised graph in the requested format.
+    /// Serialised graph. The server sends the edges as structured data
+    /// ([`edges`](Self::edges)) instead, so this is empty.
+    #[serde(default)]
     pub data: String,
     /// Total number of memory nodes in the export.
     pub node_count: u64,
     /// Total number of edges in the export.
     pub edge_count: u64,
+    /// Every edge of the agent's graph.
+    #[serde(default)]
+    pub edges: Vec<GraphEdge>,
 }
 
 /// Options for [`DakeraClient::memory_graph`].
@@ -2694,7 +2810,9 @@ pub struct GraphExport {
 pub struct GraphOptions {
     /// Maximum traversal depth (default: 1, max: 3).
     pub depth: Option<u32>,
-    /// Filter by edge types. `None` returns all types.
+    /// Filter by edge types. `None` returns all types. Applied by the client
+    /// to the answer (the server's traversal reads only `depth`); nodes are
+    /// kept, their edges are filtered.
     pub types: Option<Vec<EdgeType>>,
 }
 
@@ -2744,10 +2862,18 @@ pub struct EntityExtractionResponse {
 }
 
 /// Response from GET /v1/memory/entities/:id
+///
+/// The server answers `{entities, count}`; `memory_id` is filled by
+/// [`DakeraClient::memory_entities`](crate::DakeraClient::memory_entities)
+/// from the requested id.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntitiesResponse {
+    #[serde(default)]
     pub memory_id: String,
     pub entities: Vec<ExtractedEntity>,
+    /// Number of entities.
+    #[serde(default)]
+    pub count: usize,
 }
 
 // ============================================================================
@@ -2802,6 +2928,25 @@ pub struct FeedbackResponse {
     /// New importance score after the feedback was applied (0.0–1.0).
     pub new_importance: f32,
     pub signal: FeedbackSignal,
+}
+
+/// Response from `PATCH /v1/memories/{id}/importance`: the updated memory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryImportanceResponse {
+    /// Memory id (the server's `id`).
+    #[serde(alias = "id")]
+    pub memory_id: String,
+    /// The importance now stored (the server's `importance`).
+    #[serde(alias = "importance")]
+    pub new_importance: f32,
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub memory_type: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Response from `GET /v1/memories/:id/feedback` (INT-1).
@@ -3507,10 +3652,17 @@ pub struct CountVectorsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConsolidateResponse {
     pub agent_id: String,
+    /// The counts and id lists are absent (0 / empty) when the run was
+    /// `skipped` (consolidation disabled for the agent).
+    #[serde(default)]
     pub memories_scanned: u64,
+    #[serde(default)]
     pub clusters_found: u64,
+    #[serde(default)]
     pub memories_deprecated: u64,
+    #[serde(default)]
     pub anchor_ids: Vec<String>,
+    #[serde(default)]
     pub deprecated_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped: Option<bool>,
@@ -3577,17 +3729,41 @@ pub struct NamespaceExtractorConfig {
 pub struct NodeReplicationLag {
     pub node_id: String,
     pub lag_ms: u64,
+    /// Not sent by the server (empty).
+    #[serde(default)]
     pub status: String,
+    /// Operations not yet replicated to the node.
+    #[serde(default)]
+    pub pending_ops: u64,
+    /// Unix time of the node's last sync.
+    #[serde(default)]
+    pub last_sync: u64,
 }
 
 /// Response from `GET /v1/admin/cluster/replication`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplicationStatus {
+    /// Whether replication is enabled.
+    #[serde(default)]
+    pub enabled: bool,
     pub replication_factor: u32,
     pub healthy_replicas: u32,
+    /// Replicas behind but serving.
+    #[serde(default)]
+    pub degraded_replicas: u32,
+    /// Replicas not serving.
+    #[serde(default)]
+    pub unhealthy_replicas: u32,
+    /// Healthy + degraded + unhealthy replicas (the server does not send a
+    /// node total; [`DakeraClient::admin_cluster_replication`](crate::DakeraClient::admin_cluster_replication)
+    /// fills it from the replica counts).
+    #[serde(default)]
     pub total_nodes: u32,
     #[serde(default)]
     pub replication_lag: Vec<NodeReplicationLag>,
+    /// Overall health (`healthy`, `degraded`, `unhealthy`).
+    #[serde(default)]
+    pub health: String,
 }
 
 /// Shard information.

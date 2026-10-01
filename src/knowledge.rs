@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::error::{ClientError, Result};
 use crate::types::{KgExportResponse, KgPathResponse, KgQueryResponse};
 use crate::DakeraClient;
 
@@ -11,6 +11,9 @@ use crate::DakeraClient;
 // ============================================================================
 
 /// Request to build a knowledge graph
+///
+/// `memory_id` (the seed memory) is required by the server;
+/// [`DakeraClient::knowledge_graph`] refuses a request without it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnowledgeGraphRequest {
     pub agent_id: String,
@@ -33,6 +36,18 @@ pub struct KnowledgeNode {
     pub importance: Option<f32>,
     #[serde(default)]
     pub metadata: serde_json::Value,
+    /// Memory tags.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Cluster the node belongs to (full graph only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster_id: Option<usize>,
+    /// Degree centrality (full graph only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub centrality: Option<f32>,
+    /// Creation time as the server sends it (full graph: Unix seconds as a string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
 }
 
 /// An edge in the knowledge graph
@@ -43,15 +58,209 @@ pub struct KnowledgeEdge {
     pub similarity: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relationship: Option<String>,
+    /// Tags both memories carry.
+    #[serde(default)]
+    pub shared_tags: Vec<String>,
 }
 
-/// Response from knowledge graph operations
+/// A memory as the knowledge routes return it (`root.memory`,
+/// `summary_memory`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeMemory {
+    pub id: String,
+    pub content: String,
+    #[serde(default)]
+    pub memory_type: String,
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub importance: f32,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub created_at: u64,
+    #[serde(default)]
+    pub last_accessed_at: u64,
+    #[serde(default)]
+    pub access_count: u64,
+}
+
+/// A memory related to the seed in `POST /v1/knowledge/graph`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeRelated {
+    pub memory_id: String,
+    pub similarity: f32,
+    #[serde(default)]
+    pub shared_tags: Vec<String>,
+}
+
+/// The seed of `POST /v1/knowledge/graph`: the memory and its related ones.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeGraphRoot {
+    pub memory: KnowledgeMemory,
+    pub similarity: f32,
+    #[serde(default)]
+    pub related: Vec<KnowledgeRelated>,
+}
+
+/// A cluster of the full knowledge graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeCluster {
+    pub id: usize,
+    pub node_count: usize,
+    #[serde(default)]
+    pub top_tags: Vec<String>,
+    #[serde(default)]
+    pub avg_importance: f32,
+}
+
+/// Statistics of the full knowledge graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeGraphStats {
+    pub total_memories: usize,
+    pub included_memories: usize,
+    pub total_edges: usize,
+    pub cluster_count: usize,
+    pub density: f32,
+    #[serde(default)]
+    pub hub_memory_id: Option<String>,
+}
+
+/// Response from knowledge graph operations.
+///
+/// The two routes answer differently and both are read into this type:
+///
+/// - `POST /v1/knowledge/graph` answers `{root: {memory, similarity, related},
+///   total_nodes}`: `root` is set, `nodes` holds the seed memory, `edges` one
+///   edge per related memory (the server sends only ids for those), and
+///   `total_nodes` the count.
+/// - `POST /v1/knowledge/graph/full` answers `{nodes, edges, clusters, stats}`:
+///   `cluster_info` and `stats` hold the server's clusters and statistics, and
+///   `clusters` lists each cluster's node ids.
+#[derive(Debug, Clone, Serialize)]
 pub struct KnowledgeGraphResponse {
     pub nodes: Vec<KnowledgeNode>,
     pub edges: Vec<KnowledgeEdge>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clusters: Option<Vec<Vec<String>>>,
+    /// Seed and related memories (`/v1/knowledge/graph`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root: Option<KnowledgeGraphRoot>,
+    /// Number of nodes in the graph.
+    pub total_nodes: usize,
+    /// The server's clusters (`/v1/knowledge/graph/full`).
+    #[serde(default)]
+    pub cluster_info: Vec<KnowledgeCluster>,
+    /// Graph statistics (`/v1/knowledge/graph/full`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<KnowledgeGraphStats>,
+}
+
+impl<'de> Deserialize<'de> for KnowledgeGraphResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::de::Error;
+
+        let val = serde_json::Value::deserialize(deserializer)?;
+        let field = |name: &str| val.get(name).cloned().unwrap_or(serde_json::Value::Null);
+
+        // `/v1/knowledge/graph`: {root, total_nodes}
+        if val.get("root").is_some() {
+            let root: KnowledgeGraphRoot =
+                serde_json::from_value(field("root")).map_err(D::Error::custom)?;
+            let m = &root.memory;
+            let nodes = vec![KnowledgeNode {
+                id: m.id.clone(),
+                content: m.content.clone(),
+                memory_type: Some(m.memory_type.clone()),
+                importance: Some(m.importance),
+                metadata: m.metadata.clone().unwrap_or(serde_json::Value::Null),
+                tags: m.tags.clone(),
+                cluster_id: None,
+                centrality: None,
+                created_at: Some(m.created_at.to_string()),
+            }];
+            let edges = root
+                .related
+                .iter()
+                .map(|r| KnowledgeEdge {
+                    source: m.id.clone(),
+                    target: r.memory_id.clone(),
+                    similarity: r.similarity,
+                    relationship: None,
+                    shared_tags: r.shared_tags.clone(),
+                })
+                .collect();
+            let total_nodes = val
+                .get("total_nodes")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+                .unwrap_or(1 + root.related.len());
+            return Ok(Self {
+                nodes,
+                edges,
+                clusters: None,
+                root: Some(root),
+                total_nodes,
+                cluster_info: Vec::new(),
+                stats: None,
+            });
+        }
+
+        // `/v1/knowledge/graph/full` (or the legacy {nodes, edges, clusters}).
+        let nodes: Vec<KnowledgeNode> = if val.get("nodes").is_some() {
+            serde_json::from_value(field("nodes")).map_err(D::Error::custom)?
+        } else {
+            return Err(D::Error::missing_field("nodes"));
+        };
+        let edges: Vec<KnowledgeEdge> = match val.get("edges") {
+            Some(_) => serde_json::from_value(field("edges")).map_err(D::Error::custom)?,
+            None => Vec::new(),
+        };
+        let stats: Option<KnowledgeGraphStats> = match val.get("stats") {
+            Some(v) if !v.is_null() => {
+                Some(serde_json::from_value(v.clone()).map_err(D::Error::custom)?)
+            }
+            _ => None,
+        };
+        let mut cluster_info = Vec::new();
+        let clusters = match val.get("clusters") {
+            Some(serde_json::Value::Array(items))
+                if items.first().map(|c| c.is_object()).unwrap_or(false) =>
+            {
+                cluster_info = serde_json::from_value::<Vec<KnowledgeCluster>>(field("clusters"))
+                    .map_err(D::Error::custom)?;
+                Some(
+                    cluster_info
+                        .iter()
+                        .map(|c| {
+                            nodes
+                                .iter()
+                                .filter(|n| n.cluster_id == Some(c.id))
+                                .map(|n| n.id.clone())
+                                .collect()
+                        })
+                        .collect(),
+                )
+            }
+            Some(serde_json::Value::Array(items)) if items.is_empty() => Some(Vec::new()),
+            Some(serde_json::Value::Null) | None => None,
+            Some(_) => Some(serde_json::from_value(field("clusters")).map_err(D::Error::custom)?),
+        };
+        let total_nodes = nodes.len();
+        Ok(Self {
+            nodes,
+            edges,
+            clusters,
+            root: None,
+            total_nodes,
+            cluster_info,
+            stats,
+        })
+    }
 }
 
 /// Request to build a full knowledge graph
@@ -69,6 +278,10 @@ pub struct FullKnowledgeGraphRequest {
 }
 
 /// Request to summarize memories
+///
+/// The server needs at least two `memory_ids` and always stores the summary
+/// as a new memory; it has no dry run. [`DakeraClient::summarize`] refuses
+/// fewer than two ids or `dry_run: true` before sending anything.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummarizeRequest {
     pub agent_id: String,
@@ -76,17 +289,60 @@ pub struct SummarizeRequest {
     pub memory_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_type: Option<String>,
-    #[serde(default)]
+    /// Not supported by the server (it would write the summary anyway):
+    /// `true` makes [`DakeraClient::summarize`] return an error. Never sent.
+    #[serde(default, skip_serializing)]
     pub dry_run: bool,
 }
 
 /// Response from summarization
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// The server answers `{summary_memory, source_count}`; `summary` and
+/// `new_memory_id` are read from `summary_memory.content` / `.id`.
+#[derive(Debug, Clone, Serialize)]
 pub struct SummarizeResponse {
     pub summary: String,
     pub source_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_memory_id: Option<String>,
+    /// The stored summary memory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary_memory: Option<KnowledgeMemory>,
+}
+
+impl<'de> Deserialize<'de> for SummarizeResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::de::Error;
+
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(default)]
+            summary_memory: Option<KnowledgeMemory>,
+            #[serde(default)]
+            summary: Option<String>,
+            source_count: usize,
+            #[serde(default)]
+            new_memory_id: Option<String>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        let summary = match (&raw.summary, &raw.summary_memory) {
+            (Some(s), _) => s.clone(),
+            (None, Some(m)) => m.content.clone(),
+            (None, None) => return Err(D::Error::missing_field("summary_memory")),
+        };
+        let new_memory_id = raw
+            .new_memory_id
+            .or_else(|| raw.summary_memory.as_ref().map(|m| m.id.clone()));
+        Ok(Self {
+            summary,
+            source_count: raw.source_count,
+            new_memory_id,
+            summary_memory: raw.summary_memory,
+        })
+    }
 }
 
 /// Request to deduplicate memories
@@ -101,12 +357,78 @@ pub struct DeduplicateRequest {
     pub dry_run: bool,
 }
 
-/// Response from deduplication
+/// A group of near-duplicate memories found by deduplication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DuplicateGroup {
+    /// The memory that is kept.
+    pub canonical_id: String,
+    /// The memories merged into it (or that would be, on a dry run).
+    pub duplicate_ids: Vec<String>,
+    #[serde(default)]
+    pub avg_similarity: f32,
+}
+
+/// Response from deduplication
+///
+/// The server answers `{groups: [{canonical_id, duplicate_ids,
+/// avg_similarity}], duplicates_found, duplicates_merged}`: `removed_count`
+/// is `duplicates_merged` (0 on a dry run), `groups` lists each group's ids
+/// (canonical first) and `duplicate_groups` keeps the server's groups.
+#[derive(Debug, Clone, Serialize)]
 pub struct DeduplicateResponse {
     pub duplicates_found: usize,
     pub removed_count: usize,
     pub groups: Vec<Vec<String>>,
+    /// The server's duplicate groups.
+    pub duplicate_groups: Vec<DuplicateGroup>,
+}
+
+impl<'de> Deserialize<'de> for DeduplicateResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::de::Error;
+
+        let val = serde_json::Value::deserialize(deserializer)?;
+        let count = |names: &[&str]| -> Option<usize> {
+            names
+                .iter()
+                .find_map(|n| val.get(*n).and_then(|v| v.as_u64()))
+                .map(|n| n as usize)
+        };
+        let duplicates_found = count(&["duplicates_found"])
+            .ok_or_else(|| D::Error::missing_field("duplicates_found"))?;
+        let removed_count = count(&["duplicates_merged", "removed_count"]).unwrap_or(0);
+        let raw_groups = val
+            .get("groups")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![]));
+        let (groups, duplicate_groups) = match &raw_groups {
+            serde_json::Value::Array(items) if items.iter().all(|g| g.is_object()) => {
+                let dg: Vec<DuplicateGroup> =
+                    serde_json::from_value(raw_groups.clone()).map_err(D::Error::custom)?;
+                let ids = dg
+                    .iter()
+                    .map(|g| {
+                        std::iter::once(g.canonical_id.clone())
+                            .chain(g.duplicate_ids.iter().cloned())
+                            .collect()
+                    })
+                    .collect();
+                (ids, dg)
+            }
+            _ => (
+                serde_json::from_value(raw_groups).map_err(D::Error::custom)?,
+                Vec::new(),
+            ),
+        };
+        Ok(Self {
+            duplicates_found,
+            removed_count,
+            groups,
+            duplicate_groups,
+        })
+    }
 }
 
 // ============================================================================
@@ -198,11 +520,19 @@ pub struct CrossAgentNetworkResponse {
 // ============================================================================
 
 impl DakeraClient {
-    /// Build a knowledge graph from a seed memory
+    /// Build a knowledge graph from a seed memory (`request.memory_id`,
+    /// required by the server: a request without it is refused with
+    /// [`ClientError::InvalidRequest`] before it is sent).
     pub async fn knowledge_graph(
         &self,
         request: KnowledgeGraphRequest,
     ) -> Result<KnowledgeGraphResponse> {
+        if request.memory_id.as_deref().is_none_or(str::is_empty) {
+            return Err(ClientError::InvalidRequest(
+                "knowledge_graph needs memory_id (the seed memory); the server requires it"
+                    .to_string(),
+            ));
+        }
         let url = format!("{}/v1/knowledge/graph", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -218,8 +548,23 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// Summarize memories
+    /// Summarize memories into a new summary memory.
+    ///
+    /// The server needs at least two `memory_ids` and always stores the
+    /// summary; it has no dry run. Fewer than two ids or `dry_run: true` is
+    /// refused with [`ClientError::InvalidRequest`] before anything is sent.
     pub async fn summarize(&self, request: SummarizeRequest) -> Result<SummarizeResponse> {
+        if request.dry_run {
+            return Err(ClientError::InvalidRequest(
+                "summarize has no dry run: the server always stores the summary memory".to_string(),
+            ));
+        }
+        let ids = request.memory_ids.as_ref().map_or(0, Vec::len);
+        if ids < 2 {
+            return Err(ClientError::InvalidRequest(format!(
+                "summarize needs at least 2 memory_ids (got {ids})"
+            )));
+        }
         let url = format!("{}/v1/knowledge/summarize", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -411,6 +756,7 @@ mod tests {
             target: "n2".to_string(),
             similarity: 0.85,
             relationship: None,
+            shared_tags: Vec::new(),
         };
         let json = serde_json::to_string(&edge).unwrap();
         assert!(json.contains("\"similarity\":0.85"));
@@ -424,6 +770,7 @@ mod tests {
             target: "n2".to_string(),
             similarity: 0.92,
             relationship: Some("colleague".to_string()),
+            shared_tags: Vec::new(),
         };
         let json = serde_json::to_string(&edge).unwrap();
         assert!(json.contains("\"relationship\":\"colleague\""));
@@ -474,7 +821,8 @@ mod tests {
             dry_run: false,
         };
         let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("\"dry_run\":false"));
+        // The server has no dry run for summarize: the flag is never sent.
+        assert!(!json.contains("dry_run"));
         assert!(!json.contains("memory_ids"));
         assert!(!json.contains("target_type"));
     }
@@ -488,7 +836,7 @@ mod tests {
             dry_run: true,
         };
         let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("\"dry_run\":true"));
+        assert!(!json.contains("dry_run"));
         assert!(json.contains("\"m1\""));
         assert!(json.contains("\"target_type\":\"semantic\""));
     }
