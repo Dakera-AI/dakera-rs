@@ -85,7 +85,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Response too short".
 - **`extract_text`** sent `provider` / `model` at the top level of `POST /v1/extract`, where the
   server does not read them; they are sent as `extractor_override` now.
-- `README.md` quick start used `Default` / `Option` fields that do not exist.
+- `README.md` quick start used `Default` / `Option` fields that do not exist; every Rust example in
+  the README is now compiled as a doctest (`cargo test`).
+- **Route sweep against the v0.12.0 router** (`crates/api/src/lib.rs`; 214 URL templates in the SDK,
+  checked by `tests/route_table_test.rs` against `tests/v012_routes.txt` from now on). Calls to routes
+  that no server version (v0.11.108 or v0.12.0) serves, or with a shape the server does not read:
+  - `update_memory` called `PUT /v1/agents/{a}/memories/{id}`; the route is
+    `PUT /v1/memory/update/{id}?agent_id=` (body gains `importance` and `tags`; the flat memory answer
+    is accepted).
+  - `memory_feedback` called `POST /v1/agents/{a}/memories/feedback`; the route is
+    `POST /v1/memory/feedback` with `{agent_id, memory_id, signal}` (`relevance_score` is not read by
+    the server and no longer sent).
+  - `export_audit` sent `POST /v1/audit/export`; the route is `GET` with query parameters (JSON or CSV
+    body returned verbatim in `data`). `AuditEvent.id` is an integer on the wire (was a `String`, so
+    `list_audit_events` failed to parse), `AuditListResponse` reads `count`.
+  - Quotas: the SDK had two `QuotaConfig` types; the exported one had `max_queries_per_minute` /
+    `max_writes_per_minute` (fields the server does not have, silently dropped) and its usage read
+    `current_vectors` / `current_storage_bytes` (always 0). The server's `QuotaConfig`
+    (`max_vectors`, `max_storage_bytes`, `max_dimensions`, `max_metadata_bytes`, `enforcement`),
+    `QuotaStatus` and `QuotaUsage` are now the only ones. The paths were right:
+    `PUT /v1/admin/quotas/{namespace}` and `PUT /v1/admin/quotas/default` (the server has no
+    `PUT /v1/admin/quotas`).
+  - `get_namespace_stats` / `get_index_stats` called `GET /v1/namespaces/{ns}/stats` (no such route);
+    they read `GET /v1/admin/indexes/stats` and return the namespace's entry.
+  - Removed, because the server has no such route (they returned 404 on every version):
+    `flush` (`POST /v1/namespaces/{ns}/flush`), `fetch` / `fetch_by_ids` and `FetchRequest` /
+    `FetchResponse` (`POST /v1/namespaces/{ns}/fetch`), `configure_ttl`
+    (`POST /v1/admin/namespaces/{ns}/ttl`; use `set_memory_policy`), `list_extract_providers` and its
+    types (`GET /v1/extract/providers`).
+  - Every other route the SDK calls exists in the v0.12.0 router.
 
 ### Compatibility
 

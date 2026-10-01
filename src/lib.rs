@@ -105,9 +105,9 @@ pub use admin::{
     CreateBackupResponse, DecayConfigResponse, DecayConfigUpdateRequest, DecayConfigUpdateResponse,
     DecayStatsResponse, DedupResultSnapshot, FulltextReindexNamespaceResult,
     FulltextReindexResponse, IndexStats, IndexStatsResponse, KpiSnapshot, LastDecayCycleStats,
-    NodeInfo, NodeListResponse, OpsStats, QuotaConfig, QuotaListResponse, QuotaStatus,
-    RestoreBackupRequest, RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse,
-    TtlCleanupRequest, TtlCleanupResponse, TtlStats, TtlStatsResponse,
+    NodeInfo, NodeListResponse, OpsStats, RestoreBackupRequest, RestoreBackupResponse,
+    RuntimeConfig, SlowQueryListResponse, TtlCleanupRequest, TtlCleanupResponse, TtlStats,
+    TtlStatsResponse,
 };
 pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpResponse};
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
@@ -151,7 +151,6 @@ pub use memory::{
     // CE-6: DBSCAN Adaptive Consolidation
     ConsolidationConfig,
     ConsolidationLogEntry,
-    ExtractionProviderInfo,
     // EXT-1: External Extraction Providers
     ExtractionResult,
     ForgetRequest,
@@ -194,3 +193,9 @@ pub mod grpc {
 // Re-export reqwest for CLI and other consumers
 #[cfg(feature = "http-client")]
 pub use reqwest;
+
+/// Compiles the README's Rust examples as doctests (`cargo test`), so they
+/// cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;

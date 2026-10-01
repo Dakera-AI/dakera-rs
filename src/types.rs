@@ -2503,39 +2503,6 @@ pub struct BatchQueryTextResponse {
 }
 
 // ============================================================================
-// Fetch by ID Types
-// ============================================================================
-
-/// Request to fetch vectors by their IDs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FetchRequest {
-    /// IDs of vectors to fetch.
-    pub ids: Vec<String>,
-    /// Whether to include vector values.
-    pub include_values: bool,
-    /// Whether to include metadata.
-    pub include_metadata: bool,
-}
-
-impl FetchRequest {
-    /// Create a new fetch request.
-    pub fn new(ids: Vec<String>) -> Self {
-        Self {
-            ids,
-            include_values: true,
-            include_metadata: true,
-        }
-    }
-}
-
-/// Response from a fetch-by-ID operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FetchResponse {
-    /// Fetched vectors.
-    pub vectors: Vec<Vector>,
-}
-
-// ============================================================================
 // Namespace Management Types
 // ============================================================================
 
@@ -3717,8 +3684,10 @@ pub struct QuotaConfig {
     pub max_dimensions: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_metadata_bytes: Option<usize>,
-    #[serde(default)]
-    pub enforcement: String,
+    /// `none` (track only), `soft` (warn) or `hard` (refuse writes with 413,
+    /// the server default). Omitted leaves the server default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enforcement: Option<String>,
 }
 
 /// Quota usage for a namespace.

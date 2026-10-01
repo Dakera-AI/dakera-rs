@@ -338,20 +338,20 @@ impl DakeraClient {
         }
     }
 
-    /// Flush pending writes for a namespace.
-    #[instrument(skip(self))]
-    pub async fn flush(&self, namespace: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/namespaces/{}/flush", self.base_url, namespace);
-        let response = self.client.post(&url).send().await?;
-        self.handle_response(response).await
-    }
-
     /// Get index statistics for a specific namespace.
+    ///
+    /// Reads `GET /v1/admin/indexes/stats` (admin scope) and returns the
+    /// namespace's entry; the server has no per-namespace stats route.  A
+    /// namespace the server does not list is `ClientError::NamespaceNotFound`.
     #[instrument(skip(self))]
     pub async fn get_namespace_stats(&self, namespace: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/namespaces/{}/stats", self.base_url, namespace);
+        let url = format!("{}/v1/admin/indexes/stats", self.base_url);
         let response = self.client.get(&url).send().await?;
-        self.handle_response(response).await
+        let all: serde_json::Value = self.handle_response(response).await?;
+        all.get("namespaces")
+            .and_then(|n| n.get(namespace))
+            .cloned()
+            .ok_or_else(|| ClientError::NamespaceNotFound(namespace.to_string()))
     }
 
     /// Alias for [`get_namespace_stats`](Self::get_namespace_stats) matching Python/JS naming.
@@ -1092,26 +1092,6 @@ impl DakeraClient {
         } else {
             Err(Self::error_from_response(response).await)
         }
-    }
-
-    // ========================================================================
-    // Fetch by ID
-    // ========================================================================
-
-    /// Fetch vectors by their IDs
-    #[instrument(skip(self, request), fields(id_count = request.ids.len()))]
-    pub async fn fetch(&self, namespace: &str, request: FetchRequest) -> Result<FetchResponse> {
-        let url = format!("{}/v1/namespaces/{}/fetch", self.base_url, namespace);
-        debug!("Fetching {} vectors from {}", request.ids.len(), namespace);
-        let response = self.client.post(&url).json(&request).send().await?;
-        self.handle_response(response).await
-    }
-
-    /// Fetch vectors by IDs (convenience method)
-    #[instrument(skip(self))]
-    pub async fn fetch_by_ids(&self, namespace: &str, ids: &[&str]) -> Result<Vec<Vector>> {
-        let request = FetchRequest::new(ids.iter().map(|s| s.to_string()).collect());
-        self.fetch(namespace, request).await.map(|r| r.vectors)
     }
 
     // ========================================================================
@@ -1968,15 +1948,6 @@ mod tests {
         assert!(req.filter.is_some());
         assert!(req.include_vectors);
         assert_eq!(req.model, Some(EmbeddingModel::E5Small));
-    }
-
-    #[test]
-    fn test_fetch_request_builder() {
-        let req = FetchRequest::new(vec!["id1".to_string(), "id2".to_string()]);
-
-        assert_eq!(req.ids.len(), 2);
-        assert!(req.include_values);
-        assert!(req.include_metadata);
     }
 
     #[test]

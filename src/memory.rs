@@ -212,8 +212,11 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
         }
 
         // Legacy / mock format: {"memory_id":"...","agent_id":"...","namespace":"..."}
+        // `memory_id` (legacy / mock) or a flat memory object (`id`, what
+        // `PUT /v1/memory/update/{id}` returns).
         let memory_id = val
             .get("memory_id")
+            .or_else(|| val.get("id"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| D::Error::missing_field("memory_id"))?
             .to_string();
@@ -767,6 +770,12 @@ pub struct UpdateMemoryRequest {
     /// re-derived even without a content change.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    /// New importance (0.0 to 1.0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub importance: Option<f32>,
+    /// Replaces the memory's tags.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -893,27 +902,50 @@ pub struct MemoryExportResponse {
 /// A single business-event entry from the audit log (OBS-1).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
+    /// Event id (the server sends an integer; kept as a string).
+    #[serde(deserialize_with = "id_as_string")]
     pub id: String,
     pub event_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub importance: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
+    /// Unix milliseconds.
     pub timestamp: u64,
     #[serde(default)]
     pub details: serde_json::Value,
 }
 
-/// Response from `GET /v1/audit` (OBS-1).
+fn id_as_string<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<String, D::Error> {
+    use serde::de::Error as _;
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        other => Err(D::Error::custom(format!("expected an event id, got {other}"))),
+    }
+}
+
+/// Response from `GET /v1/audit` (OBS-1): `{events, count}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditListResponse {
     pub events: Vec<AuditEvent>,
+    /// Number of events returned (the server's `count`).
+    #[serde(default, alias = "count")]
     pub total: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
 }
 
-/// Response from `POST /v1/audit/export` (OBS-1).
+/// Result of `GET /v1/audit/export` (OBS-1): the raw body (a JSON document
+/// `{events, count}` for `format = "json"`, CSV text for `"csv"`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditExportResponse {
     pub data: String,
@@ -952,25 +984,6 @@ pub struct ExtractionResult {
     pub duration_ms: f64,
 }
 
-/// Metadata for an available extraction provider (EXT-1).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtractionProviderInfo {
-    pub name: String,
-    pub available: bool,
-    #[serde(default)]
-    pub models: Vec<String>,
-}
-
-/// Response from `GET /v1/extract/providers` (EXT-1).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ExtractProvidersResponse {
-    List(Vec<ExtractionProviderInfo>),
-    Object {
-        providers: Vec<ExtractionProviderInfo>,
-    },
-}
-
 // ============================================================================
 // SEC-3: AES-256-GCM Encryption Key Rotation
 // ============================================================================
@@ -994,20 +1007,37 @@ pub struct RotateEncryptionKeyResponse {
     pub namespaces: Vec<String>,
 }
 
-/// Request for memory feedback
+/// Request for memory feedback (`POST /v1/memory/feedback`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedbackRequest {
     pub memory_id: String,
+    /// The feedback signal: `upvote`, `downvote`, `flag` (or the aliases
+    /// `positive` / `negative`).  Sent as the server's `signal`.
     pub feedback: String,
+    /// Not read by the server; never sent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relevance_score: Option<f32>,
 }
 
-/// Response from legacy feedback endpoint (POST /v1/agents/:id/memories/feedback)
+/// Response of `POST /v1/memory/feedback`: `{memory_id, new_importance, signal}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LegacyFeedbackResponse {
+    /// Always `"ok"` when the server answered (the server sends no status field).
+    #[serde(default = "feedback_ok")]
     pub status: String,
+    /// The memory's importance after the feedback (`new_importance`).
+    #[serde(default, alias = "new_importance")]
     pub updated_importance: Option<f32>,
+    /// The memory the feedback applied to.
+    #[serde(default)]
+    pub memory_id: Option<String>,
+    /// The signal the server applied.
+    #[serde(default)]
+    pub signal: Option<String>,
+}
+
+fn feedback_ok() -> String {
+    "ok".to_string()
 }
 
 // ============================================================================
@@ -1399,11 +1429,14 @@ impl DakeraClient {
         memory_id: &str,
         request: UpdateMemoryRequest,
     ) -> Result<StoreMemoryResponse> {
-        let url = format!(
-            "{}/v1/agents/{}/memories/{}",
-            self.base_url, agent_id, memory_id
-        );
-        let response = self.client.put(&url).json(&request).send().await?;
+        let url = format!("{}/v1/memory/update/{}", self.base_url, memory_id);
+        let response = self
+            .client
+            .put(&url)
+            .query(&[("agent_id", agent_id)])
+            .json(&request)
+            .send()
+            .await?;
         self.handle_response(response).await
     }
 
@@ -1447,8 +1480,13 @@ impl DakeraClient {
         agent_id: &str,
         request: FeedbackRequest,
     ) -> Result<LegacyFeedbackResponse> {
-        let url = format!("{}/v1/agents/{}/memories/feedback", self.base_url, agent_id);
-        let response = self.client.post(&url).json(&request).send().await?;
+        let url = format!("{}/v1/memory/feedback", self.base_url);
+        let body = serde_json::json!({
+            "agent_id": agent_id,
+            "memory_id": request.memory_id,
+            "signal": request.feedback,
+        });
+        let response = self.client.post(&url).json(&body).send().await?;
         self.handle_response(response).await
     }
 
@@ -1919,7 +1957,11 @@ impl DakeraClient {
         self.stream_sse(url).await
     }
 
-    /// Bulk-export audit log entries (OBS-1).
+    /// Bulk-export audit log entries (OBS-1): `GET /v1/audit/export`.
+    ///
+    /// `format` is `"json"` (default) or `"csv"`; `from_ts` / `to_ts` are Unix
+    /// milliseconds.  Needs a global admin key.  `data` holds the response
+    /// body as the server sent it.
     pub async fn export_audit(
         &self,
         format: &str,
@@ -1928,22 +1970,35 @@ impl DakeraClient {
         from_ts: Option<u64>,
         to_ts: Option<u64>,
     ) -> Result<AuditExportResponse> {
-        let mut body = serde_json::json!({"format": format});
+        let mut params: Vec<(&str, String)> = vec![("format", format.to_string())];
         if let Some(aid) = agent_id {
-            body["agent_id"] = serde_json::Value::String(aid.to_string());
+            params.push(("agent_id", aid.to_string()));
         }
         if let Some(et) = event_type {
-            body["event_type"] = serde_json::Value::String(et.to_string());
+            params.push(("event_type", et.to_string()));
         }
         if let Some(f) = from_ts {
-            body["from"] = serde_json::Value::Number(f.into());
+            params.push(("from", f.to_string()));
         }
         if let Some(t) = to_ts {
-            body["to"] = serde_json::Value::Number(t.into());
+            params.push(("to", t.to_string()));
         }
         let url = format!("{}/v1/audit/export", self.base_url);
-        let response = self.client.post(&url).json(&body).send().await?;
-        self.handle_response(response).await
+        let response = self.client.get(&url).query(&params).send().await?;
+        let data = self.handle_text_response(response).await?;
+        let count = if format.eq_ignore_ascii_case("csv") {
+            data.lines().count().saturating_sub(1)
+        } else {
+            serde_json::from_str::<serde_json::Value>(&data)
+                .ok()
+                .and_then(|v| v.get("count").and_then(|c| c.as_u64()))
+                .unwrap_or(0) as usize
+        };
+        Ok(AuditExportResponse {
+            data,
+            format: format.to_string(),
+            count,
+        })
     }
 
     // ========================================================================
@@ -1997,17 +2052,6 @@ impl DakeraClient {
         let url = format!("{}/v1/extract", self.base_url);
         let response = self.client.post(&url).json(&body).send().await?;
         self.handle_response(response).await
-    }
-
-    /// List available extraction providers and their models (EXT-1).
-    pub async fn list_extract_providers(&self) -> Result<Vec<ExtractionProviderInfo>> {
-        let url = format!("{}/v1/extract/providers", self.base_url);
-        let response = self.client.get(&url).send().await?;
-        let result: ExtractProvidersResponse = self.handle_response(response).await?;
-        Ok(match result {
-            ExtractProvidersResponse::List(v) => v,
-            ExtractProvidersResponse::Object { providers } => providers,
-        })
     }
 
     /// Set the default extraction provider for a namespace (EXT-1).

@@ -86,16 +86,22 @@ dakera-client = { version = "0.12", features = ["grpc"] }
 
 ## Quick Start
 
-```rust
+```rust,no_run
 // Cargo.toml: dakera-client = "0.12"
-let client = DakeraClient::builder("http://localhost:3000").api_key("dk-mykey").build()?;
-client.store_memory(StoreMemoryRequest::new("my-agent", "User prefers brevity")).await?;
+use dakera_client::{DakeraClient, StoreMemoryRequest};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::builder("http://localhost:3000").api_key("dk-mykey").build()?;
+    client.store_memory(StoreMemoryRequest::new("my-agent", "User prefers brevity")).await?;
+    Ok(())
+}
 ```
 
 Full example — store, recall, upsert, and hybrid search:
 
-```rust
-use dakera_client::{DakeraClient, StoreMemoryRequest, RecallRequest};
+```rust,no_run
+use dakera_client::{DakeraClient, HybridSearchRequest, RecallRequest, StoreMemoryRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -130,7 +136,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }).await?;
 
     // Hybrid search (vector + BM25)
-    let results = client.hybrid_search("my-namespace", "completed task", 5).await?;
+    let results = client
+        .hybrid_search(
+            "my-namespace",
+            HybridSearchRequest::new(vec![0.1, 0.2, 0.3], "completed task", 5),
+        )
+        .await?;
     for r in &results.results {
         println!("{}: {:.3}", r.id, r.score);
     }
@@ -184,6 +195,54 @@ notes: [RELEASE_NOTES.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.
   (`UNAUTHENTICATED` is an auth error). The RPC paths are now `/dakera.v1.VectorService/...`, the
   server's actual proto package.
 
+### v0.12.0 in code
+
+```rust,no_run
+use std::time::Duration;
+
+use dakera_client::{
+    ClientError, DakeraClient, RecordInput, RecallRequest, RepresentationInput, StoreMemoryRequest,
+    TranscribeRequest,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::builder("http://localhost:3000").api_key("dk-mykey").build()?;
+
+    // Wait on /health/ready (a v0.12 server binds its port while models load).
+    client.wait_until_ready(Duration::from_secs(120)).await?;
+
+    // Check what this server has switched on.
+    let caps = client.capabilities().await?;
+    println!("v{} attachments={} records={}", caps.server_version,
+        caps.attachments.enabled, caps.supports_records());
+
+    // Per-request language.
+    client.store_memory(StoreMemoryRequest::new("my-agent", "Treffen morgen um drei").with_lang("de")).await?;
+    client.recall(RecallRequest::new("my-agent", "wann ist das Treffen").with_lang("de")).await?;
+
+    // Attachments: upload a WAV, transcribe it into a memory.
+    let up = client.upload_attachment("uploads", std::fs::read("note.wav")?, "audio/wav").await?;
+    let job = client
+        .transcribe_attachment("uploads", &up.attachment_ref, TranscribeRequest::new("my-agent"))
+        .await?;
+    let done = client.wait_for_attachment_job(&job.status_url, Duration::from_secs(300)).await?;
+    println!("{} -> memory {}", done.status, job.memory_id);
+
+    // Records with a named representation.
+    let record = RecordInput::new("r1", vec![0.1, 0.2, 0.3, 0.4]).with_representation(
+        RepresentationInput::token_multivector("tokens", vec![vec![0.1, 0.2], vec![0.3, 0.4]]),
+    );
+    match client.upsert_records("docs", vec![record]).await {
+        Err(ClientError::FeatureDisabled { message, .. }) => println!("{message}"),
+        other => {
+            other?;
+        }
+    }
+    Ok(())
+}
+```
+
 ### Compatibility
 
 | Server | Works | Notes |
@@ -219,25 +278,23 @@ Merge and publish this release only after the v0.12.0 server release.
 
 ## Connect to Dakera
 
-```rust
+```rust,no_run
 use dakera_client::DakeraClient;
 
-// Self-hosted
-let client = DakeraClient::builder("http://your-server:3000")
-    .api_key("your-key")
-    .build()?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Self-hosted
+    let client = DakeraClient::builder("http://your-server:3000")
+        .api_key("your-key")
+        .build()?;
 
-// Cloud (early access)
-let client = DakeraClient::builder("http://localhost:3000")
-    .api_key("your-key")
-    .build()?;
-
-// With custom timeouts
-let client = DakeraClient::builder("http://localhost:3000")
-    .api_key("your-key")
-    .timeout_secs(60)
-    .max_retries(5)
-    .build()?;
+    // With custom timeouts
+    let client = DakeraClient::builder("http://localhost:3000")
+        .api_key("your-key")
+        .timeout_secs(60)
+        .max_retries(5)
+        .build()?;
+    Ok(())
+}
 ```
 
 ---
