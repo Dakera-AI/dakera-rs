@@ -5,7 +5,7 @@
 //! Run:
 //!   cargo run --example playground
 
-use dakera_client::{DakeraClient, EdgeType, MemoryType, RecallRequest, StoreMemoryRequest};
+use dakera_client::{DakeraClient, MemoryType, RecallRequest, StoreMemoryRequest};
 
 const AGENT_ID: &str = "playground-agent";
 const DEFAULT_URL: &str = "https://5-75-177-31.sslip.io";
@@ -122,12 +122,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- 4. Knowledge Graph Link ---");
 
     match client
-        .memory_link(&mem1.memory_id, &mem2.memory_id, EdgeType::RelatedTo)
+        .memory_link(AGENT_ID, &mem1.memory_id, &mem2.memory_id, Some("related"))
         .await
     {
         Ok(link) => println!(
             "Linked {} → {}: edge_type={:?}",
-            mem1.memory_id, mem2.memory_id, link.edge.edge_type
+            link.from_id, link.to_id, link.edge_type
         ),
         Err(e) => {
             println!("KG link not available in sandbox: {e}");

@@ -14,9 +14,9 @@ use dakera_client::memory::{
     UpdateMemoryRequest,
 };
 use dakera_client::{
-    BlockDType, ClientError, DakeraClient, EmbeddingModel, IndexImageRequest, NamespaceNerConfig,
-    RecordInput, RepresentationInput, RepresentationKind, ServerCapabilities, ServerErrorCode,
-    TranscribeRequest,
+    BlockDType, ClientError, DakeraClient, EdgeType, EmbeddingModel, IndexImageRequest,
+    NamespaceNerConfig, RecordInput, RepresentationInput, RepresentationKind, ServerCapabilities,
+    ServerErrorCode, TranscribeRequest,
 };
 use mockito::Matcher;
 use serde_json::json;
@@ -1626,4 +1626,287 @@ fn colbert_small_is_a_known_model() {
         r#""colbert-small""#
     );
     assert!(EmbeddingModel::known().contains(&EmbeddingModel::ColbertSmall));
+}
+
+// ============================================================================
+// Knowledge graph contract (shapes the v0.12.0 / v0.11.108 server sends)
+// ============================================================================
+
+#[tokio::test]
+async fn memory_link_sends_agent_id_and_parses_the_flat_answer() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "POST",
+        "/v1/memories/mem-a/links",
+        200,
+        r#"{"from_id":"mem-a","to_id":"mem-b","edge_type":"linked_by"}"#,
+    )
+    .match_body(Matcher::Json(json!({
+        "target_id": "mem-b",
+        "agent_id": "agent-1",
+        "label": "follow-up"
+    })))
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let r = client
+        .memory_link("agent-1", "mem-a", "mem-b", Some("follow-up"))
+        .await
+        .unwrap();
+    assert_eq!(r.from_id, "mem-a");
+    assert_eq!(r.to_id, "mem-b");
+    assert_eq!(r.edge_type, EdgeType::LinkedBy);
+    assert_eq!(r.edge.source_id, "mem-a");
+    assert_eq!(r.edge.target_id, "mem-b");
+    assert_eq!(r.edge.weight, 1.0);
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn memory_link_without_label_omits_it() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "POST",
+        "/v1/memories/mem-a/links",
+        200,
+        r#"{"from_id":"mem-a","to_id":"mem-b","edge_type":"linked_by"}"#,
+    )
+    .match_body(Matcher::Json(
+        json!({"target_id": "mem-b", "agent_id": "agent-1"}),
+    ))
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    client
+        .memory_link("agent-1", "mem-a", "mem-b", None)
+        .await
+        .unwrap();
+    m.assert_async().await;
+}
+
+#[test]
+fn graph_link_response_accepts_the_nested_edge_shape() {
+    let r: dakera_client::GraphLinkResponse = serde_json::from_value(json!({
+        "edge": {"id": "e1", "source_id": "a", "target_id": "b", "edge_type": "linked_by",
+                 "weight": 0.5, "created_at": 7}
+    }))
+    .unwrap();
+    assert_eq!(r.edge.id, "e1");
+    assert_eq!(r.from_id, "a");
+    assert_eq!(r.to_id, "b");
+    assert_eq!(r.edge.weight, 0.5);
+}
+
+#[tokio::test]
+async fn memory_graph_parses_nodes_with_their_edges() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/memories/mem-a/graph",
+        200,
+        r#"{"root_id":"mem-a","depth":2,"node_count":2,"nodes":[
+            {"memory_id":"mem-a","depth":0,"edges":[]},
+            {"memory_id":"mem-b","depth":1,"edges":[
+                {"from_id":"mem-a","to_id":"mem-b","edge_type":"supersedes","weight":0.97,"created_at":1790874016}
+            ]}
+        ]}"#,
+    )
+    .match_query(Matcher::UrlEncoded("depth".into(), "2".into()))
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let g = client
+        .memory_graph("mem-a", dakera_client::GraphOptions::new().depth(2))
+        .await
+        .unwrap();
+    assert_eq!(g.node_count, 2);
+    assert_eq!(g.nodes[1].memory_id, "mem-b");
+    assert_eq!(g.nodes[1].edges.len(), 1);
+    assert_eq!(g.edges.len(), 1, "node edges are collected on the graph");
+    assert_eq!(g.edges[0].source_id, "mem-a");
+    assert_eq!(g.edges[0].target_id, "mem-b");
+    assert_eq!(g.edges[0].edge_type, EdgeType::Supersedes);
+    assert_eq!(g.edges[0].created_at, 1_790_874_016);
+    assert!(g.edges[0].id.is_empty());
+    m.assert_async().await;
+}
+
+#[test]
+fn unknown_edge_types_do_not_break_parsing() {
+    let e: dakera_client::GraphEdge = serde_json::from_value(json!({
+        "from_id": "a", "to_id": "b", "edge_type": "some_future_type", "weight": 1.0, "created_at": 1
+    }))
+    .unwrap();
+    assert_eq!(e.edge_type, EdgeType::Unknown);
+}
+
+#[tokio::test]
+async fn memory_path_sends_to_and_parses_hop_count() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/memories/mem-a/path",
+        200,
+        r#"{"from_id":"mem-a","to_id":"mem-c","path":["mem-a","mem-b","mem-c"],"hop_count":2}"#,
+    )
+    .match_query(Matcher::UrlEncoded("to".into(), "mem-c".into()))
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let p = client.memory_path("mem-a", "mem-c").await.unwrap();
+    assert_eq!(p.source_id, "mem-a");
+    assert_eq!(p.target_id, "mem-c");
+    assert_eq!(p.hops, 2);
+    assert_eq!(p.path.len(), 3);
+    assert!(p.edges.is_empty());
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn agent_graph_export_parses_the_json_answer() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/agents/agent-1/graph/export",
+        200,
+        r#"{"agent_id":"agent-1","namespace":"_dakera_agent_agent-1","node_count":2,"edge_count":1,
+            "edges":[{"from_id":"mem-a","to_id":"mem-b","edge_type":"linked_by","weight":1.0,"created_at":5}]}"#,
+    )
+    .match_query(Matcher::Any)
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let x = client.agent_graph_export("agent-1", "json").await.unwrap();
+    assert_eq!(x.namespace, "_dakera_agent_agent-1");
+    assert_eq!(x.format, "json");
+    assert_eq!(x.node_count, 2);
+    assert_eq!(x.edge_count, 1);
+    assert_eq!(x.edges[0].source_id, "mem-a");
+    assert_eq!(x.edges[0].edge_type, EdgeType::LinkedBy);
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn knowledge_query_parses_server_edges() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/knowledge/query",
+        200,
+        r#"{"agent_id":"agent-1","node_count":2,"edge_count":1,
+            "edges":[{"from_id":"mem-a","to_id":"mem-b","edge_type":"related_to","weight":0.91,"created_at":5}]}"#,
+    )
+    .match_query(Matcher::UrlEncoded("agent_id".into(), "agent-1".into()))
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let q = client
+        .knowledge_query("agent-1", None, None, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(q.edge_count, 1);
+    assert_eq!(q.edges[0].source_id, "mem-a");
+    assert_eq!(q.edges[0].target_id, "mem-b");
+    assert_eq!(q.edges[0].edge_type, EdgeType::RelatedTo);
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn memory_entities_fills_the_memory_id() {
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/memory/entities/mem-a",
+        200,
+        r#"{"entities":[{"entity_type":"person","value":"Anna","score":0.9}],"count":1}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let r = client.memory_entities("mem-a").await.unwrap();
+    assert_eq!(r.memory_id, "mem-a");
+    assert_eq!(r.count, 1);
+    assert_eq!(r.entities[0].value, "Anna");
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn search_memories_reads_total_count() {
+    // POST /v1/memory/search answers {memories, total_count, rerank_report, effective_top_k}.
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "POST",
+        "/v1/memory/search",
+        200,
+        r#"{"memories":[],"total_count":17,"rerank_report":{"requested":false,"applied":false},"effective_top_k":5}"#,
+    )
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let r = client
+        .search_memories(RecallRequest::new("agent-1", "q"))
+        .await
+        .unwrap();
+    assert_eq!(r.total_found, 17);
+    m.assert_async().await;
+}
+
+#[tokio::test]
+async fn memory_graph_filters_types_client_side_and_does_not_send_them() {
+    let mut server = mockito::Server::new_async().await;
+    // The query must be exactly `depth=2`: no `types` parameter.
+    let m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/memories/mem-a/graph",
+        200,
+        r#"{"root_id":"mem-a","depth":2,"node_count":3,"nodes":[
+            {"memory_id":"mem-a","depth":0,"edges":[]},
+            {"memory_id":"mem-b","depth":1,"edges":[
+                {"from_id":"mem-a","to_id":"mem-b","edge_type":"linked_by","weight":1.0,"created_at":1}
+            ]},
+            {"memory_id":"mem-c","depth":1,"edges":[
+                {"from_id":"mem-a","to_id":"mem-c","edge_type":"related_to","weight":0.9,"created_at":2}
+            ]}
+        ]}"#,
+    )
+    .match_query(Matcher::Exact("depth=2".into()))
+    .expect(2)
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+
+    let g = client
+        .memory_graph(
+            "mem-a",
+            dakera_client::GraphOptions::new()
+                .depth(2)
+                .types(vec![EdgeType::RelatedTo]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(g.nodes.len(), 3, "nodes are kept");
+    assert_eq!(g.edges.len(), 1);
+    assert_eq!(g.edges[0].target_id, "mem-c");
+    assert!(g.nodes[1].edges.is_empty(), "linked_by edge filtered out");
+    assert_eq!(g.nodes[2].edges.len(), 1);
+
+    // An empty filter keeps everything.
+    let all = client
+        .memory_graph(
+            "mem-a",
+            dakera_client::GraphOptions::new().depth(2).types(vec![]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(all.edges.len(), 2);
+    m.assert_async().await;
 }

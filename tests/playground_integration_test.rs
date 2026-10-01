@@ -119,12 +119,15 @@ async fn test_playground_workflow() {
     // Step 4: knowledge graph link
     // ------------------------------------------------------------------
     let link = client
-        .memory_link(&mem1.memory_id, &mem2.memory_id, EdgeType::RelatedTo)
+        .memory_link(&agent_id, &mem1.memory_id, &mem2.memory_id, Some("related"))
         .await
         .expect("step 4: memory_link must succeed");
+    // The server records every explicit link as a `linked_by` edge.
     assert_eq!(
-        link.edge.edge_type,
-        EdgeType::RelatedTo,
-        "KG edge must be RelatedTo"
+        link.edge_type,
+        EdgeType::LinkedBy,
+        "an explicit KG link is a linked_by edge"
     );
+    assert_eq!(link.from_id, mem1.memory_id);
+    assert_eq!(link.to_id, mem2.memory_id);
 }

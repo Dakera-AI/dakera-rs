@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-01
+
+Knowledge-graph and entity calls now match what the server sends (checked against
+`ghcr.io/dakera-ai/dakera:0.12.0`; the v0.11.108 types are the same).
+
+### Changed (breaking for code that called it; every such call failed)
+
+- `memory_link(agent_id, source_id, target_id, label)`: was `memory_link(source_id,
+  target_id, edge_type)`, which sent no `agent_id`, so the server answered `422` on every call.
+  The server always records an explicit link as `linked_by`, so `edge_type` is gone;
+  `GraphLinkRequest` is now `{target_id, agent_id, label}`.
+
+### Fixed
+
+- Graph edges: the server sends `{from_id, to_id, edge_type, weight, created_at}` with no edge
+  id, and `GraphEdge` required `id` / `source_id` / `target_id`, so `memory_graph`,
+  `agent_graph_export`, `knowledge_query` and `knowledge_export` failed to deserialize as soon
+  as a graph had an edge. `from_id` / `to_id` now fill `source_id` / `target_id`; `id`,
+  `weight` and `created_at` default when absent.
+- `EdgeType` gains `Supersedes` (the server writes `supersedes` edges since v0.11.100) and
+  `Unknown` for edge types a newer server may add; either used to fail the whole answer.
+- `memory_link` parses the server's `{from_id, to_id, edge_type}` answer (`from_id`, `to_id`,
+  `edge_type` fields; `edge` is built from them, weight 1.0). An `{"edge": ...}` answer is
+  still accepted.
+- `memory_graph`: nodes carry their incoming edges (`GraphNode::edges`); the client collects
+  them into `MemoryGraph::edges`, which the server does not send. Adds `node_count`.
+  `GraphNode::content_preview` / `importance` default (not in the server's answer).
+- `memory_graph` no longer sends `types` (the server reads only `depth` and ignored it); the
+  `GraphOptions::types` filter is applied to the answer, to each node's edges and to
+  `MemoryGraph::edges`. Nodes are kept.
+- `memory_path` sent `?target=`; the server reads `?to=` and answered `400`. `hop_count` fills
+  `hops`.
+- `agent_graph_export`: the server always answers JSON `{agent_id, namespace, node_count,
+  edge_count, edges}` (no `format` / `data`), which failed to deserialize. Adds `namespace`
+  and `edges`; `format` is `json`, `data` stays empty.
+- `memory_entities`: the server answers `{entities, count}` without `memory_id`, which failed
+  to deserialize. The client fills `memory_id` from the requested id; adds `count`.
+- `search_memories`: `total_found` was always 0 because `POST /v1/memory/search` answers
+  `total_count`; it is read now. The recall route reports no total, so `recall()` keeps 0.
+- The integration tests now run a live graph round trip (store, link, traverse, path, export,
+  KG query, entities, update) against the server image.
+
 ## [0.12.0] - 2026-10-01
 
 ### Added

@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::types::{
-    AgentFeedbackSummary, EdgeType, FeedbackHealthResponse, FeedbackHistoryResponse,
-    FeedbackResponse, FeedbackSignal, GraphExport, GraphLinkRequest, GraphLinkResponse,
-    GraphOptions, GraphPath, MemoryFeedbackBody, MemoryGraph, MemoryImportancePatch, TifScore,
+    AgentFeedbackSummary, FeedbackHealthResponse, FeedbackHistoryResponse, FeedbackResponse,
+    FeedbackSignal, GraphExport, GraphLinkRequest, GraphLinkResponse, GraphOptions, GraphPath,
+    MemoryFeedbackBody, MemoryGraph, MemoryImportancePatch, TifScore,
 };
 use crate::DakeraClient;
 
@@ -645,7 +645,9 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecallResponse {
     pub memories: Vec<RecalledMemory>,
-    #[serde(default)]
+    /// Matches before `top_k` was applied: the search route's `total_count`.
+    /// The recall route does not report a total, so it is 0 there.
+    #[serde(default, alias = "total_count")]
     pub total_found: usize,
     /// COG-2 / KG-3: KG associated memories at configurable depth (only present when include_associated was true)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1614,23 +1616,27 @@ impl DakeraClient {
         let mut url = format!("{}/v1/memories/{}/graph", self.base_url, memory_id);
         let depth = options.depth.unwrap_or(1);
         url.push_str(&format!("?depth={}", depth));
-        if let Some(types) = &options.types {
-            let type_strs: Vec<String> = types
-                .iter()
-                .map(|t| {
-                    serde_json::to_value(t)
-                        .unwrap()
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string()
-                })
-                .collect();
-            if !type_strs.is_empty() {
-                url.push_str(&format!("&types={}", type_strs.join(",")));
-            }
-        }
+        // The server reads only `depth`; `types` is applied to the answer here.
         let response = self.client.get(&url).send().await?;
-        self.handle_response(response).await
+        let mut graph: MemoryGraph = self.handle_response(response).await?;
+        // The server sends each node's incoming edges on the node; collect them.
+        if graph.edges.is_empty() {
+            graph.edges = graph
+                .nodes
+                .iter()
+                .flat_map(|n| n.edges.iter().cloned())
+                .collect();
+        }
+        if let Some(types) = options.types.as_ref().filter(|t| !t.is_empty()) {
+            for node in &mut graph.nodes {
+                node.edges.retain(|e| types.contains(&e.edge_type));
+            }
+            graph.edges.retain(|e| types.contains(&e.edge_type));
+        }
+        if graph.node_count == 0 {
+            graph.node_count = graph.nodes.len();
+        }
+        Ok(graph)
     }
 
     /// Find the shortest path between two memories in the knowledge graph.
@@ -1647,7 +1653,7 @@ impl DakeraClient {
     /// ```
     pub async fn memory_path(&self, source_id: &str, target_id: &str) -> Result<GraphPath> {
         let url = format!(
-            "{}/v1/memories/{}/path?target={}",
+            "{}/v1/memories/{}/path?to={}",
             self.base_url,
             source_id,
             urlencoding::encode(target_id)
@@ -1656,28 +1662,35 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// Create an explicit edge between two memories.
+    /// Create an explicit edge between two memories of `agent_id`.
+    ///
+    /// The server records it as a `linked_by` edge; `label` is an optional
+    /// human-readable label. Both memories must belong to the agent.
     ///
     /// Requires CE-5 (Memory Knowledge Graph) on the server.
     ///
     /// # Example
     /// ```no_run
-    /// # use dakera_client::{DakeraClient, EdgeType};
+    /// # use dakera_client::DakeraClient;
     /// # async fn example(client: &DakeraClient) -> dakera_client::Result<()> {
-    /// let resp = client.memory_link("mem-abc", "mem-xyz", EdgeType::LinkedBy).await?;
-    /// println!("Created edge: {}", resp.edge.id);
+    /// let resp = client
+    ///     .memory_link("agent-1", "mem-abc", "mem-xyz", Some("follow-up"))
+    ///     .await?;
+    /// println!("Linked {} -> {} ({:?})", resp.from_id, resp.to_id, resp.edge_type);
     /// # Ok(()) }
     /// ```
     pub async fn memory_link(
         &self,
+        agent_id: &str,
         source_id: &str,
         target_id: &str,
-        edge_type: EdgeType,
+        label: Option<&str>,
     ) -> Result<GraphLinkResponse> {
         let url = format!("{}/v1/memories/{}/links", self.base_url, source_id);
         let request = GraphLinkRequest {
             target_id: target_id.to_string(),
-            edge_type,
+            agent_id: agent_id.to_string(),
+            label: label.map(str::to_string),
         };
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -1689,14 +1702,20 @@ impl DakeraClient {
     ///
     /// # Arguments
     /// * `agent_id` – Agent whose graph to export.
-    /// * `format` – Export format: `"json"` (default), `"graphml"`, or `"csv"`.
+    /// * `format` – Sent as `format`; the server ignores it on this route and
+    ///   always answers JSON with the edges in [`GraphExport::edges`]. For
+    ///   GraphML use [`DakeraClient::knowledge_export`] with a raw client.
     pub async fn agent_graph_export(&self, agent_id: &str, format: &str) -> Result<GraphExport> {
         let url = format!(
             "{}/v1/agents/{}/graph/export?format={}",
             self.base_url, agent_id, format
         );
         let response = self.client.get(&url).send().await?;
-        self.handle_response(response).await
+        let mut export: GraphExport = self.handle_response(response).await?;
+        if export.format.is_empty() {
+            export.format = "json".to_string();
+        }
+        Ok(export)
     }
 
     // ========================================================================
