@@ -1264,10 +1264,12 @@ impl DakeraClient {
         lang: Option<&str>,
     ) -> Result<EntityExtractionResponse> {
         let url = format!("{}/v1/memories/extract", self.base_url);
-        let mut body = serde_json::json!({
-            "content": text,
-            "entity_types": entity_types,
-        });
+        // `entity_types` is omitted when not given: the server reads it as a
+        // list with a default, and an explicit `null` is a 422.
+        let mut body = serde_json::json!({ "content": text });
+        if let Some(types) = entity_types {
+            body["entity_types"] = serde_json::json!(types);
+        }
         if let Some(l) = lang {
             body["lang"] = serde_json::Value::String(l.to_string());
         }

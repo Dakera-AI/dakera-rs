@@ -1381,6 +1381,30 @@ async fn update_memory_sends_lang() {
 }
 
 #[tokio::test]
+async fn extract_entities_without_types_omits_entity_types() {
+    // The v0.12.0 server answers `"entity_types": null` with a 422; no types
+    // must leave the field out so the server applies its defaults.
+    let mut server = mockito::Server::new_async().await;
+    let m = json_mock(
+        &mut server,
+        "POST",
+        "/v1/memories/extract",
+        200,
+        r#"{"entities":[]}"#,
+    )
+    .match_body(Matcher::Json(json!({"content": "Anna met Bob in Paris"})))
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let r = client
+        .extract_entities("Anna met Bob in Paris", None)
+        .await
+        .unwrap();
+    assert!(r.entities.is_empty());
+    m.assert_async().await;
+}
+
+#[tokio::test]
 async fn extract_endpoints_send_lang() {
     let mut server = mockito::Server::new_async().await;
     let ner = json_mock(
