@@ -119,7 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Works against Dakera server v0.11.108 and v0.12.0 (v0.12-only routes answer 404 on v0.11.108).
 Merge and publish only after the v0.12.0 server release. See the server's
-[UPGRADE guide](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md).
+UPGRADE guide (`docs/v0.12/UPGRADE.md` in the server release).
 
 ### Changed
 

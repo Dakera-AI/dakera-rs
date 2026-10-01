@@ -49,7 +49,7 @@ curl http://localhost:3000/health  # → {"status":"ok"}
 For persistent storage with Docker Compose:
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/Dakera-AI/dakera-deploy/main/docker-compose.yml \
+curl -sSfL https://raw.githubusercontent.com/Dakera-AI/dakera-deploy/main/docker/docker-compose.yml \
   -o docker-compose.yml
 DAKERA_API_KEY=dk-mykey docker compose up -d
 ```
@@ -158,8 +158,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 **v0.11.108** servers. Every v0.12 feature is additive; the routes that need a v0.12 server
 answer `404` on v0.11.108 and the v0.12-only opt-in features answer `501 FEATURE_DISABLED` on a
 v0.12 server that did not switch them on. The server-side upgrade guide is
-[docs/v0.12/UPGRADE.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md) (release
-notes: [RELEASE_NOTES.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/RELEASE_NOTES.md)).
+`docs/v0.12/UPGRADE.md` in the server release (release notes: the
+[Dakera changelog](https://dakera.ai/docs/changelog)).
 
 - **Health that tells the truth** — `health()` is healthy only for a `2xx` answer with status
   `healthy` (v0.11 of this crate reported a starting server's `503` as healthy). `ready()` parses the
