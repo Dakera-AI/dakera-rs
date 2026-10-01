@@ -42,7 +42,7 @@ use http_body_util::BodyExt;
 use prost::Message;
 use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
-use tower::Service;
+use tower::{Service, ServiceExt};
 use tracing::{debug, info};
 
 use crate::error::{ClientError, Result};
@@ -373,8 +373,13 @@ impl GrpcClient {
         // Build HTTP/2 request for gRPC
         let http_request = build_http_request(path, body_bytes, self.config.api_key.as_deref())?;
 
-        // Call the service
-        let response = client
+        // Call the service.  The channel is a tower `Buffer`: it must be
+        // driven to readiness before `call` (calling without it panics with
+        // "`send_item` called without first calling `poll_reserve`").
+        let ready = ServiceExt::<http::Request<tonic::body::Body>>::ready(&mut client)
+            .await
+            .map_err(|e| ClientError::Grpc(format!("gRPC channel not ready: {}", e)))?;
+        let response = ready
             .call(http_request)
             .await
             .map_err(|e| ClientError::Grpc(format!("gRPC call failed: {}", e)))?;

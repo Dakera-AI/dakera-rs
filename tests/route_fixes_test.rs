@@ -130,7 +130,9 @@ async fn quota_status_and_list_parse_the_server_usage_fields() {
         "GET",
         "/v1/admin/quotas",
         200,
-        &format!(r#"{{"quotas":[{QUOTA_STATUS}],"total":1,"default_config":{{"max_vectors":100}}}}"#),
+        &format!(
+            r#"{{"quotas":[{QUOTA_STATUS}],"total":1,"default_config":{{"max_vectors":100}}}}"#
+        ),
     )
     .create_async()
     .await;

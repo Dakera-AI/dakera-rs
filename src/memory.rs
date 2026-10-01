@@ -929,7 +929,9 @@ fn id_as_string<'de, D: serde::Deserializer<'de>>(
     match serde_json::Value::deserialize(deserializer)? {
         serde_json::Value::String(s) => Ok(s),
         serde_json::Value::Number(n) => Ok(n.to_string()),
-        other => Err(D::Error::custom(format!("expected an event id, got {other}"))),
+        other => Err(D::Error::custom(format!(
+            "expected an event id, got {other}"
+        ))),
     }
 }
 
