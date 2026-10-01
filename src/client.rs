@@ -8,14 +8,21 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{debug, instrument};
 
-use serde::Deserialize;
-
 use crate::capabilities::{CapabilityKind, ServerCapabilities};
-use crate::error::{ClientError, Result, ServerErrorCode};
+use crate::error::{ClientError, Result};
 use crate::types::*;
 
 /// Default timeout for requests
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+
+/// The `Retry-After` header as whole seconds (the server always sends an
+/// integer; an HTTP-date form is ignored).
+pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+}
 
 /// Dakera client for interacting with the vector database
 #[derive(Debug, Clone)]
@@ -26,8 +33,7 @@ pub struct DakeraClient {
     pub(crate) base_url: String,
     /// ODE-2: Base URL of the dakera-ode sidecar (optional)
     pub(crate) ode_url: Option<String>,
-    /// Retry configuration (wired into API call sites in a follow-up; suppressed until then)
-    #[allow(dead_code)]
+    /// Retry configuration used by [`DakeraClient::execute_with_retry`]
     pub(crate) retry_config: RetryConfig,
     /// OPS-1: last seen rate-limit headers (shared across clones)
     pub(crate) last_rate_limit: Arc<Mutex<Option<RateLimitHeaders>>>,
@@ -162,67 +168,104 @@ impl DakeraClient {
     // Health & Status
     // ========================================================================
 
-    /// Check server health
+    /// Check server health (`GET /health`).
+    ///
+    /// `healthy` is `true` only for a `2xx` answer whose status is `healthy`.
+    /// A non-2xx answer is **never** healthy: a v0.12 server binds its port
+    /// while the models load and answers `503 {"status":"starting"}` with a
+    /// `Retry-After`.  To wait for a server to come up use
+    /// [`Self::wait_until_ready`]; to gate traffic use [`Self::ready`].
     #[instrument(skip(self))]
     pub async fn health(&self) -> Result<HealthResponse> {
         let url = format!("{}/health", self.base_url);
         let response = self.client.get(&url).send().await?;
+        let http_ok = response.status().is_success();
+        // The body is JSON on every v0.12 answer; tolerate anything else.
+        let json: serde_json::Value = response.json().await.unwrap_or(serde_json::Value::Null);
 
-        if response.status().is_success() {
-            let json: serde_json::Value = response.json().await?;
-            // Server returns {"service":"dakera","status":"healthy","version":"..."}.
-            // Accept both `healthy: bool` (legacy) and `status: "healthy"` (current).
-            let healthy = json
+        // Server returns {"service":"dakera","status":"healthy","version":"..."}.
+        // Accept both `healthy: bool` (legacy) and `status: "healthy"` (current).
+        let status = json
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let healthy = http_ok
+            && json
                 .get("healthy")
                 .and_then(|v| v.as_bool())
-                .unwrap_or_else(|| json.get("status").and_then(|v| v.as_str()) == Some("healthy"));
-            let version = json
+                .unwrap_or_else(|| status.as_deref() == Some("healthy"));
+        Ok(HealthResponse {
+            healthy,
+            status,
+            version: json
                 .get("version")
                 .and_then(|v| v.as_str())
-                .map(String::from);
-            let uptime_seconds = json.get("uptime_seconds").and_then(|v| v.as_u64());
-            Ok(HealthResponse {
-                healthy,
-                version,
-                uptime_seconds,
-                build_sha: json
-                    .get("build_sha")
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-            })
-        } else {
-            // Health endpoint might return simple OK
-            Ok(HealthResponse {
-                healthy: true,
-                version: None,
-                uptime_seconds: None,
-                build_sha: None,
-            })
-        }
+                .map(String::from),
+            uptime_seconds: json.get("uptime_seconds").and_then(|v| v.as_u64()),
+            build_sha: json
+                .get("build_sha")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+        })
     }
 
-    /// Check if server is ready
+    /// Readiness probe (`GET /health/ready`): can the server take traffic now?
+    ///
+    /// A `503` answer (starting, or a load-bearing component failed) is
+    /// returned as `ready: false` with the server's reason and the
+    /// `Retry-After` in seconds; it is not an error.  Use this, not
+    /// [`Self::live`], to gate traffic.
     #[instrument(skip(self))]
     pub async fn ready(&self) -> Result<ReadinessResponse> {
         let url = format!("{}/health/ready", self.base_url);
         let response = self.client.get(&url).send().await?;
+        let retry_after = parse_retry_after(response.headers());
 
         if response.status().is_success() {
-            Ok(response.json().await?)
+            let mut body: ReadinessResponse = response.json().await?;
+            body.retry_after = retry_after;
+            Ok(body)
         } else {
-            Ok(ReadinessResponse {
-                ready: false,
-                components: None,
-            })
+            let mut body: ReadinessResponse = response.json().await.unwrap_or_default();
+            body.ready = false;
+            body.retry_after = retry_after;
+            Ok(body)
         }
     }
 
-    /// Check if server is live
+    /// Liveness probe (`GET /health/live`): is the process up?
+    ///
+    /// `true` even while a v0.12 server is still loading models; it says
+    /// nothing about whether requests will succeed (use [`Self::ready`]).
     #[instrument(skip(self))]
     pub async fn live(&self) -> Result<bool> {
         let url = format!("{}/health/live", self.base_url);
         let response = self.client.get(&url).send().await?;
         Ok(response.status().is_success())
+    }
+
+    /// Wait until the server reports ready (`GET /health/ready` answers `200`).
+    ///
+    /// Polls [`Self::ready`], sleeping for the server's `Retry-After` between
+    /// polls (1 s when it sends none) and treating connection errors as "not up
+    /// yet".  Returns the ready answer, or [`ClientError::Timeout`] once
+    /// `timeout` has elapsed.  Works against v0.11 servers too (they answer
+    /// `200` as soon as they are up).
+    pub async fn wait_until_ready(&self, timeout: Duration) -> Result<ReadinessResponse> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let pause = match self.ready().await {
+                Ok(r) if r.ready => return Ok(r),
+                Ok(r) => Duration::from_secs(r.retry_after.unwrap_or(1).max(1)),
+                Err(e) if e.is_retryable() => Duration::from_secs(1),
+                Err(e) => return Err(e),
+            };
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(ClientError::Timeout);
+            }
+            tokio::time::sleep(pause.min(remaining)).await;
+        }
     }
 
     // ========================================================================
@@ -291,13 +334,7 @@ impl DakeraClient {
         if response.status().is_success() {
             Ok(())
         } else {
-            let status = response.status().as_u16();
-            let text = response.text().await.unwrap_or_default();
-            Err(ClientError::Server {
-                status,
-                message: text,
-                code: None,
-            })
+            Err(Self::error_from_response(response).await)
         }
     }
 
@@ -1053,13 +1090,7 @@ impl DakeraClient {
         if response.status().is_success() {
             Ok(())
         } else {
-            let status = response.status().as_u16();
-            let text = response.text().await.unwrap_or_default();
-            Err(ClientError::Server {
-                status,
-                message: text,
-                code: None,
-            })
+            Err(Self::error_from_response(response).await)
         }
     }
 
@@ -1190,7 +1221,10 @@ impl DakeraClient {
     /// Configure namespace-level entity extraction settings (CE-4).
     ///
     /// Sends `PATCH /v1/namespaces/{namespace}/config` with the provided
-    /// [`NamespaceNerConfig`].
+    /// [`NamespaceNerConfig`].  From server v0.12 a `PATCH` merges and refuses
+    /// unknown fields: `entity_types: None` keeps the configured list,
+    /// `Some(vec![])` clears it.  Use [`Self::put_namespace_entity_config`] to
+    /// replace the whole config.
     #[instrument(skip(self, config))]
     pub async fn configure_namespace_ner(
         &self,
@@ -1199,6 +1233,29 @@ impl DakeraClient {
     ) -> Result<serde_json::Value> {
         let url = format!("{}/v1/namespaces/{}/config", self.base_url, namespace);
         let response = self.client.patch(&url).json(&config).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Replace a namespace's entity extraction config (v0.12+).
+    ///
+    /// Sends `PUT /v1/namespaces/{namespace}/config`: a full replacement, so
+    /// an omitted `entity_types` **clears** the list (`PATCH`, which
+    /// [`Self::configure_namespace_ner`] uses, merges and refuses unknown
+    /// fields from v0.12).  Returns the config now in effect.
+    #[instrument(skip(self, config))]
+    pub async fn put_namespace_entity_config(
+        &self,
+        namespace: &str,
+        config: NamespaceNerConfig,
+    ) -> Result<NamespaceEntityConfig> {
+        let url = format!("{}/v1/namespaces/{}/config", self.base_url, namespace);
+        // PUT carries the full config: entity_types is always sent, empty
+        // meaning cleared.
+        let body = serde_json::json!({
+            "extract_entities": config.extract_entities,
+            "entity_types": config.entity_types.unwrap_or_default(),
+        });
+        let response = self.client.put(&url).json(&body).send().await?;
         self.handle_response(response).await
     }
 
@@ -1212,11 +1269,27 @@ impl DakeraClient {
         text: &str,
         entity_types: Option<Vec<String>>,
     ) -> Result<EntityExtractionResponse> {
+        self.extract_entities_with_lang(text, entity_types, None).await
+    }
+
+    /// [`Self::extract_entities`] with the language of `text` (an ISO 639-1 code
+    /// or name, optionally with a region) for the rule-based date rules
+    /// (server v0.12+; an unsupported value is a 400).
+    #[instrument(skip(self, text, entity_types))]
+    pub async fn extract_entities_with_lang(
+        &self,
+        text: &str,
+        entity_types: Option<Vec<String>>,
+        lang: Option<&str>,
+    ) -> Result<EntityExtractionResponse> {
         let url = format!("{}/v1/memories/extract", self.base_url);
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "content": text,
             "entity_types": entity_types,
         });
+        if let Some(l) = lang {
+            body["lang"] = serde_json::Value::String(l.to_string());
+        }
         let response = self.client.post(&url).json(&body).send().await?;
         self.handle_response(response).await
     }
@@ -1257,61 +1330,14 @@ impl DakeraClient {
         if status.is_success() {
             Ok(response.json().await?)
         } else {
-            let status_code = status.as_u16();
             // Extract Retry-After before consuming response
-            let retry_after = response
-                .headers()
-                .get("Retry-After")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.parse::<u64>().ok());
+            let retry_after = parse_retry_after(response.headers());
             let text = response.text().await.unwrap_or_default();
-
-            if status_code == 429 {
-                return Err(ClientError::RateLimitExceeded { retry_after });
-            }
-
-            #[derive(Deserialize)]
-            struct ErrorBody {
-                error: Option<String>,
-                code: Option<ServerErrorCode>,
-            }
-
-            let (message, code) = if let Ok(body) = serde_json::from_str::<ErrorBody>(&text) {
-                (body.error.unwrap_or_else(|| text.clone()), body.code)
-            } else {
-                (text, None)
-            };
-
-            match status_code {
-                401 => Err(ClientError::Server {
-                    status: 401,
-                    message,
-                    code,
-                }),
-                403 => Err(ClientError::Authorization {
-                    status: 403,
-                    message,
-                    code,
-                }),
-                404 => match &code {
-                    Some(ServerErrorCode::NamespaceNotFound) => {
-                        Err(ClientError::NamespaceNotFound(message))
-                    }
-                    Some(ServerErrorCode::VectorNotFound) => {
-                        Err(ClientError::VectorNotFound(message))
-                    }
-                    _ => Err(ClientError::Server {
-                        status: 404,
-                        message,
-                        code,
-                    }),
-                },
-                _ => Err(ClientError::Server {
-                    status: status_code,
-                    message,
-                    code,
-                }),
-            }
+            Err(ClientError::from_http_response(
+                status.as_u16(),
+                retry_after,
+                text,
+            ))
         }
     }
 
@@ -1324,63 +1350,38 @@ impl DakeraClient {
             *guard = Some(RateLimitHeaders::from_response(&response));
         }
 
-        let retry_after = response
-            .headers()
-            .get("Retry-After")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok());
+        let retry_after = parse_retry_after(response.headers());
         let text = response.text().await.unwrap_or_default();
 
         if status.is_success() {
             return Ok(text);
         }
+        Err(ClientError::from_http_response(
+            status.as_u16(),
+            retry_after,
+            text,
+        ))
+    }
 
-        let status_code = status.as_u16();
-
-        if status_code == 429 {
-            return Err(ClientError::RateLimitExceeded { retry_after });
-        }
-
-        #[derive(Deserialize)]
-        struct ErrorBody {
-            error: Option<String>,
-            code: Option<ServerErrorCode>,
-        }
-
-        let (message, code) = if let Ok(body) = serde_json::from_str::<ErrorBody>(&text) {
-            (body.error.unwrap_or_else(|| text.clone()), body.code)
-        } else {
-            (text, None)
-        };
-
-        match status_code {
-            401 => Err(ClientError::Server {
-                status: 401,
-                message,
-                code,
-            }),
-            403 => Err(ClientError::Authorization {
-                status: 403,
-                message,
-                code,
-            }),
-            _ => Err(ClientError::Server {
-                status: status_code,
-                message,
-                code,
-            }),
-        }
+    /// Turn a non-success response into the matching [`ClientError`] (parses
+    /// the JSON error body and the `Retry-After` header).
+    pub(crate) async fn error_from_response(response: reqwest::Response) -> ClientError {
+        let status = response.status().as_u16();
+        let retry_after = parse_retry_after(response.headers());
+        let text = response.text().await.unwrap_or_default();
+        ClientError::from_http_response(status, retry_after, text)
     }
 
     /// Execute a fallible async operation with retry logic and exponential backoff.
     ///
     /// Retries on transient errors (5xx, rate-limit, connection/timeout).
-    /// Respects the `Retry-After` header when the server returns HTTP 429.
-    /// Does NOT retry on 4xx client errors (except 429).
+    /// Respects the `Retry-After` header (whole seconds, capped at
+    /// `RetryConfig::max_delay`) when the server answers HTTP 429 or 503 --
+    /// every v0.12 `503` carries one.  Does NOT retry on 4xx client errors
+    /// (except 429), nor on 413 / 501.
     ///
-    /// NOTE: API call-site wiring is deferred to a follow-up (infrastructure PR).
-    #[allow(dead_code)]
-    pub(crate) async fn execute_with_retry<F, Fut, T>(&self, f: F) -> Result<T>
+    /// Wrap any call in it: `client.execute_with_retry(|| client.recall(req.clone())).await`.
+    pub async fn execute_with_retry<F, Fut, T>(&self, f: F) -> Result<T>
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
@@ -1396,11 +1397,9 @@ impl DakeraClient {
                         return Err(e);
                     }
 
-                    let wait = match &e {
-                        ClientError::RateLimitExceeded {
-                            retry_after: Some(secs),
-                        } => Duration::from_secs(*secs),
-                        _ => {
+                    let wait = match e.retry_after() {
+                        Some(server_wait) => server_wait.min(rc.max_delay),
+                        None => {
                             let base_ms = rc.base_delay.as_millis() as f64;
                             let backoff_ms = base_ms * 2f64.powi(attempt as i32);
                             let capped_ms = backoff_ms.min(rc.max_delay.as_millis() as f64);
@@ -1766,13 +1765,7 @@ impl DakeraClient {
             .await?;
 
         if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let body = response.text().await.unwrap_or_default();
-            return Err(ClientError::Server {
-                status,
-                message: body,
-                code: None,
-            });
+            return Err(Self::error_from_response(response).await);
         }
 
         let (tx, rx) = tokio::sync::mpsc::channel(64);

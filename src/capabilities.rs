@@ -78,6 +78,107 @@ pub struct RecordCapabilities {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// F3 / R4: the scoring axis and the late-interaction lane (`capabilities.scoring`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ScoringCapability {
+    /// `DAKERA_SCORING_STRATEGY` as configured (`single-vector` unless set).
+    #[serde(default)]
+    pub strategy: String,
+    /// Prose list of accepted strategies.
+    #[serde(default)]
+    pub strategies_accepted: String,
+    #[serde(default)]
+    pub late_interaction: LateInteractionCapability,
+    /// Fields this SDK version does not model yet.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// The late-interaction (MaxSim) lane (`capabilities.scoring.late_interaction`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct LateInteractionCapability {
+    /// The strategy selects late interaction.
+    #[serde(default)]
+    pub enabled: bool,
+    /// The active model has a late-interaction recipe (else writes are refused).
+    #[serde(default)]
+    pub model_supported: bool,
+    /// `text` or `visual`.
+    #[serde(default)]
+    pub lane: String,
+    #[serde(default)]
+    pub token_slot: String,
+    #[serde(default)]
+    pub fde_slot: String,
+    #[serde(default)]
+    pub candidates: usize,
+    /// Fields this SDK version does not model yet (the MUVERA parameters, ...).
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// The speech-to-text surface (`capabilities.attachments.transcription`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TranscriptionCapability {
+    /// Wire name of the model a transcription runs (`DAKERA_WHISPER_MODEL`).
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub models: Vec<String>,
+    /// Media types the transcriber decodes.
+    #[serde(default)]
+    pub media_types: Vec<String>,
+    /// Languages (ISO 639-1) the configured model transcribes.
+    #[serde(default)]
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub sample_rate_hz: u32,
+    /// Fields this SDK version does not model yet.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// The attachment lane (`capabilities.attachments`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AttachmentCapability {
+    /// Whether the attachment routes answer (`DAKERA_ATTACHMENTS`); else 501 `FEATURE_DISABLED`.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Bytes one upload may carry; over it the upload is a 413.
+    #[serde(default)]
+    pub max_bytes: usize,
+    #[serde(default)]
+    pub transcription: TranscriptionCapability,
+    /// Fields this SDK version does not model yet.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// The visual late-interaction lane (`capabilities.vision`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct VisionCapability {
+    /// Whether `POST .../attachments/{ref}/index` answers (`DAKERA_VISION`).
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub models: Vec<String>,
+    /// Media types the image decoder accepts.
+    #[serde(default)]
+    pub media_types: Vec<String>,
+    /// Width of one patch vector.
+    #[serde(default)]
+    pub dimension: usize,
+    #[serde(default)]
+    pub patch_slot: String,
+    #[serde(default)]
+    pub patch_fde_slot: String,
+    /// Fields this SDK version does not model yet (tile geometry, ...).
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 /// Parse an accepted-values field the server emits as prose —
 /// `"hybrid, binary, float, scalar (alias sq), rabitq"` — so `x (alias y)`
 /// yields both `x` and `y`.
@@ -192,6 +293,22 @@ pub struct ServerCapabilities {
     /// A model change was acknowledged but the store is not fully re-embedded yet.
     #[serde(default)]
     pub reembed_pending: bool,
+    /// F3 / R4: the scoring strategy and the late-interaction lane (v0.12).
+    #[serde(default)]
+    pub scoring: ScoringCapability,
+    /// F5: attachments and speech-to-text (v0.12).
+    #[serde(default)]
+    pub attachments: AttachmentCapability,
+    /// F4: the visual late-interaction lane (v0.12).
+    #[serde(default)]
+    pub vision: VisionCapability,
+    /// Records this node skipped on read because a newer Dakera wrote them;
+    /// non-zero means searches can return fewer results than the store holds.
+    #[serde(default)]
+    pub unreadable_records: u64,
+    /// Live counters of the late-interaction path since start (name -> count).
+    #[serde(default)]
+    pub late_interaction_stats: HashMap<String, serde_json::Value>,
     /// Top-level fields this SDK version does not model yet (kept, never rejected).
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,

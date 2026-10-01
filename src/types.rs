@@ -79,8 +79,14 @@ impl RateLimitHeaders {
 /// Health check response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
-    /// Overall health status
+    /// Overall health status.  `true` only when the server answered `2xx`
+    /// with status `healthy`: a `503` (for example a v0.12 server that is
+    /// still loading models, `{"status":"starting"}`) is never healthy.
     pub healthy: bool,
+    /// The server's own status word (`healthy`, `degraded`, `starting`),
+    /// when the body carried one.
+    #[serde(default)]
+    pub status: Option<String>,
     /// Service version
     pub version: Option<String>,
     /// Uptime in seconds
@@ -89,13 +95,41 @@ pub struct HealthResponse {
     pub build_sha: Option<String>,
 }
 
-/// Readiness check response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Readiness check response (`GET /health/ready`).
+///
+/// The server answers `200` when it can serve traffic and `503` (with a
+/// `Retry-After`) while it is starting or a load-bearing component has failed;
+/// both bodies are JSON and both are parsed into this type, with `ready`
+/// telling them apart.  Every field but `ready` is optional so the same type
+/// reads a v0.11.108 server's body and a v0.12.0 server's.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReadinessResponse {
     /// Is the service ready to accept requests
     pub ready: bool,
-    /// Component status details
+    /// Server version (v0.12+).
+    #[serde(default)]
+    pub version: Option<String>,
+    /// Component status details (legacy shape; absent on v0.12 servers).
+    #[serde(default)]
     pub components: Option<HashMap<String, bool>>,
+    /// Per-component checks (`storage`, `embedding_engine`, `tiered_engine`),
+    /// each `{"status": "ok" | "error" | "disabled", "message"?: ...}` (v0.12+).
+    #[serde(default)]
+    pub checks: Option<HashMap<String, serde_json::Value>>,
+    /// `true` while the server is binding its port but still loading models
+    /// (v0.12+ startup gate).
+    #[serde(default)]
+    pub starting: bool,
+    /// Why the server is not ready yet, while `starting` (v0.12+).
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Model downloads in progress while `starting` (v0.12+).
+    #[serde(default)]
+    pub downloads: Option<serde_json::Value>,
+    /// Seconds from the `Retry-After` header of a `503` answer, if present.
+    /// Never part of the JSON body.
+    #[serde(skip)]
+    pub retry_after: Option<u64>,
 }
 
 // ============================================================================
@@ -732,6 +766,19 @@ pub struct JobInfo {
     /// Job metadata
     #[serde(default)]
     pub metadata: std::collections::HashMap<String, String>,
+    /// Why a `Failed` job failed: the HTTP status and error code the same work
+    /// would have answered synchronously (server v0.12+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<JobError>,
+}
+
+/// The status and code of a failed background job (`JobInfo::error`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobError {
+    /// HTTP status the synchronous request would have answered.
+    pub status: u16,
+    /// Its error code (`INVALID_REQUEST`, `SERVICE_UNAVAILABLE`, `INTERNAL_ERROR`, ...).
+    pub code: crate::error::ServerErrorCode,
 }
 
 /// Compaction request
@@ -2152,6 +2199,8 @@ lenient_string_enum! {
         GteModernBertBase = "gte-modernbert-base",
         /// BGE-M3 multilingual — 1024 dimensions, 8192-token window (server v0.12+)
         BgeM3 = "bge-m3",
+        /// ColBERT-small — 96-d token vectors, the late-interaction model (server v0.12+)
+        ColbertSmall = "colbert-small",
     }
 }
 

@@ -1359,13 +1359,7 @@ impl DakeraClient {
         let url = format!("{}/v1/admin/backups/{}/download", self.base_url, backup_id);
         let response = self.client.get(&url).send().await?;
         if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(crate::error::ClientError::Server {
-                status: status.as_u16(),
-                message: body,
-                code: None,
-            });
+            return Err(Self::error_from_response(response).await);
         }
         Ok(response.bytes().await?.to_vec())
     }

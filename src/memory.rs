@@ -57,6 +57,20 @@ pub struct StoreMemoryRequest {
     /// Used by temporal recall queries (server v0.11.98+, DAK-7424).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub valid_from: Option<i64>,
+    /// Language of `content` for the write-time derivations (event date,
+    /// rule-based entity tags): an ISO 639-1 code or name, optionally with a
+    /// region (`pt-BR`).  Omitted means the server-wide choice
+    /// (`DAKERA_QUERY_LANG`, English by default); an unsupported value is a 400.
+    /// See `ServerCapabilities::query_languages` (server v0.12+).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
+    /// Reference (`sha256:<hex>`) of an attachment already uploaded to this
+    /// agent's memory namespace (`_dakera_agent_{agent_id}`), see
+    /// [`DakeraClient::upload_attachment`].  Needs `DAKERA_ATTACHMENTS` on the
+    /// server (else 501 `FEATURE_DISABLED`); an unknown reference is a 404
+    /// (server v0.12+).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment_ref: Option<String>,
 }
 
 fn default_importance() -> f32 {
@@ -77,7 +91,21 @@ impl StoreMemoryRequest {
             ttl_seconds: None,
             expires_at: None,
             valid_from: None,
+            lang: None,
+            attachment_ref: None,
         }
+    }
+
+    /// Set the language of `content` (server v0.12+).
+    pub fn with_lang(mut self, lang: impl Into<String>) -> Self {
+        self.lang = Some(lang.into());
+        self
+    }
+
+    /// Reference an uploaded attachment (`sha256:<hex>`; server v0.12+).
+    pub fn with_attachment_ref(mut self, attachment_ref: impl Into<String>) -> Self {
+        self.attachment_ref = Some(attachment_ref.into());
+        self
     }
 
     /// Set memory type
@@ -316,6 +344,13 @@ pub struct RecallRequest {
     /// latency-sensitive paths.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub neighborhood: Option<bool>,
+    /// Language of `query` for rule-based routing and temporal expressions
+    /// ("when", "how long ago", "after she ..."): an ISO 639-1 code or name,
+    /// optionally with a region.  Omitted means the server-wide choice
+    /// (English by default); an unsupported value is a 400.  It does not
+    /// translate or filter anything (server v0.12+).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
 }
 
 fn default_top_k() -> usize {
@@ -345,7 +380,14 @@ impl RecallRequest {
             vector_weight: None,
             iterations: None,
             neighborhood: None,
+            lang: None,
         }
+    }
+
+    /// Set the language of the query (server v0.12+).
+    pub fn with_lang(mut self, lang: impl Into<String>) -> Self {
+        self.lang = Some(lang.into());
+        self
     }
 
     /// Set number of results
@@ -492,6 +534,10 @@ pub struct RecalledMemory {
     /// Hybrid sub-score: BM25 text component (server v0.11.98+, absent when vector-only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_score: Option<f32>,
+    /// Reference (`sha256:<hex>`) of the attachment this memory points at
+    /// (server v0.12+, absent otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment_ref: Option<String>,
 }
 
 impl<'de> serde::Deserialize<'de> for RecalledMemory {
@@ -565,6 +611,10 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
         let depth = mem.get("depth").and_then(|v| v.as_u64()).map(|v| v as u8);
+        let attachment_ref = mem
+            .get("attachment_ref")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         Ok(Self {
             id,
@@ -583,6 +633,7 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             depth,
             vector_score,
             text_score,
+            attachment_ref,
         })
     }
 }
@@ -707,10 +758,15 @@ pub struct ListSessionsResponse {
 }
 
 /// Request to update a memory
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateMemoryRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    /// Language of the memory's content (server v0.12+).  When it differs
+    /// from the recorded language, the data derived from the text is
+    /// re-derived even without a content change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1098,6 +1154,10 @@ pub struct BatchStoreMemoryItem {
     /// Optional custom ID. Auto-generated if not provided.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// Reference (`sha256:<hex>`) of an attachment in this agent's memory
+    /// namespace (server v0.12+, needs `DAKERA_ATTACHMENTS`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment_ref: Option<String>,
 }
 
 impl BatchStoreMemoryItem {
@@ -1146,6 +1206,12 @@ impl BatchStoreMemoryItem {
         self.id = Some(id.into());
         self
     }
+
+    /// Reference an uploaded attachment (`sha256:<hex>`; server v0.12+).
+    pub fn with_attachment_ref(mut self, attachment_ref: impl Into<String>) -> Self {
+        self.attachment_ref = Some(attachment_ref.into());
+        self
+    }
 }
 
 /// Request for `POST /v1/memories/store/batch` (DAK-5508).
@@ -1160,6 +1226,9 @@ pub struct BatchStoreMemoryRequest {
     pub agent_id: String,
     /// Memories to store (1–1000 items).
     pub memories: Vec<BatchStoreMemoryItem>,
+    /// Language of the batch's contents; applies to every item (server v0.12+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
 }
 
 impl BatchStoreMemoryRequest {
@@ -1168,7 +1237,14 @@ impl BatchStoreMemoryRequest {
         Self {
             agent_id: agent_id.into(),
             memories,
+            lang: None,
         }
+    }
+
+    /// Set the language of every item in the batch (server v0.12+).
+    pub fn with_lang(mut self, lang: impl Into<String>) -> Self {
+        self.lang = Some(lang.into());
+        self
     }
 }
 
@@ -1878,6 +1954,10 @@ impl DakeraClient {
     ///
     /// Provider hierarchy: per-request > namespace default > GLiNER (bundled).
     /// Supported providers: `"gliner"`, `"openai"`, `"anthropic"`, `"openrouter"`, `"ollama"`.
+    ///
+    /// `provider` (with an optional `model`) is sent as the request's
+    /// `extractor_override`, the only field the server reads a per-request
+    /// provider from; `model` without `provider` has no effect.
     pub async fn extract_text(
         &self,
         text: &str,
@@ -1885,15 +1965,33 @@ impl DakeraClient {
         provider: Option<&str>,
         model: Option<&str>,
     ) -> Result<ExtractionResult> {
+        self.extract_text_with_lang(text, namespace, provider, model, None).await
+    }
+
+    /// [`Self::extract_text`] with the language of `text` (an ISO 639-1 code or
+    /// name, optionally with a region): it selects the rule-based date rules
+    /// and the LLM prompt language (server v0.12+; an unsupported value is a 400).
+    pub async fn extract_text_with_lang(
+        &self,
+        text: &str,
+        namespace: Option<&str>,
+        provider: Option<&str>,
+        model: Option<&str>,
+        lang: Option<&str>,
+    ) -> Result<ExtractionResult> {
         let mut body = serde_json::json!({"text": text});
         if let Some(ns) = namespace {
             body["namespace"] = serde_json::Value::String(ns.to_string());
         }
         if let Some(p) = provider {
-            body["provider"] = serde_json::Value::String(p.to_string());
+            let mut over = serde_json::json!({"provider": p});
+            if let Some(m) = model {
+                over["model"] = serde_json::Value::String(m.to_string());
+            }
+            body["extractor_override"] = over;
         }
-        if let Some(m) = model {
-            body["model"] = serde_json::Value::String(m.to_string());
+        if let Some(l) = lang {
+            body["lang"] = serde_json::Value::String(l.to_string());
         }
         let url = format!("{}/v1/extract", self.base_url);
         let response = self.client.post(&url).json(&body).send().await?;
@@ -2309,11 +2407,7 @@ mod tests {
 
     #[test]
     fn test_update_memory_request_all_none_emits_empty_object() {
-        let req = UpdateMemoryRequest {
-            content: None,
-            metadata: None,
-            memory_type: None,
-        };
+        let req = UpdateMemoryRequest::default();
         let json = serde_json::to_string(&req).unwrap();
         assert_eq!(json, "{}");
     }
@@ -2322,8 +2416,7 @@ mod tests {
     fn test_update_memory_request_with_content_only() {
         let req = UpdateMemoryRequest {
             content: Some("new content".to_string()),
-            metadata: None,
-            memory_type: None,
+            ..Default::default()
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"content\":\"new content\""));

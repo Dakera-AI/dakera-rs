@@ -75,6 +75,7 @@
 pub mod admin;
 pub mod agents;
 pub mod analytics;
+pub mod attachments;
 mod capabilities;
 #[cfg(feature = "http-client")]
 mod client;
@@ -84,6 +85,7 @@ pub mod filter;
 pub mod keys;
 pub mod knowledge;
 pub mod memory;
+pub mod records;
 pub mod session;
 mod types;
 
@@ -109,13 +111,21 @@ pub use admin::{
 };
 pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpResponse};
 pub use analytics::{AnalyticsOverview, LatencyAnalytics, StorageAnalytics, ThroughputAnalytics};
+// v0.12: attachments, speech-to-text, image indexing
+pub use attachments::{
+    AttachmentDownload, AttachmentEntry, AttachmentJobAccepted, AttachmentListResponse,
+    AttachmentUploadResponse, IndexImageAccepted, IndexImageRequest, TranscribeAccepted,
+    TranscribeRequest,
+};
 // R9 / DAK-10004: GET /v1/capabilities
 pub use capabilities::{
-    parse_accepted_values, CapabilityKind, ModelCapability, RecordCapabilities, ServerCapabilities,
+    parse_accepted_values, AttachmentCapability, CapabilityKind, LateInteractionCapability,
+    ModelCapability, RecordCapabilities, ScoringCapability, ServerCapabilities,
+    TranscriptionCapability, VisionCapability,
 };
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
-pub use error::{ClientError, Result};
+pub use error::{ClientError, Result, ServerErrorCode};
 pub use keys::{
     ApiKeyUsageResponse, CreateKeyRequest, CreateKeyResponse, CreateNamespaceKeyRequest,
     CreateNamespaceKeyResponse, KeyInfo, ListKeysResponse, ListNamespaceKeysResponse,
@@ -163,6 +173,11 @@ pub use memory::{
     SessionStartResponse,
     StoreMemoryRequest,
     StoreMemoryResponse,
+};
+// v0.12: records with named representations
+pub use records::{
+    RecordInput, RecordUpsertRequest, RecordUpsertResponse, RecordView, RepresentationInfo,
+    RepresentationInput,
 };
 #[cfg(feature = "http-client")]
 pub use session::ChatMemorySession;

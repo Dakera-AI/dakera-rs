@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.12.0] - 2026-09-22
+## [0.12.0] - 2026-10-01
 
 ### Added
 
@@ -41,11 +41,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on a pre-0.12 server (404). `require_supported(kind, value)` exposes the same check for
   `CapabilityKind::SearchMode` and `CapabilityKind::QueryLanguage`.
 
+### Added (Dakera server v0.12.0 support)
+
+- **Health (TRACKER K14)** — `health()` no longer reports a non-2xx answer as healthy: a v0.12
+  server that is still loading models answers `503 {"status":"starting"}` and v0.11 of this crate
+  returned `healthy: true` for it. `HealthResponse` gains `status`. `ready()` parses the `503` body
+  (`ReadinessResponse` gains `version`, `checks`, `starting`, `reason`, `downloads` and
+  `retry_after`), `live()` is unchanged, and `wait_until_ready(timeout)` polls `/health/ready`,
+  sleeping the server's `Retry-After` between polls.
+- **`Retry-After`** — `ClientError::ServiceUnavailable { message, details, retry_after }` for every
+  `503`; `ClientError::retry_after()`; `DakeraClient::execute_with_retry` is now public and waits the
+  server's `Retry-After` (429 and 503, capped at `RetryConfig::max_delay`) instead of its backoff.
+- **Error mapping** — one mapper for every JSON error body: `QuotaExceeded` and `PayloadTooLarge`
+  (413), `FeatureDisabled` and `NotImplemented` (501, message names the switch), `is_feature_disabled()`,
+  `is_payload_too_large()`. `ServerErrorCode` is exported and gains `PayloadTooLarge`,
+  `FeatureDisabled`, `NotImplemented`, `Conflict`, `CrossOriginRequestRefused`, `RateLimitExceeded`,
+  `QueryTimeout`, `RouteNotFound`, `MethodNotAllowed`, `UnsupportedMediaType`, `RequestTimeout`,
+  `ApiKeyNotFound`, `JobNotFound`. Errors from delete_namespace, shutdown, SSE and backup download
+  use the same mapper.
+- **Attachments (`DAKERA_ATTACHMENTS`)** — `upload_attachment`, `list_attachments`,
+  `download_attachment`, `delete_attachment`, `transcribe_attachment`, `transcription_status`,
+  `index_image_attachment` (`DAKERA_VISION`), `index_image_status`, `attachment_job_status`,
+  `wait_for_attachment_job`; `JobInfo` gains `error` (`JobError`) and `is_finished()`,
+  `is_completed()`, `is_failed()`; `attachment_ref` on `StoreMemoryRequest`,
+  `BatchStoreMemoryItem` and `RecalledMemory`.
+- **Records (`DAKERA_RECORDS`)** — `upsert_records`, `get_record`, `RecordInput`,
+  `RepresentationInput`, `RecordView`, `RepresentationInfo`.
+- **Per-request `lang`** — `StoreMemoryRequest`, `BatchStoreMemoryRequest`, `RecallRequest`,
+  `UpdateMemoryRequest`, `extract_entities_with_lang`, `extract_text_with_lang`.
+- **Capabilities** — typed `scoring`, `attachments` (with `transcription`), `vision`,
+  `unreadable_records` and `late_interaction_stats`; `EmbeddingModel::ColbertSmall`.
+- **Namespace config (TRACKER K34)** — `put_namespace_entity_config` (`PUT /v1/namespaces/{ns}/config`
+  replaces; the way to clear `entity_types` on a v0.12 server, where `PATCH` merges and refuses
+  unknown fields).
+- **gRPC** — `GrpcClientConfig::with_api_key` / `DAKERA_API_KEY` sends `x-api-key` on every call
+  (v0.12 refuses unauthenticated calls except `Health`); the key is redacted in `Debug`.
+
+### Fixed
+
+- **gRPC paths** — the client called `/dakera.VectorService/...` but the server's package is
+  `dakera.v1`, so every RPC was `UNIMPLEMENTED`; the paths are now `/dakera.v1.VectorService/...`.
+  `grpc-status` (headers or trailers) is now mapped to an error instead of surfacing as
+  "Response too short".
+- **`extract_text`** sent `provider` / `model` at the top level of `POST /v1/extract`, where the
+  server does not read them; they are sent as `extractor_override` now.
+- `README.md` quick start used `Default` / `Option` fields that do not exist.
+
+### Compatibility
+
+Works against Dakera server v0.11.108 and v0.12.0 (v0.12-only routes answer 404 on v0.11.108).
+Merge and publish only after the v0.12.0 server release. See the server's
+[UPGRADE guide](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md).
+
 ### Changed
 
 - Version 0.11.107 → 0.12.0 (SDK line now tracks server v0.12). `EmbeddingModel` is no longer
   exhaustively matchable without an `Unknown(_)` arm; `DistanceMetric`/`RoutingMode` likewise
-  gain an `Unknown` arm (0.x minor: intentional).
+  gain an `Unknown` arm (0.x minor: intentional). `ClientError` gains variants
+  (`QuotaExceeded`, `PayloadTooLarge`, `FeatureDisabled`, `NotImplemented`, `ServiceUnavailable`):
+  HTTP 413 / 501 / 503 no longer arrive as `ClientError::Server`. `StoreMemoryRequest`,
+  `RecallRequest`, `BatchStoreMemoryRequest`, `BatchStoreMemoryItem`, `UpdateMemoryRequest` and
+  `JobInfo` gain fields (struct literals need `..Default::default()` or the builders).
 
 ## [0.11.106] - 2026-08-07
 

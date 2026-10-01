@@ -5,6 +5,8 @@
 //! - Configurable concurrency limits
 //! - Timeout support
 //! - Automatic reconnection
+//! - API-key authentication (`x-api-key` call metadata; required by the
+//!   server from v0.12 whenever authentication is on)
 //!
 //! # Example
 //!
@@ -16,7 +18,10 @@
 //!     let config = GrpcClientConfig::default()
 //!         .with_endpoint("http://localhost:50051")
 //!         .with_concurrency_limit(100)
-//!         .with_timeout_ms(30000);
+//!         .with_timeout_ms(30000)
+//!         // v0.12 servers refuse unauthenticated gRPC calls (except Health).
+//!         // Without this the DAKERA_API_KEY environment variable is used.
+//!         .with_api_key("dk-...");
 //!
 //!     let client = GrpcClient::connect(config).await?;
 //!
@@ -48,8 +53,92 @@ use crate::types::{
     UpsertResponse as ClientUpsertResponse, Vector,
 };
 
+/// The `x-api-key` metadata value for `key` (marked sensitive so it never
+/// shows up in debug output of the request).
+fn api_key_header(key: &str) -> Result<http::HeaderValue> {
+    let mut value = http::HeaderValue::from_str(key)
+        .map_err(|_| ClientError::Config("invalid API key".to_string()))?;
+    value.set_sensitive(true);
+    Ok(value)
+}
+
+/// Build the unary gRPC request for `path` (`/dakera.v1.VectorService/<Rpc>`),
+/// with the API key as `x-api-key` metadata when there is one.
+fn build_http_request(
+    path: &str,
+    body_bytes: Vec<u8>,
+    api_key: Option<&str>,
+) -> Result<http::Request<tonic::body::Body>> {
+    let mut builder = http::Request::builder()
+        .method(http::Method::POST)
+        .uri(path)
+        .header("content-type", "application/grpc")
+        .header("te", "trailers");
+    if let Some(key) = api_key {
+        builder = builder.header("x-api-key", api_key_header(key)?);
+    }
+    builder
+        .body(tonic::body::Body::new(
+            http_body_util::Full::new(bytes::Bytes::from(body_bytes))
+                .map_err(|_: std::convert::Infallible| tonic::Status::internal("body error")),
+        ))
+        .map_err(|e| ClientError::Grpc(format!("Failed to build request: {}", e)))
+}
+
+/// Map a non-OK `grpc-status` (headers or trailers) to an error; `None` when
+/// the status is absent or OK.  `UNAUTHENTICATED` / `PERMISSION_DENIED` map to
+/// the auth errors the HTTP client uses, `UNAVAILABLE` to `ServiceUnavailable`.
+fn grpc_status_error(headers: &http::HeaderMap) -> Option<ClientError> {
+    let code: i32 = headers.get("grpc-status")?.to_str().ok()?.parse().ok()?;
+    if code == 0 {
+        return None;
+    }
+    let message = headers
+        .get("grpc-message")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let name = match code {
+        1 => "CANCELLED",
+        2 => "UNKNOWN",
+        3 => "INVALID_ARGUMENT",
+        4 => "DEADLINE_EXCEEDED",
+        5 => "NOT_FOUND",
+        6 => "ALREADY_EXISTS",
+        7 => "PERMISSION_DENIED",
+        8 => "RESOURCE_EXHAUSTED",
+        9 => "FAILED_PRECONDITION",
+        10 => "ABORTED",
+        11 => "OUT_OF_RANGE",
+        12 => "UNIMPLEMENTED",
+        13 => "INTERNAL",
+        14 => "UNAVAILABLE",
+        15 => "DATA_LOSS",
+        16 => "UNAUTHENTICATED",
+        _ => "UNKNOWN",
+    };
+    Some(match code {
+        16 => ClientError::Server {
+            status: 401,
+            message: format!("gRPC {name}: {message}"),
+            code: None,
+        },
+        7 => ClientError::Authorization {
+            status: 403,
+            message: format!("gRPC {name}: {message}"),
+            code: None,
+        },
+        14 => ClientError::ServiceUnavailable {
+            message: format!("gRPC {name}: {message}"),
+            details: None,
+            retry_after: None,
+        },
+        _ => ClientError::Grpc(format!("{name}: {message}")),
+    })
+}
+
 /// Configuration for the gRPC client
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GrpcClientConfig {
     /// Server endpoint (e.g., "http://localhost:50051")
     pub endpoint: String,
@@ -69,6 +158,29 @@ pub struct GrpcClientConfig {
     pub initial_connection_window_size: u32,
     /// Initial stream window size
     pub initial_stream_window_size: u32,
+    /// API key sent as `x-api-key` call metadata on every RPC.  Server v0.12
+    /// requires one for everything but `Health` when authentication is on
+    /// (v0.11 servers ignore it).  `None` falls back to the `DAKERA_API_KEY`
+    /// environment variable at connect time, like the HTTP client.
+    pub api_key: Option<String>,
+}
+
+impl std::fmt::Debug for GrpcClientConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GrpcClientConfig")
+            .field("endpoint", &self.endpoint)
+            .field("concurrency_limit", &self.concurrency_limit)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("connect_timeout_ms", &self.connect_timeout_ms)
+            .field("keep_alive_interval_secs", &self.keep_alive_interval_secs)
+            .field("keep_alive_timeout_secs", &self.keep_alive_timeout_secs)
+            .field("http2_adaptive_window", &self.http2_adaptive_window)
+            .field("initial_connection_window_size", &self.initial_connection_window_size)
+            .field("initial_stream_window_size", &self.initial_stream_window_size)
+            // Never print the key.
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 impl Default for GrpcClientConfig {
@@ -83,6 +195,7 @@ impl Default for GrpcClientConfig {
             http2_adaptive_window: true,
             initial_connection_window_size: 1024 * 1024, // 1MB
             initial_stream_window_size: 1024 * 1024,     // 1MB
+            api_key: None,
         }
     }
 }
@@ -132,6 +245,12 @@ impl GrpcClientConfig {
         self
     }
 
+    /// Set the API key sent as `x-api-key` metadata on every call
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
     /// Enable or disable HTTP/2 adaptive window
     pub fn with_http2_adaptive_window(mut self, enabled: bool) -> Self {
         self.http2_adaptive_window = enabled;
@@ -164,8 +283,17 @@ pub struct GrpcClient {
 
 impl GrpcClient {
     /// Connect to the gRPC server with the given configuration
-    pub async fn connect(config: GrpcClientConfig) -> Result<Self> {
+    pub async fn connect(mut config: GrpcClientConfig) -> Result<Self> {
         info!("Connecting to gRPC server at {}", config.endpoint);
+
+        // Resolve the API key: explicit > DAKERA_API_KEY (same as the HTTP client).
+        if config.api_key.is_none() {
+            config.api_key = std::env::var("DAKERA_API_KEY").ok().filter(|k| !k.is_empty());
+        }
+        // Fail at connect, not on the first call, if the key cannot be a header value.
+        if let Some(key) = &config.api_key {
+            api_key_header(key)?;
+        }
 
         let endpoint = Endpoint::from_shared(config.endpoint.clone())
             .map_err(|e| ClientError::Connection(format!("Invalid endpoint: {}", e)))?
@@ -235,16 +363,7 @@ impl GrpcClient {
         body_bytes.extend_from_slice(&encoded);
 
         // Build HTTP/2 request for gRPC
-        let http_request = http::Request::builder()
-            .method(http::Method::POST)
-            .uri(path)
-            .header("content-type", "application/grpc")
-            .header("te", "trailers")
-            .body(tonic::body::Body::new(
-                http_body_util::Full::new(bytes::Bytes::from(body_bytes))
-                    .map_err(|_: std::convert::Infallible| tonic::Status::internal("body error")),
-            ))
-            .map_err(|e| ClientError::Grpc(format!("Failed to build request: {}", e)))?;
+        let http_request = build_http_request(path, body_bytes, self.config.api_key.as_deref())?;
 
         // Call the service
         let response = client
@@ -252,12 +371,23 @@ impl GrpcClient {
             .await
             .map_err(|e| ClientError::Grpc(format!("gRPC call failed: {}", e)))?;
 
+        // A trailers-only answer (an error before any message, e.g.
+        // UNAUTHENTICATED) carries grpc-status in the headers.
+        if let Some(e) = grpc_status_error(response.headers()) {
+            return Err(e);
+        }
+
         // Extract the body
         let body = response.into_body();
         let collected = body
             .collect()
             .await
             .map_err(|e| ClientError::Grpc(format!("Failed to collect body: {}", e)))?;
+
+        // A non-OK status of a normal answer arrives in the trailers.
+        if let Some(e) = collected.trailers().and_then(grpc_status_error) {
+            return Err(e);
+        }
 
         let response_bytes = collected.to_bytes();
 
@@ -283,7 +413,7 @@ impl GrpcClient {
 
         let request = HealthRequest {};
         let response: HealthResponse = self
-            .send_request("/dakera.VectorService/Health", request)
+            .send_request("/dakera.v1.VectorService/Health", request)
             .await
             .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
@@ -308,7 +438,7 @@ impl GrpcClient {
         };
 
         let response: NamespaceInfo = self
-            .send_request("/dakera.VectorService/GetNamespace", request)
+            .send_request("/dakera.v1.VectorService/GetNamespace", request)
             .await
             .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
@@ -334,7 +464,7 @@ impl GrpcClient {
         };
 
         let response: DeleteNamespaceResponse = self
-            .send_request("/dakera.VectorService/DeleteNamespace", request)
+            .send_request("/dakera.v1.VectorService/DeleteNamespace", request)
             .await
             .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
@@ -374,7 +504,7 @@ impl GrpcClient {
         };
 
         let response: UpsertResponse = self
-            .send_request("/dakera.VectorService/Upsert", request)
+            .send_request("/dakera.v1.VectorService/Upsert", request)
             .await
             .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
@@ -409,7 +539,7 @@ impl GrpcClient {
         };
 
         let response: QueryResponse = self
-            .send_request("/dakera.VectorService/Query", request)
+            .send_request("/dakera.v1.VectorService/Query", request)
             .await
             .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
@@ -448,7 +578,7 @@ impl GrpcClient {
         };
 
         let response: DeleteVectorsResponse = self
-            .send_request("/dakera.VectorService/DeleteVectors", request)
+            .send_request("/dakera.v1.VectorService/DeleteVectors", request)
             .await
             .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
@@ -475,7 +605,7 @@ impl GrpcClient {
         };
 
         let response: WarmCacheResponse = self
-            .send_request("/dakera.VectorService/WarmCache", request)
+            .send_request("/dakera.v1.VectorService/WarmCache", request)
             .await
             .inspect_err(|_e| {
                 let _ = self.stats.try_write().map(|mut s| s.failed_requests += 1);
@@ -583,6 +713,64 @@ mod tests {
         assert_eq!(config.connect_timeout_ms, 3000);
         assert_eq!(config.keep_alive_interval_secs, 60);
         assert_eq!(config.keep_alive_timeout_secs, 20);
+    }
+
+    #[test]
+    fn test_request_carries_api_key_metadata() {
+        let path = "/dakera.v1.VectorService/Query";
+        let req = build_http_request(path, vec![0; 5], Some("dk-secret")).unwrap();
+        assert_eq!(req.uri().path(), "/dakera.v1.VectorService/Query");
+        assert_eq!(req.headers()["x-api-key"], "dk-secret");
+        assert!(req.headers()["x-api-key"].is_sensitive());
+        assert_eq!(req.headers()["content-type"], "application/grpc");
+    }
+
+    #[test]
+    fn test_request_without_api_key_has_no_metadata() {
+        let req = build_http_request("/dakera.v1.VectorService/Health", vec![0; 5], None).unwrap();
+        assert!(req.headers().get("x-api-key").is_none());
+    }
+
+    #[test]
+    fn test_invalid_api_key_is_a_config_error() {
+        let err = build_http_request("/x", vec![], Some("bad\nkey")).unwrap_err();
+        assert!(matches!(err, ClientError::Config(_)));
+    }
+
+    #[test]
+    fn test_api_key_is_redacted_in_debug() {
+        let config = GrpcClientConfig::default().with_api_key("dk-secret");
+        assert_eq!(config.api_key.as_deref(), Some("dk-secret"));
+        let shown = format!("{config:?}");
+        assert!(!shown.contains("dk-secret"));
+        assert!(shown.contains("<redacted>"));
+    }
+
+    #[test]
+    fn test_grpc_status_mapping() {
+        let mut h = http::HeaderMap::new();
+        assert!(grpc_status_error(&h).is_none());
+        h.insert("grpc-status", "0".parse().unwrap());
+        assert!(grpc_status_error(&h).is_none());
+
+        h.insert("grpc-status", "16".parse().unwrap());
+        h.insert("grpc-message", "API key required".parse().unwrap());
+        let e = grpc_status_error(&h).unwrap();
+        assert!(e.is_auth_error());
+        assert!(e.to_string().contains("UNAUTHENTICATED"));
+
+        h.insert("grpc-status", "7".parse().unwrap());
+        assert!(grpc_status_error(&h).unwrap().is_auth_error());
+
+        h.insert("grpc-status", "14".parse().unwrap());
+        assert!(grpc_status_error(&h).unwrap().is_retryable());
+
+        h.insert("grpc-status", "3".parse().unwrap());
+        h.insert("grpc-message", "top_k must be > 0".parse().unwrap());
+        match grpc_status_error(&h).unwrap() {
+            ClientError::Grpc(m) => assert!(m.contains("INVALID_ARGUMENT") && m.contains("top_k")),
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[test]
