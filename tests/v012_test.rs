@@ -1357,10 +1357,11 @@ async fn update_memory_sends_lang() {
     let m = json_mock(
         &mut server,
         "PUT",
-        "/v1/agents/a/memories/m1",
+        "/v1/memory/update/m1",
         200,
-        r#"{"memory":{"id":"m1","agent_id":"a"},"embedding_time_ms":1}"#,
+        r#"{"id":"m1","agent_id":"a"}"#,
     )
+    .match_query(Matcher::UrlEncoded("agent_id".into(), "a".into()))
     .match_body(Matcher::Json(json!({"lang": "it"})))
     .create_async()
     .await;
