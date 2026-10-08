@@ -48,6 +48,13 @@ pub struct KnowledgeNode {
     /// Creation time as the server sends it (full graph: Unix seconds as a string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    /// Full length of the content in characters (full graph, server v0.12.2+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_len: Option<usize>,
+    /// Whether `content` was cut to `content_preview_chars` (full graph,
+    /// server v0.12.2+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_truncated: Option<bool>,
 }
 
 /// An edge in the knowledge graph
@@ -182,6 +189,8 @@ impl<'de> Deserialize<'de> for KnowledgeGraphResponse {
                 cluster_id: None,
                 centrality: None,
                 created_at: Some(m.created_at.to_string()),
+                content_len: None,
+                content_truncated: None,
             }];
             let edges = root
                 .related
@@ -264,17 +273,27 @@ impl<'de> Deserialize<'de> for KnowledgeGraphResponse {
 }
 
 /// Request to build a full knowledge graph
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FullKnowledgeGraphRequest {
+    /// Agent whose memories form the graph.
     pub agent_id: String,
+    /// Most nodes (1..=500).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_nodes: Option<u32>,
+    /// Smallest similarity of an edge (0..=1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_similarity: Option<f32>,
+    /// Similarity that puts two nodes in one cluster (0..=1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cluster_threshold: Option<f32>,
+    /// Most edges per node (1..=50).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_edges_per_node: Option<u32>,
+    /// Cut each node's `content` to this many characters (1..=10000; server
+    /// v0.12.2+, which then fills `content_len` / `content_truncated`).
+    /// `None`: full content. An older server ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_preview_chars: Option<u32>,
 }
 
 /// Request to summarize memories
@@ -381,6 +400,10 @@ pub struct DeduplicateResponse {
     pub groups: Vec<Vec<String>>,
     /// The server's duplicate groups.
     pub duplicate_groups: Vec<DuplicateGroup>,
+    /// Duplicates not merged because a record changed (edited, expired,
+    /// forgotten) between the scan and the write (server v0.12.2+; `0` on a
+    /// dry run and from older servers).
+    pub duplicates_skipped_changed: usize,
 }
 
 impl<'de> Deserialize<'de> for DeduplicateResponse {
@@ -422,11 +445,13 @@ impl<'de> Deserialize<'de> for DeduplicateResponse {
                 Vec::new(),
             ),
         };
+        let duplicates_skipped_changed = count(&["duplicates_skipped_changed"]).unwrap_or(0);
         Ok(Self {
             duplicates_found,
             removed_count,
             groups,
             duplicate_groups,
+            duplicates_skipped_changed,
         })
     }
 }
@@ -449,6 +474,10 @@ pub struct CrossAgentNetworkRequest {
     pub min_importance: f32,
     /// Maximum cross-agent edges in the response (default 200).
     pub max_cross_edges: usize,
+    /// Cut each node's `content` to this many characters (1..=10000; server
+    /// v0.12.2+). `None`: full content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_preview_chars: Option<u32>,
 }
 
 impl Default for CrossAgentNetworkRequest {
@@ -459,6 +488,7 @@ impl Default for CrossAgentNetworkRequest {
             max_nodes_per_agent: 50,
             min_importance: 0.0,
             max_cross_edges: 200,
+            content_preview_chars: None,
         }
     }
 }
@@ -474,14 +504,26 @@ pub struct AgentNetworkInfo {
 /// A memory node in the cross-agent network graph
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentNetworkNode {
+    /// Memory id.
     pub id: String,
+    /// The agent the memory belongs to.
     pub agent_id: String,
+    /// Content (cut to `content_preview_chars` when requested).
     pub content: String,
+    /// Importance (0..=1).
     pub importance: f32,
+    /// Tags.
     pub tags: Vec<String>,
+    /// Memory type.
     pub memory_type: String,
     /// Unix milliseconds.
     pub created_at: u64,
+    /// Full length of the content in characters (server v0.12.2+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_len: Option<usize>,
+    /// Whether `content` was cut to `content_preview_chars` (server v0.12.2+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_truncated: Option<bool>,
 }
 
 /// A cross-agent similarity edge between two memory nodes
@@ -539,10 +581,14 @@ impl DakeraClient {
     }
 
     /// Build a full knowledge graph for an agent
+    ///
+    /// An out-of-range `content_preview_chars` is refused with
+    /// [`ClientError::InvalidRequest`] before anything is sent.
     pub async fn full_knowledge_graph(
         &self,
         request: FullKnowledgeGraphRequest,
     ) -> Result<KnowledgeGraphResponse> {
+        crate::agents::check_content_preview(request.content_preview_chars)?;
         let url = format!("{}/v1/knowledge/graph/full", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -585,6 +631,7 @@ impl DakeraClient {
         &self,
         request: CrossAgentNetworkRequest,
     ) -> Result<CrossAgentNetworkResponse> {
+        crate::agents::check_content_preview(request.content_preview_chars)?;
         let url = format!("{}/v1/knowledge/network/cross-agent", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -801,11 +848,13 @@ mod tests {
             min_similarity: None,
             cluster_threshold: None,
             max_edges_per_node: None,
+            content_preview_chars: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("max_nodes"));
         assert!(!json.contains("min_similarity"));
         assert!(!json.contains("cluster_threshold"));
+        assert!(!json.contains("content_preview_chars"));
     }
 
     // -------------------------------------------------------------------------

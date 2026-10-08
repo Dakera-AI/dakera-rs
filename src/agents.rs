@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::error::{ClientError, Result};
 use crate::memory::{RecalledMemory, Session};
 use crate::types::{
     AgentConsolidateResponse, AgentConsolidationConfig, AgentConsolidationLogEntry,
@@ -17,10 +17,121 @@ use crate::DakeraClient;
 /// Summary of an agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSummary {
+    /// Agent id.
     pub agent_id: String,
+    /// The agent's memories (sentence sub-memories excluded).
     pub memory_count: i64,
+    /// Sessions of the agent, ended or not.
     pub session_count: i64,
+    /// Sessions of the agent not ended yet.
     pub active_sessions: i64,
+    /// Records in the agent's memory namespace (memories, sub-memories,
+    /// bookkeeping). Since server v0.12.2 the namespace seed is not counted,
+    /// so an empty agent reports 0. `0` from servers that do not send it.
+    #[serde(default)]
+    pub vector_count: i64,
+    /// Why `vector_count` is unknown (`0`): the agent's namespace could not
+    /// be counted in time (server v0.12.2+). `None` when it was counted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+}
+
+/// Body of `POST /v1/agents` (server v0.12.2+).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateAgentRequest {
+    /// The agent id (`[A-Za-z0-9][A-Za-z0-9_.-]*`, at most 241 bytes, not
+    /// starting with `_dakera_`).
+    pub agent_id: String,
+}
+
+/// Response of `POST /v1/agents` (server v0.12.2+).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateAgentResponse {
+    /// The agent id.
+    pub agent_id: String,
+    /// The agent's memory namespace (`_dakera_agent_<agent_id>`).
+    pub namespace: String,
+    /// `true` when the agent was created (HTTP 201); `false` when it already
+    /// existed (HTTP 200) and was left untouched.
+    pub created: bool,
+    /// Dimension of the namespace's vectors (`None` if the server could not
+    /// read it).
+    #[serde(default)]
+    pub dimension: Option<usize>,
+    /// The embedding model the agent's memories are embedded with.
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// Options of `GET /v1/agents/{agent_id}/memories`.
+///
+/// Every field is optional and omitted from the query when unset.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AgentMemoriesOptions {
+    /// Filter by memory type (sent as `memory_type`).
+    pub memory_type: Option<String>,
+    /// Page size (server default 50, capped at 1000).
+    pub limit: Option<u32>,
+    /// Memories to skip.
+    pub offset: Option<u32>,
+    /// Also list derived records, the sentence sub-memories (server
+    /// v0.12.2+). Since v0.12.2 the listing leaves them out by default.
+    pub include_derived: Option<bool>,
+    /// Cut each memory's `content` to this many characters (1..=10000) and
+    /// fill [`RecalledMemory::content_len`] / [`RecalledMemory::content_truncated`]
+    /// (server v0.12.2+). Read the whole memory with
+    /// [`DakeraClient::get_memory`] when `content_truncated` is true.
+    pub content_preview_chars: Option<u32>,
+}
+
+impl AgentMemoriesOptions {
+    /// The query string pairs for the set fields, in a stable order.
+    pub fn query_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut q = Vec::new();
+        if let Some(t) = &self.memory_type {
+            q.push(("memory_type", t.clone()));
+        }
+        if let Some(l) = self.limit {
+            q.push(("limit", l.to_string()));
+        }
+        if let Some(o) = self.offset {
+            q.push(("offset", o.to_string()));
+        }
+        if let Some(d) = self.include_derived {
+            q.push(("include_derived", d.to_string()));
+        }
+        if let Some(c) = self.content_preview_chars {
+            q.push(("content_preview_chars", c.to_string()));
+        }
+        q
+    }
+}
+
+/// Options of `GET /v1/agents/{agent_id}/wake-up`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WakeUpOptions {
+    /// Maximum memories to return (server default 20, max 100).
+    pub top_n: Option<u32>,
+    /// Only memories with importance at least this value.
+    pub min_importance: Option<f32>,
+    /// Also rank derived records, the sentence sub-memories (server
+    /// v0.12.2+, which leaves them out by default).
+    pub include_derived: Option<bool>,
+}
+
+/// Largest `content_preview_chars` the server accepts.
+pub const MAX_CONTENT_PREVIEW_CHARS: u32 = 10_000;
+
+/// `Err(InvalidRequest)` unless `preview` is `None` or in `1..=10000`.
+pub(crate) fn check_content_preview(preview: Option<u32>) -> Result<()> {
+    match preview {
+        Some(n) if n == 0 || n > MAX_CONTENT_PREVIEW_CHARS => {
+            Err(ClientError::InvalidRequest(format!(
+                "content_preview_chars must be between 1 and {MAX_CONTENT_PREVIEW_CHARS} (got {n})"
+            )))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Detailed stats for an agent
@@ -77,27 +188,59 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
+    /// Create an agent — its memory namespace — before its first memory
+    /// (server v0.12.2+; `POST /v1/agents`).
+    ///
+    /// Needs Write on `_dakera_agent_<agent_id>` (a key granted
+    /// `_dakera_agent_mlx-*` can create `mlx-dev`). Idempotent:
+    /// [`CreateAgentResponse::created`] is `false` for an agent that already
+    /// existed, which is left untouched.
+    pub async fn create_agent(&self, agent_id: &str) -> Result<CreateAgentResponse> {
+        let url = format!("{}/v1/agents", self.base_url);
+        let body = CreateAgentRequest {
+            agent_id: agent_id.to_string(),
+        };
+        let response = self.client.post(&url).json(&body).send().await?;
+        self.handle_response(response).await
+    }
+
     /// Get memories for an agent
+    ///
+    /// Since server v0.12.2 the listing leaves the sentence sub-memories out;
+    /// use [`agent_memories_with`](Self::agent_memories_with) and
+    /// [`AgentMemoriesOptions::include_derived`] to list them too.
     pub async fn agent_memories(
         &self,
         agent_id: &str,
         memory_type: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<RecalledMemory>> {
-        let mut url = format!("{}/v1/agents/{}/memories", self.base_url, agent_id);
-        let mut params = Vec::new();
-        if let Some(t) = memory_type {
-            params.push(format!("memory_type={}", t));
-        }
-        if let Some(l) = limit {
-            params.push(format!("limit={}", l));
-        }
-        if !params.is_empty() {
-            url.push('?');
-            url.push_str(&params.join("&"));
-        }
+        let options = AgentMemoriesOptions {
+            memory_type: memory_type.map(str::to_string),
+            limit,
+            ..Default::default()
+        };
+        self.agent_memories_with(agent_id, &options).await
+    }
 
-        let response = self.client.get(&url).send().await?;
+    /// Get memories for an agent with every listing option
+    /// (`GET /v1/agents/{agent_id}/memories`).
+    ///
+    /// An out-of-range [`AgentMemoriesOptions::content_preview_chars`] is
+    /// refused with [`ClientError::InvalidRequest`] before anything is sent.
+    pub async fn agent_memories_with(
+        &self,
+        agent_id: &str,
+        options: &AgentMemoriesOptions,
+    ) -> Result<Vec<RecalledMemory>> {
+        check_content_preview(options.content_preview_chars)?;
+        let url = format!("{}/v1/agents/{}/memories", self.base_url, agent_id);
+        let response = self
+            .client
+            .get(&url)
+            .query(&options.query_pairs())
+            .send()
+            .await?;
         self.handle_response(response).await
     }
 
@@ -233,20 +376,35 @@ impl DakeraClient {
         top_n: Option<u32>,
         min_importance: Option<f32>,
     ) -> Result<WakeUpResponse> {
-        let mut url = format!("{}/v1/agents/{}/wake-up", self.base_url, agent_id);
-        let mut params = Vec::new();
-        if let Some(n) = top_n {
-            params.push(format!("top_n={}", n));
-        }
-        if let Some(mi) = min_importance {
-            params.push(format!("min_importance={}", mi));
-        }
-        if !params.is_empty() {
-            url.push('?');
-            url.push_str(&params.join("&"));
-        }
+        let options = WakeUpOptions {
+            top_n,
+            min_importance,
+            include_derived: None,
+        };
+        self.wake_up_with(agent_id, &options).await
+    }
 
-        let response = self.client.get(&url).send().await?;
+    /// [`wake_up`](Self::wake_up) with every option, including
+    /// [`WakeUpOptions::include_derived`] (server v0.12.2+, which leaves the
+    /// sentence sub-memories out by default; `total_available` then counts
+    /// memories only).
+    pub async fn wake_up_with(
+        &self,
+        agent_id: &str,
+        options: &WakeUpOptions,
+    ) -> Result<WakeUpResponse> {
+        let url = format!("{}/v1/agents/{}/wake-up", self.base_url, agent_id);
+        let mut query: Vec<(&str, String)> = Vec::new();
+        if let Some(n) = options.top_n {
+            query.push(("top_n", n.to_string()));
+        }
+        if let Some(mi) = options.min_importance {
+            query.push(("min_importance", mi.to_string()));
+        }
+        if let Some(d) = options.include_derived {
+            query.push(("include_derived", d.to_string()));
+        }
+        let response = self.client.get(&url).query(&query).send().await?;
         self.handle_response(response).await
     }
 
@@ -388,6 +546,22 @@ pub struct CompressResponse {
     /// Wall-clock duration of the compression pass in milliseconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<f64>,
+    /// IDs of the summary memories written.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub summary_ids: Vec<String>,
+    /// Summaries the server refused or could not store (server v0.12.2+);
+    /// the originals of their clusters are NOT deprecated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub summaries_skipped: Vec<SkippedSummary>,
+}
+
+/// A compression summary that was not written (`summaries_skipped[]`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkippedSummary {
+    /// The id the summary would have had.
+    pub summary_id: String,
+    /// Why it was skipped (a validation message naming the field).
+    pub reason: String,
 }
 
 // ============================================================================
@@ -543,6 +717,8 @@ mod tests {
             summaries_created: 0,
             deprecated_ids: vec![],
             duration_ms: None,
+            summary_ids: vec![],
+            summaries_skipped: vec![],
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(!json.contains("deprecated_ids"));

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::error::{ClientError, Result};
 use crate::types::{
     AgentFeedbackSummary, FeedbackHealthResponse, FeedbackHistoryResponse, FeedbackResponse,
     FeedbackSignal, GraphExport, GraphLinkRequest, GraphLinkResponse, GraphOptions, GraphPath,
@@ -176,6 +176,10 @@ pub struct StoreMemoryResponse {
     pub namespace: String,
     /// Embedding latency in milliseconds
     pub embedding_time_ms: Option<u64>,
+    /// State of the memory's session (server v0.12.2+): `"active"`, or
+    /// `"ended"` — storing into an ended session still succeeds. `None` when
+    /// the memory has no started session, or from older servers.
+    pub session_state: Option<String>,
 }
 
 impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
@@ -203,11 +207,16 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
                 .unwrap_or("default")
                 .to_string();
             let embedding_time_ms = val.get("embedding_time_ms").and_then(|v| v.as_u64());
+            let session_state = val
+                .get("session_state")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             return Ok(Self {
                 memory_id,
                 agent_id,
                 namespace,
                 embedding_time_ms,
+                session_state,
             });
         }
 
@@ -235,6 +244,7 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
             agent_id,
             namespace,
             embedding_time_ms: None,
+            session_state: None,
         })
     }
 }
@@ -541,6 +551,16 @@ pub struct RecalledMemory {
     /// (server v0.12+, absent otherwise).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment_ref: Option<String>,
+    /// Full length of the content in characters, when a listing was asked for
+    /// a preview (`content_preview_chars`, server v0.12.2+). `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_len: Option<usize>,
+    /// Whether `content` is a cut preview (with `content_preview_chars` only,
+    /// server v0.12.2+). When `true`, read the whole memory with
+    /// [`DakeraClient::get_memory`](crate::DakeraClient::get_memory) before
+    /// showing or editing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_truncated: Option<bool>,
 }
 
 impl<'de> serde::Deserialize<'de> for RecalledMemory {
@@ -618,6 +638,15 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             .get("attachment_ref")
             .and_then(|v| v.as_str())
             .map(String::from);
+        let content_len = mem
+            .get("content_len")
+            .or_else(|| val.get("content_len"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
+        let content_truncated = mem
+            .get("content_truncated")
+            .or_else(|| val.get("content_truncated"))
+            .and_then(|v| v.as_bool());
 
         Ok(Self {
             id,
@@ -637,6 +666,8 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             vector_score,
             text_score,
             attachment_ref,
+            content_len,
+            content_truncated,
         })
     }
 }
@@ -709,29 +740,144 @@ pub struct ForgetResponse {
     pub deleted_count: u64,
 }
 
-/// Session start request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Session start request (`POST /v1/sessions/start`).
+///
+/// ```
+/// use dakera_client::memory::SessionStartRequest;
+///
+/// let req = SessionStartRequest::new("agent-1").with_idle_timeout_secs(7200);
+/// assert_eq!(
+///     serde_json::to_string(&req).unwrap(),
+///     r#"{"agent_id":"agent-1","idle_timeout_secs":7200}"#
+/// );
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionStartRequest {
+    /// The agent the session belongs to.
     pub agent_id: String,
+    /// Session metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    /// Inactivity timeout of this session in seconds (server v0.12.2+):
+    /// `0` = never ended for inactivity, at most
+    /// [`MAX_SESSION_IDLE_TIMEOUT_SECS`]. Omitted = the server's timeout
+    /// (`capabilities.sessions.idle_timeout_secs`, 4 h by default). A server
+    /// before v0.12.2 ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_timeout_secs: Option<u64>,
+}
+
+/// Longest per-session inactivity timeout the server accepts (30 days).
+pub const MAX_SESSION_IDLE_TIMEOUT_SECS: u64 = 2_592_000;
+
+impl SessionStartRequest {
+    /// A request for a session of `agent_id`.
+    pub fn new(agent_id: impl Into<String>) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Attach session metadata.
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Set the session's own inactivity timeout (`0` = never times out).
+    pub fn with_idle_timeout_secs(mut self, secs: u64) -> Self {
+        self.idle_timeout_secs = Some(secs);
+        self
+    }
 }
 
 /// Session information
+///
+/// Since server v0.12.2 the server ends a session after a period of
+/// inactivity (4 h by default): `ended_reason` is then `"idle"` and
+/// `idle_since` the last activity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
+    /// Session id.
     pub id: String,
+    /// The agent the session belongs to.
     pub agent_id: String,
+    /// Start time (Unix seconds).
     pub started_at: u64,
+    /// End time (Unix seconds); `None` while the session is open.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<u64>,
+    /// Session summary.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// Session metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     /// Cached count of memories in this session
     #[serde(default)]
     pub memory_count: usize,
+    /// Last activity the server knows of (Unix seconds; server v0.12.2+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_activity_at: Option<u64>,
+    /// Why the session ended (server v0.12.2+): `"client"` (ended with
+    /// `POST /v1/sessions/{id}/end`) or `"idle"` (ended by the server for
+    /// inactivity). `None` while open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_reason: Option<String>,
+    /// For an idle end: the last activity the session was idle since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_since: Option<u64>,
+    /// The session's own inactivity timeout, when it set one at start
+    /// (`0` = never). `None` = the server's timeout applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_timeout_secs: Option<u64>,
+}
+
+impl Session {
+    /// Whether the session has ended (by a client or by the server).
+    pub fn is_ended(&self) -> bool {
+        self.ended_at.is_some_and(|t| t > 0) || self.ended_reason.is_some()
+    }
+}
+
+/// Response of `POST /v1/sessions/{id}/touch` (server v0.12.2+).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionTouchResponse {
+    /// The session (`last_activity_at` raised to now when it is open).
+    pub session: Session,
+    /// `"active"`, or `"ended"` — a touch never re-opens a session.
+    pub session_state: String,
+    /// When the server ends the session if nothing else happens (Unix
+    /// seconds); `None` when it never times out or has ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_deadline_at: Option<u64>,
+}
+
+/// Options of `GET /v1/sessions/{id}/memories`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SessionMemoriesOptions {
+    /// Page size (server default 50, capped at 500).
+    pub limit: Option<u32>,
+    /// Memories to skip.
+    pub offset: Option<u32>,
+    /// Cut each memory's `content` to this many characters (1..=10000) and
+    /// fill `content_len` / `content_truncated` (server v0.12.2+).
+    pub content_preview_chars: Option<u32>,
+}
+
+/// Response of `GET /v1/sessions/{id}/memories` with its session and total.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMemoriesResponse {
+    /// The session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<Session>,
+    /// The page of memories, oldest first.
+    #[serde(default)]
+    pub memories: Vec<RecalledMemory>,
+    /// Memories in the session (before paging).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<usize>,
 }
 
 /// Session end request
@@ -748,9 +894,17 @@ pub struct SessionStartResponse {
 }
 
 /// Response from `POST /v1/sessions/{id}/end`
+///
+/// Since server v0.12.2, ending a session the server already ended returns
+/// the persisted session (its `ended_reason` and summary are kept), and
+/// ending a session of an agent the key cannot reach returns the same
+/// idempotent answer as an unknown session (empty `agent_id`, nothing
+/// written). A Read key gets 403.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionEndResponse {
+    /// The session as stored.
     pub session: Session,
+    /// Memories in the session at close.
     pub memory_count: usize,
 }
 
@@ -1310,6 +1464,10 @@ pub struct BatchStoreMemoryResponse {
     pub stored_count: usize,
     /// Time spent on ONNX embedding for the entire batch (milliseconds).
     pub total_embedding_time_ms: u64,
+    /// Ended sessions the batch stored into (server v0.12.2+; empty when
+    /// none, or from older servers). The memories were stored.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ended_sessions: Vec<String>,
 }
 
 /// Request body for `DELETE /v1/memories/forget/batch`.
@@ -1741,15 +1899,13 @@ impl DakeraClient {
     // ========================================================================
 
     /// Start a new session for an agent
+    ///
+    /// Since server v0.12.2 the server ends a session after 4 h without
+    /// activity by default; see [`start_session_with`](Self::start_session_with)
+    /// and [`touch_session`](Self::touch_session).
     pub async fn start_session(&self, agent_id: &str) -> Result<Session> {
-        let url = format!("{}/v1/sessions/start", self.base_url);
-        let request = SessionStartRequest {
-            agent_id: agent_id.to_string(),
-            metadata: None,
-        };
-        let response = self.client.post(&url).json(&request).send().await?;
-        let resp: SessionStartResponse = self.handle_response(response).await?;
-        Ok(resp.session)
+        self.start_session_with(&SessionStartRequest::new(agent_id))
+            .await
     }
 
     /// Start a session with metadata
@@ -1758,14 +1914,40 @@ impl DakeraClient {
         agent_id: &str,
         metadata: serde_json::Value,
     ) -> Result<Session> {
+        self.start_session_with(&SessionStartRequest::new(agent_id).with_metadata(metadata))
+            .await
+    }
+
+    /// Start a session with every option, e.g. its own inactivity timeout
+    /// ([`SessionStartRequest::idle_timeout_secs`], server v0.12.2+).
+    ///
+    /// A timeout over [`MAX_SESSION_IDLE_TIMEOUT_SECS`] is refused with
+    /// [`ClientError::InvalidRequest`] before anything is sent.
+    pub async fn start_session_with(&self, request: &SessionStartRequest) -> Result<Session> {
+        if let Some(secs) = request.idle_timeout_secs {
+            if secs > MAX_SESSION_IDLE_TIMEOUT_SECS {
+                return Err(ClientError::InvalidRequest(format!(
+                    "idle_timeout_secs must be at most {MAX_SESSION_IDLE_TIMEOUT_SECS} (30 days), got {secs}"
+                )));
+            }
+        }
         let url = format!("{}/v1/sessions/start", self.base_url);
-        let request = SessionStartRequest {
-            agent_id: agent_id.to_string(),
-            metadata: Some(metadata),
-        };
-        let response = self.client.post(&url).json(&request).send().await?;
+        let response = self.client.post(&url).json(request).send().await?;
         let resp: SessionStartResponse = self.handle_response(response).await?;
         Ok(resp.session)
+    }
+
+    /// Record activity on an open session so the server does not end it for
+    /// inactivity (server v0.12.2+; `POST /v1/sessions/{id}/touch`).
+    ///
+    /// Write scope on the session's agent. A touch never re-opens an ended
+    /// session: [`SessionTouchResponse::session_state`] is then `"ended"`.
+    /// A session of an agent the key cannot reach answers 404, like a
+    /// missing one.
+    pub async fn touch_session(&self, session_id: &str) -> Result<SessionTouchResponse> {
+        let url = format!("{}/v1/sessions/{}/touch", self.base_url, session_id);
+        let response = self.client.post(&url).send().await?;
+        self.handle_response(response).await
     }
 
     /// End a session, optionally with a summary.
@@ -1800,6 +1982,33 @@ impl DakeraClient {
     pub async fn session_memories(&self, session_id: &str) -> Result<RecallResponse> {
         let url = format!("{}/v1/sessions/{}/memories", self.base_url, session_id);
         let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Get a page of a session's memories with the session and its total
+    /// (`GET /v1/sessions/{id}/memories`), e.g. as previews
+    /// ([`SessionMemoriesOptions::content_preview_chars`], server v0.12.2+).
+    ///
+    /// An out-of-range `content_preview_chars` is refused with
+    /// [`ClientError::InvalidRequest`] before anything is sent.
+    pub async fn session_memories_with(
+        &self,
+        session_id: &str,
+        options: &SessionMemoriesOptions,
+    ) -> Result<SessionMemoriesResponse> {
+        crate::agents::check_content_preview(options.content_preview_chars)?;
+        let url = format!("{}/v1/sessions/{}/memories", self.base_url, session_id);
+        let mut query: Vec<(&str, String)> = Vec::new();
+        if let Some(l) = options.limit {
+            query.push(("limit", l.to_string()));
+        }
+        if let Some(o) = options.offset {
+            query.push(("offset", o.to_string()));
+        }
+        if let Some(c) = options.content_preview_chars {
+            query.push(("content_preview_chars", c.to_string()));
+        }
+        let response = self.client.get(&url).query(&query).send().await?;
         self.handle_response(response).await
     }
 

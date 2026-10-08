@@ -135,6 +135,9 @@ pub struct MemoryEvent {
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// For `session_ended`: `"client"` or `"idle"` (server v0.12.2+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 impl DakeraEvent {
