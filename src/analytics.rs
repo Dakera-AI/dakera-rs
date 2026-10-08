@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+use crate::types::UnavailableNamespace;
 use crate::DakeraClient;
 
 // ============================================================================
@@ -23,6 +24,11 @@ pub struct AnalyticsOverview {
     pub total_vectors: u64,
     pub total_namespaces: u64,
     pub uptime_seconds: u64,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 /// Latency analytics response
@@ -125,6 +131,11 @@ pub struct StorageAnalytics {
     pub fulltext_bytes: u64,
     #[serde(default)]
     pub namespace_breakdown: Vec<NamespaceStorageInfo>,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 /// One namespace of the storage breakdown.

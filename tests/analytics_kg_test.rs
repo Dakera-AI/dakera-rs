@@ -261,6 +261,7 @@ async fn test_full_knowledge_graph() {
         min_similarity: Some(0.3),
         cluster_threshold: Some(0.6),
         max_edges_per_node: Some(5),
+        content_preview_chars: None,
     };
     let graph = client.full_knowledge_graph(request).await.unwrap();
     assert_eq!(graph.nodes.len(), 3);
@@ -486,6 +487,7 @@ async fn test_full_knowledge_graph_server_shape() {
             min_similarity: None,
             cluster_threshold: None,
             max_edges_per_node: None,
+            content_preview_chars: None,
         })
         .await
         .unwrap();
@@ -610,6 +612,7 @@ async fn test_cross_agent_network() {
         max_nodes_per_agent: 50,
         min_importance: 0.3,
         max_cross_edges: 100,
+        content_preview_chars: None,
     };
     let result = client.cross_agent_network(request).await.unwrap();
     assert_eq!(result.agents.len(), 2);

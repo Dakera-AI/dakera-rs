@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::types::{
-    QuotaConfig, QuotaListResponse, QuotaStatus, WarmCacheRequest, WarmCacheResponse,
+    NamespaceKind, QuotaConfig, QuotaListResponse, QuotaStatus, UnavailableNamespace,
+    WarmCacheRequest, WarmCacheResponse,
 };
 use crate::DakeraClient;
 
@@ -26,6 +27,11 @@ pub struct OpsStats {
     pub uptime_seconds: u64,
     pub timestamp: u64,
     pub state: String,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 /// Cluster status response
@@ -41,6 +47,11 @@ pub struct ClusterStatus {
     /// Redis connectivity status (OPS-3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redis_healthy: Option<bool>,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 /// Node information
@@ -66,6 +77,11 @@ pub struct NodeInfo {
 pub struct NodeListResponse {
     pub nodes: Vec<NodeInfo>,
     pub total: u32,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 // ============================================================================
@@ -98,6 +114,9 @@ pub struct NamespaceAdminInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<u64>,
     pub index_stats: IndexStats,
+    /// `agent`, `data` or `system` (server v0.12.2+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<NamespaceKind>,
 }
 
 /// Namespace list response
@@ -106,6 +125,11 @@ pub struct NamespaceListResponse {
     pub namespaces: Vec<NamespaceAdminInfo>,
     pub total: u64,
     pub total_vectors: u64,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 /// Optimize namespace request
@@ -136,6 +160,11 @@ pub struct IndexStatsResponse {
     pub namespaces: HashMap<String, IndexStats>,
     pub total_indexed_vectors: u64,
     pub total_size_bytes: u64,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 /// Rebuild index request
@@ -216,6 +245,11 @@ pub struct RuntimeConfig {
     /// How often AutoPilot consolidation runs (hours)
     #[serde(default = "default_consolidation_interval")]
     pub autopilot_consolidation_interval_hours: u64,
+    /// Server-wide session inactivity timeout in seconds (server v0.12.2+;
+    /// default 14400 = 4 h, `0` = sessions without their own timeout are
+    /// never ended for inactivity). `None` from older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_idle_timeout_secs: Option<u64>,
 }
 
 fn default_true() -> bool {
@@ -570,6 +604,11 @@ pub struct TtlStatsResponse {
     pub namespaces: Vec<TtlStats>,
     pub total_with_ttl: u64,
     pub total_expired: u64,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 // ============================================================================
@@ -727,6 +766,61 @@ impl DakeraClient {
     ) -> Result<UpdateConfigResponse> {
         let url = format!("{}/v1/admin/config", self.base_url);
         let response = self.client.put(&url).json(&updates).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Set the server-wide session inactivity timeout (server v0.12.2+;
+    /// `PUT /admin/config` with `session_idle_timeout_secs`).
+    ///
+    /// `0` = sessions without their own timeout are never ended for
+    /// inactivity. The change is persisted as a runtime override and takes
+    /// effect at the reaper's next tick. A value over
+    /// [`MAX_SESSION_IDLE_TIMEOUT_SECS`](crate::memory::MAX_SESSION_IDLE_TIMEOUT_SECS)
+    /// (30 days) is refused with
+    /// [`ClientError::InvalidRequest`](crate::ClientError::InvalidRequest)
+    /// before anything is sent.
+    pub async fn set_session_idle_timeout(&self, secs: u64) -> Result<UpdateConfigResponse> {
+        use crate::memory::MAX_SESSION_IDLE_TIMEOUT_SECS;
+        if secs > MAX_SESSION_IDLE_TIMEOUT_SECS {
+            return Err(crate::ClientError::InvalidRequest(format!(
+                "session_idle_timeout_secs must be at most {MAX_SESSION_IDLE_TIMEOUT_SECS} (30 days), got {secs}"
+            )));
+        }
+        let mut updates = HashMap::new();
+        updates.insert(
+            "session_idle_timeout_secs".to_string(),
+            serde_json::Value::from(secs),
+        );
+        self.update_config(updates).await
+    }
+
+    // ====================================================================
+    // Derived data (server v0.12.2+)
+    // ====================================================================
+
+    /// What derived data (sentence sub-memories, full-text entries, graph
+    /// edges) the server owes across every agent namespace (server v0.12.2+;
+    /// `GET /admin/derivations/status`, global admin).
+    pub async fn derivations_status(&self) -> Result<DerivationStatus> {
+        let url = format!("{}/v1/admin/derivations/status", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Derive everything owed now, on this node, until nothing is owed or
+    /// `timeout_secs` elapses (server v0.12.2+;
+    /// `POST /admin/derivations/drain`, global admin).
+    ///
+    /// `None` uses the server default (600 s, capped at 4/5 of the server's
+    /// request timeout). One drain runs at a time: a second answers 409.
+    /// Make the client timeout longer than the drain's.
+    pub async fn drain_derivations(
+        &self,
+        timeout_secs: Option<u64>,
+    ) -> Result<DrainDerivationsResponse> {
+        let url = format!("{}/v1/admin/derivations/drain", self.base_url);
+        let body = DrainDerivationsRequest { timeout_secs };
+        let response = self.client.post(&url).json(&body).send().await?;
         self.handle_response(response).await
     }
 
@@ -1414,6 +1508,168 @@ impl DakeraClient {
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
+}
+
+// ============================================================================
+// Derived data (server v0.12.2+)
+// ============================================================================
+
+/// This node's one-time derivation heal (`status.heal`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DerivationHeal {
+    /// Shape version of the heal state.
+    #[serde(default)]
+    pub version: u32,
+    /// Whether the heal has finished.
+    #[serde(default)]
+    pub complete: bool,
+    /// The namespace being healed.
+    #[serde(default)]
+    pub namespace: Option<String>,
+    /// The last parent of `namespace` handled.
+    #[serde(default)]
+    pub cursor: Option<String>,
+    /// Parents healed so far.
+    #[serde(default)]
+    pub parents_healed: u64,
+    /// Graph edges adopted so far.
+    #[serde(default)]
+    pub graph_adopted: u64,
+    /// Unix seconds.
+    #[serde(default)]
+    pub started_at: Option<u64>,
+    /// Unix seconds.
+    #[serde(default)]
+    pub completed_at: Option<u64>,
+}
+
+/// The derivation reconciler (`status.reconciler`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DerivationReconciler {
+    /// `idle`, `waiting`, `standby` (not the leader), `deferred` (memory
+    /// pressure), `running` or `sleeping`.
+    #[serde(default)]
+    pub state: String,
+    /// Unix seconds of the last tick.
+    #[serde(default)]
+    pub last_tick_at: Option<u64>,
+    /// Ticks since start.
+    #[serde(default)]
+    pub ticks: u64,
+    /// The namespace the reconciler visits next.
+    #[serde(default)]
+    pub next_namespace: Option<String>,
+}
+
+/// Response of `GET /admin/derivations/status` (server v0.12.2+).
+///
+/// Counter maps (`counters`) and any field this SDK does not model are kept
+/// in `counters` / `extra`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DerivationStatus {
+    /// Nothing owed, nothing in flight, the graph edge queue empty.
+    #[serde(default)]
+    pub settled: bool,
+    /// Sentences their parents call for with no child yet.
+    #[serde(default)]
+    pub pending_sentences: u64,
+    /// Parents with at least one pending sentence.
+    #[serde(default)]
+    pub pending_parents: u64,
+    /// Memories with text and no derivation marker.
+    #[serde(default)]
+    pub unmarked_parents: u64,
+    /// Children whose sentence the parent's text no longer has.
+    #[serde(default)]
+    pub stale_children: u64,
+    /// Children whose parent is not stored.
+    #[serde(default)]
+    pub orphan_children: u64,
+    /// Kept children whose inherited fields are out of date.
+    #[serde(default)]
+    pub remeta_children: u64,
+    /// Second children of one sentence.
+    #[serde(default)]
+    pub duplicate_children: u64,
+    /// Children without a marker under a marked parent.
+    #[serde(default)]
+    pub legacy_children: u64,
+    /// Memory records missing from the full-text index.
+    #[serde(default)]
+    pub bm25_missing: u64,
+    /// Memories whose graph edges are owed and not queued.
+    #[serde(default)]
+    pub graph_owed: u64,
+    /// Derivation runs in flight.
+    #[serde(default)]
+    pub in_flight: u64,
+    /// Memories whose edges the edge queue holds.
+    #[serde(default)]
+    pub graph_queue_owed: u64,
+    /// Namespaces marked for the reconciler.
+    #[serde(default)]
+    pub dirty_namespaces: Vec<String>,
+    /// Agent namespaces counted.
+    #[serde(default)]
+    pub namespaces: u64,
+    /// Agent namespaces whose index could not be built (not counted).
+    #[serde(default)]
+    pub unreadable_namespaces: Vec<String>,
+    /// This node's one-time heal; `None` until loaded.
+    #[serde(default)]
+    pub heal: Option<DerivationHeal>,
+    /// The reconciler.
+    #[serde(default)]
+    pub reconciler: DerivationReconciler,
+    /// Per-process counters since start (`derived`, `adopted`, ...).
+    #[serde(default)]
+    pub counters: HashMap<String, u64>,
+    /// Fields this SDK version does not model yet.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Body of `POST /admin/derivations/drain`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DrainDerivationsRequest {
+    /// Wall-clock cap in seconds (server default 600).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+}
+
+/// Response of `POST /admin/derivations/drain` (server v0.12.2+).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DrainDerivationsResponse {
+    /// Whether nothing is owed any more.
+    #[serde(default)]
+    pub settled: bool,
+    /// The drain stopped on its timeout, unsettled.
+    #[serde(default)]
+    pub timed_out: bool,
+    /// Rounds run.
+    #[serde(default)]
+    pub rounds: u64,
+    /// Wall-clock duration (ms).
+    #[serde(default)]
+    pub elapsed_ms: u64,
+    /// Parents run.
+    #[serde(default)]
+    pub parents_run: u64,
+    /// Sentences the last round could not derive (the model refusing).
+    #[serde(default)]
+    pub pending_left: u64,
+    /// Stale, orphaned and duplicate children deleted.
+    #[serde(default)]
+    pub deleted: u64,
+    /// Full-text documents restored.
+    #[serde(default)]
+    pub bm25_restored: u64,
+    /// Memories queued for a graph-edge rebuild.
+    #[serde(default)]
+    pub graph_queued: u64,
+    /// What is owed after the drain.
+    #[serde(default)]
+    pub status: DerivationStatus,
 }
 
 // ============================================================================

@@ -179,6 +179,89 @@ pub struct VisionCapability {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// Key and grant features (`capabilities.auth`, server v0.12.2+).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AuthCapability {
+    /// Key grants may hold `p*` prefix patterns.
+    #[serde(default)]
+    pub prefix_patterns: bool,
+    /// Sessions are authorized by their agent's namespace alone (no
+    /// `_dakera_sessions` grant needed).
+    #[serde(default)]
+    pub sessions_by_agent: bool,
+    /// `PATCH /admin/keys/{id}` and `PATCH /v1/namespaces/{ns}/keys/{id}` exist.
+    #[serde(default)]
+    pub key_update: bool,
+    /// Longest rotation grace period (seconds).
+    #[serde(default)]
+    pub rotation_grace_max_secs: u64,
+    /// Most entries in a key's `namespaces`.
+    #[serde(default)]
+    pub max_grants: usize,
+    /// Longest grant entry (bytes).
+    #[serde(default)]
+    pub max_grant_len: usize,
+    /// Fields this SDK version does not model yet.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Naming rules (`capabilities.naming`, server v0.12.2+).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct NamingCapability {
+    /// Regular expression an agent id must match.
+    #[serde(default)]
+    pub agent_id_pattern: String,
+    /// Longest agent id (bytes; 241 since v0.12.2).
+    #[serde(default)]
+    pub agent_id_max_bytes: usize,
+    /// Prefix of an agent's memory namespace (`_dakera_agent_`).
+    #[serde(default)]
+    pub agent_namespace_prefix: String,
+    /// Longest agent namespace (bytes).
+    #[serde(default)]
+    pub agent_namespace_max_bytes: usize,
+    /// Regular expression a client namespace must match.
+    #[serde(default)]
+    pub namespace_pattern: String,
+    /// Longest client namespace (bytes).
+    #[serde(default)]
+    pub namespace_max_bytes: usize,
+    /// Prefixes a client namespace may not start with.
+    #[serde(default)]
+    pub reserved_prefixes: Vec<String>,
+    /// Server-internal namespaces (refused on client routes).
+    #[serde(default)]
+    pub internal_namespaces: Vec<String>,
+    /// Prefixes of server-internal namespace families.
+    #[serde(default)]
+    pub internal_prefixes: Vec<String>,
+    /// Fields this SDK version does not model yet.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Session lifecycle (`capabilities.sessions`, server v0.12.2+).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SessionsCapability {
+    /// The live server-wide inactivity timeout (seconds; `0` = sessions
+    /// without their own timeout are never ended for inactivity).
+    #[serde(default)]
+    pub idle_timeout_secs: u64,
+    /// Longest per-session `idle_timeout_secs` accepted at start.
+    #[serde(default)]
+    pub max_idle_timeout_secs: u64,
+    /// `POST /v1/sessions/{id}/touch` exists.
+    #[serde(default)]
+    pub touch: bool,
+    /// Sessions carry `ended_reason`.
+    #[serde(default)]
+    pub ended_reason: bool,
+    /// Fields this SDK version does not model yet.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 /// Parse an accepted-values field the server emits as prose —
 /// `"hybrid, binary, float, scalar (alias sq), rabitq"` — so `x (alias y)`
 /// yields both `x` and `y`.
@@ -309,6 +392,16 @@ pub struct ServerCapabilities {
     /// Live counters of the late-interaction path since start (name -> count).
     #[serde(default)]
     pub late_interaction_stats: HashMap<String, serde_json::Value>,
+    /// Key and grant features (`capabilities_version` 2, server v0.12.2+;
+    /// all-default from older servers).
+    #[serde(default)]
+    pub auth: AuthCapability,
+    /// Naming rules (server v0.12.2+; all-default from older servers).
+    #[serde(default)]
+    pub naming: NamingCapability,
+    /// Session lifecycle (server v0.12.2+; all-default from older servers).
+    #[serde(default)]
+    pub sessions: SessionsCapability,
     /// Top-level fields this SDK version does not model yet (kept, never rejected).
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -365,6 +458,16 @@ impl ServerCapabilities {
             .iter()
             .map(|m| m.name.as_str().to_string())
             .collect()
+    }
+
+    /// Whether the server supports the v0.12.2 key edits (`PATCH` key routes).
+    pub fn supports_key_update(&self) -> bool {
+        self.auth.key_update
+    }
+
+    /// Whether the server supports `POST /v1/sessions/{id}/touch`.
+    pub fn supports_session_touch(&self) -> bool {
+        self.sessions.touch
     }
 
     /// Whether the record routes are switched on (`records.enabled`).

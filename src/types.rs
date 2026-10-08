@@ -153,6 +153,9 @@ pub struct NamespaceInfo {
     /// Whether the namespace was newly created (from PUT/configure response)
     #[serde(default)]
     pub created: Option<bool>,
+    /// `agent` (an agent's memory namespace) or `data` (server v0.12.2+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<NamespaceKind>,
 }
 
 /// List namespaces response
@@ -160,6 +163,37 @@ pub struct NamespaceInfo {
 pub struct ListNamespacesResponse {
     /// List of namespace names
     pub namespaces: Vec<String>,
+    /// Kind of each listed namespace (server v0.12.2+; empty from older
+    /// servers).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub kinds: HashMap<String, NamespaceKind>,
+}
+
+/// What a namespace holds (server v0.12.2+).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NamespaceKind {
+    /// An agent's memory namespace (`_dakera_agent_<agent_id>`).
+    Agent,
+    /// A client (vector / document) namespace.
+    Data,
+    /// A server-internal namespace.
+    System,
+    /// A kind this SDK version does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A namespace a node-wide endpoint could not include
+/// (`unavailable[]`, server v0.12.2+). Its records are not in the totals.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnavailableNamespace {
+    /// The namespace.
+    pub namespace: String,
+    /// Why (an error, or no answer within the deadline). Never carries
+    /// paths, URLs or credentials.
+    #[serde(default)]
+    pub reason: String,
 }
 
 // ============================================================================
@@ -3784,6 +3818,11 @@ pub struct ShardInfo {
 pub struct ShardListResponse {
     pub shards: Vec<ShardInfo>,
     pub total: u32,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 /// Request for `POST /v1/admin/cluster/shards/rebalance`.
@@ -4235,6 +4274,11 @@ pub struct StorageTierOverview {
     pub config: TierConfig,
     /// Tier movement activity.
     pub activity: TierActivity,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 // ============================================================================
@@ -4256,6 +4300,11 @@ pub struct MemoryTypeStatsResponse {
     pub procedural: u64,
     /// Number of distinct agent namespaces.
     pub agent_namespaces: u64,
+    /// Namespaces left out of this answer (an error, or no answer within the
+    /// server's per-namespace deadline; server v0.12.2+). Empty when every
+    /// namespace answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UnavailableNamespace>,
 }
 
 // ============================================================================

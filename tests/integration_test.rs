@@ -485,10 +485,7 @@ async fn test_decode_contract_round_trip() {
     let full = client
         .full_knowledge_graph(FullKnowledgeGraphRequest {
             agent_id: agent.clone(),
-            max_nodes: None,
-            min_similarity: None,
-            cluster_threshold: None,
-            max_edges_per_node: None,
+            ..Default::default()
         })
         .await
         .unwrap();

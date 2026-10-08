@@ -282,6 +282,16 @@ impl DakeraClient {
             .map(|r| r.namespaces)
     }
 
+    /// List all namespaces with the kind of each (`agent`, `data`; server
+    /// v0.12.2+ — [`ListNamespacesResponse::kinds`] is empty from older
+    /// servers).
+    #[instrument(skip(self))]
+    pub async fn list_namespaces_with_kinds(&self) -> Result<ListNamespacesResponse> {
+        let url = format!("{}/v1/namespaces", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
     /// Get namespace information
     #[instrument(skip(self))]
     pub async fn get_namespace(&self, namespace: &str) -> Result<NamespaceInfo> {

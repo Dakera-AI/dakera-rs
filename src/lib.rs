@@ -103,13 +103,18 @@ pub use admin::{
     AutoPilotTriggerResponse, BackupInfo, BackupListResponse, CacheStats, ClearCacheRequest,
     ClearCacheResponse, ClusterStatus, ConsolidationResultSnapshot, CreateBackupRequest,
     CreateBackupResponse, DecayConfigResponse, DecayConfigUpdateRequest, DecayConfigUpdateResponse,
-    DecayStatsResponse, DedupResultSnapshot, FulltextReindexNamespaceResult,
-    FulltextReindexResponse, IndexStats, IndexStatsResponse, KpiSnapshot, LastDecayCycleStats,
-    NodeInfo, NodeListResponse, OpsStats, RestoreBackupRequest, RestoreBackupResponse,
-    RuntimeConfig, SlowQueryListResponse, TtlCleanupRequest, TtlCleanupResponse, TtlStats,
-    TtlStatsResponse,
+    DecayStatsResponse, DedupResultSnapshot, DerivationHeal, DerivationReconciler,
+    DerivationStatus, DrainDerivationsRequest, DrainDerivationsResponse,
+    FulltextReindexNamespaceResult, FulltextReindexResponse, IndexStats, IndexStatsResponse,
+    KpiSnapshot, LastDecayCycleStats, NodeInfo, NodeListResponse, OpsStats, RestoreBackupRequest,
+    RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse, TtlCleanupRequest,
+    TtlCleanupResponse, TtlStats, TtlStatsResponse,
 };
-pub use agents::{AgentStats, AgentSummary, CompressResponse, Memory, WakeUpResponse};
+pub use agents::{
+    AgentMemoriesOptions, AgentStats, AgentSummary, CompressResponse, CreateAgentRequest,
+    CreateAgentResponse, Memory, SkippedSummary, WakeUpOptions, WakeUpResponse,
+    MAX_CONTENT_PREVIEW_CHARS,
+};
 pub use analytics::{
     AnalyticsOverview, LatencyAnalytics, LatencyBucket, NamespaceStorage, NamespaceStorageInfo,
     StorageAnalytics, ThroughputAnalytics, ThroughputDataPoint,
@@ -122,9 +127,10 @@ pub use attachments::{
 };
 // R9 / DAK-10004: GET /v1/capabilities
 pub use capabilities::{
-    parse_accepted_values, AttachmentCapability, CapabilityKind, LateInteractionCapability,
-    ModelCapability, RecordCapabilities, ScoringCapability, ServerCapabilities,
-    TranscriptionCapability, VisionCapability,
+    parse_accepted_values, AttachmentCapability, AuthCapability, CapabilityKind,
+    LateInteractionCapability, ModelCapability, NamingCapability, RecordCapabilities,
+    ScoringCapability, ServerCapabilities, SessionsCapability, TranscriptionCapability,
+    VisionCapability,
 };
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
@@ -132,7 +138,8 @@ pub use error::{ClientError, Result, ServerErrorCode};
 pub use keys::{
     ApiKeyUsageResponse, CreateKeyRequest, CreateKeyResponse, CreateNamespaceKeyRequest,
     CreateNamespaceKeyResponse, KeyInfo, ListKeysResponse, ListNamespaceKeysResponse,
-    NamespaceKeyInfo, NamespaceKeyUsageResponse, RotateKeyResponse,
+    NamespaceKeyInfo, NamespaceKeyUsageResponse, RotateKeyRequest, RotateKeyResponse,
+    UpdateKeyRequest, WhoamiResponse, MAX_ROTATION_GRACE_SECS,
 };
 pub use knowledge::{
     AgentNetworkEdge, AgentNetworkInfo, AgentNetworkNode, AgentNetworkStats,
@@ -173,7 +180,11 @@ pub use memory::{
     RoutingMode,
     Session,
     SessionEndResponse,
+    SessionMemoriesOptions,
+    SessionMemoriesResponse,
+    SessionStartRequest,
     SessionStartResponse,
+    SessionTouchResponse,
     StoreMemoryRequest,
     StoreMemoryResponse,
 };

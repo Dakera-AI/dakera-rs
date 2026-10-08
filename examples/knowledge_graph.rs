@@ -107,6 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_similarity: Some(0.1),
             cluster_threshold: Some(0.5),
             max_edges_per_node: Some(5),
+            content_preview_chars: Some(200),
         })
         .await?;
     println!(

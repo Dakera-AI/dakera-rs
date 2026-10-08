@@ -152,6 +152,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
+## What's new in v0.12.2
+
+`dakera-client` 0.12.2 supports the Dakera server **v0.12.2** (Dakera-AI/dakera#916) and keeps
+working against **v0.12.0 / v0.12.1**: every new request field is omitted unless set, and every new
+response field is optional (`None` / empty from an older server). The new routes answer `404` on an
+older server.
+
+- **Agents** — `create_agent(agent_id)` (`POST /v1/agents`) creates an agent before its first memory;
+  idempotent (`created: false` for an existing one).
+- **Keys** — `update_key` / `update_namespace_key` (`PATCH`) rename a key or replace its namespaces;
+  `UpdateKeyRequest` tells "unchanged" (field absent), "every namespace" (`null`) and a list apart.
+  `rotate_key_with_grace(key_id, secs)` keeps the old key working up to 7 days
+  (`old_key_id`, `old_key_expires_at`). `whoami()` (`GET /v1/auth/whoami`). `KeyInfo` gains
+  `grants_version` and `inert_namespaces` (grants may now be `p*` prefix patterns).
+- **Sessions** — the server ends a session after **4 h** without activity by default.
+  `SessionStartRequest::with_idle_timeout_secs` + `start_session_with`, `touch_session`, and
+  `Session::{last_activity_at, ended_reason, idle_since, idle_timeout_secs}`; store answers carry
+  `session_state`, batch answers `ended_sessions`.
+- **Listings** — `agent_memories_with` / `session_memories_with` / `wake_up_with`:
+  `include_derived` (derived sentence sub-memories are now left out by default) and
+  `content_preview_chars` (`content_len`, `content_truncated` on each memory). The same preview on
+  `FullKnowledgeGraphRequest` and `CrossAgentNetworkRequest`.
+- **Admin** — `derivations_status()`, `drain_derivations(timeout)`,
+  `set_session_idle_timeout(secs)` and `RuntimeConfig::session_idle_timeout_secs`; node-wide answers
+  list the namespaces they could not include in `unavailable`.
+- **Also** — `capabilities()` reads the v2 `auth`, `naming` and `sessions` blocks;
+  `NamespaceKind` on namespaces (`list_namespaces_with_kinds`); `duplicates_skipped_changed` on
+  deduplication; `summaries_skipped` on compression.
+
+Behaviour changes of the v0.12.2 server you may hit: sessions are authorized by their agent (no
+`_dakera_sessions` grant; `end_session` with a Read key is `403`); stricter validation (`400` with
+the field named); the memory content limit is in **bytes**; listings leave derived records out
+unless `include_derived=true`; idle sessions end after 4 h. See the [CHANGELOG](CHANGELOG.md).
+
+```rust,no_run
+use dakera_client::{AgentMemoriesOptions, DakeraClient, UpdateKeyRequest};
+use dakera_client::memory::SessionStartRequest;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::builder("http://localhost:3000").api_key("dk-mykey").build()?;
+
+    println!("{} ({})", client.whoami().await?.key_id, client.create_agent("mlx-dev").await?.namespace);
+
+    let session = client
+        .start_session_with(&SessionStartRequest::new("mlx-dev").with_idle_timeout_secs(8 * 3600))
+        .await?;
+    client.touch_session(&session.id).await?;
+
+    let opts = AgentMemoriesOptions { content_preview_chars: Some(200), ..Default::default() };
+    for m in client.agent_memories_with("mlx-dev", &opts).await? {
+        println!("{} {}{}", m.id, m.content, if m.content_truncated == Some(true) { "…" } else { "" });
+    }
+
+    client
+        .update_key("dk_key_1a2b3c4d", &UpdateKeyRequest::new().with_namespaces(vec!["_dakera_agent_mlx-*".into()]))
+        .await?;
+    Ok(())
+}
+```
+
 ## What's new in v0.12.0
 
 `dakera-client` 0.12.0 supports the Dakera server **v0.12.0** and keeps working against
@@ -249,8 +310,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 |---|---|---|
 | v0.11.108 | yes | v0.12-only calls return `404` (capabilities, records, attachments); everything else is unchanged |
 | v0.12.0 | yes | opt-in features answer `501 FEATURE_DISABLED` until the operator enables them |
-
-Merge and publish this release only after the v0.12.0 server release.
+| v0.12.1 | yes | as v0.12.0; the v0.12.2 calls answer `404` and the new fields are `None` / empty |
+| v0.12.2 | yes | everything above |
 
 ---
 

@@ -7,6 +7,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-10-08
+
+Support for the Dakera server **v0.12.2** (Dakera-AI/dakera#916). Compatible with v0.12.0 and
+v0.12.1 servers: every new request field is omitted unless set (the only `null` sent is an
+explicit `UpdateKeyRequest::with_all_namespaces`), every new response field is optional or
+defaults, and the new routes answer `404` on an older server.
+
+### Server behaviour changes you may hit (v0.12.2)
+
+- **Sessions are authorized by their agent.** A key needs no `_dakera_sessions` grant to start,
+  read, list or end its agents' sessions (such an entry is accepted and inert, see
+  `KeyInfo::inert_namespaces`); a key without grants lists no sessions. `end_session` checks Write
+  scope first (a Read key gets `403`) and ending a session of an agent the key cannot reach returns
+  the idempotent empty answer, writing nothing.
+- **Sessions auto-end after 4 h idle by default** (`DAKERA_SESSION_IDLE_TIMEOUT_SECS`, runtime:
+  `set_session_idle_timeout`). Such a session reads `ended_reason: "idle"` with `idle_since`. Keep a
+  quiet session open with `touch_session`, or start it with `with_idle_timeout_secs(0)` (never) or a
+  longer timeout. Storing into an ended session still succeeds (`session_state: "ended"`). On
+  upgrade, sessions already open longer than the timeout are closed on the first passes.
+- **Stricter validation (400, the message names the field):** key namespace lists (junk entries,
+  internal namespaces), agent ids (at most 241 bytes), user metadata on every write path, reserved
+  markers (`dakera-curated`, `_dakera_*` metadata keys other than `_dakera_content_date` /
+  `_dakera_lang`, ids `mem_s` + 24 hex), `ttl_seconds` (at most 100 years), imports, merged outputs.
+- **The memory content limit is in bytes** (UTF-8, `DAKERA_MAX_MEMORY_CONTENT_BYTES`, default
+  100000), now also enforced by `update_memory`.
+- **Listings exclude derived records unless `include_derived=true`:** `GET /v1/agents/{id}/memories`
+  and `GET /v1/agents/{id}/wake-up` no longer return the sentence sub-memories by default
+  (`AgentMemoriesOptions::include_derived`, `WakeUpOptions::include_derived`).
+- `GET /v1/agents` `vector_count` no longer counts the namespace seed (an empty agent reports 0).
+- Legacy `foo*` key grants of keys created before v0.12.2 stay inert (`grants_version: 0`) until
+  the key's namespaces are saved again with `update_key`.
+
+### Added
+
+- `create_agent(agent_id)` — `POST /v1/agents` (`CreateAgentResponse`: `namespace`, `created`,
+  `dimension`, `model`).
+- `update_key(key_id, &UpdateKeyRequest)` — `PATCH /admin/keys/{id}`, and
+  `update_namespace_key(namespace, key_id, &UpdateKeyRequest)` — `PATCH
+  /v1/namespaces/{ns}/keys/{id}`. `UpdateKeyRequest { name, namespaces: Option<Option<Vec<String>>> }`
+  sends `namespaces` absent (unchanged), `null` (every namespace) or a list. An empty update is
+  refused client-side (`ClientError::InvalidRequest`).
+- `rotate_key_with_grace(key_id, grace_secs)` (at most `MAX_ROTATION_GRACE_SECS` = 7 days);
+  `RotateKeyResponse::{old_key_id, old_key_expires_at}`. `rotate_key` still sends no body.
+- `whoami()` — `GET /v1/auth/whoami` (`WhoamiResponse`).
+- `KeyInfo::{grants_version, inert_namespaces}`; the same on `NamespaceKeyInfo`.
+- `NamespaceKind` (`agent` / `data` / `system`): `NamespaceInfo::kind`,
+  `NamespaceAdminInfo::kind`, `ListNamespacesResponse::kinds` and `list_namespaces_with_kinds()`.
+- `ServerCapabilities::{auth, naming, sessions}` (capabilities v2: `AuthCapability`,
+  `NamingCapability`, `SessionsCapability`), `supports_key_update()`, `supports_session_touch()`.
+- Sessions: `SessionStartRequest::{new, with_metadata, with_idle_timeout_secs}` and
+  `start_session_with` (0..=`MAX_SESSION_IDLE_TIMEOUT_SECS`); `touch_session(id)` —
+  `POST /v1/sessions/{id}/touch` (`SessionTouchResponse`: `session_state`, `idle_deadline_at`);
+  `Session::{last_activity_at, ended_reason, idle_since, idle_timeout_secs, is_ended()}`;
+  `StoreMemoryResponse::session_state`; `BatchStoreMemoryResponse::ended_sessions`;
+  `MemoryEvent::reason` on `session_ended` events.
+- `RuntimeConfig::session_idle_timeout_secs` and `set_session_idle_timeout(secs)`.
+- Listings: `agent_memories_with(agent_id, &AgentMemoriesOptions)` (`memory_type`, `limit`,
+  `offset`, `include_derived`, `content_preview_chars`), `session_memories_with(session_id,
+  &SessionMemoriesOptions)` (returns `SessionMemoriesResponse` with the session and `total`),
+  `wake_up_with(agent_id, &WakeUpOptions)` (`include_derived`). With a preview each memory carries
+  `RecalledMemory::{content_len, content_truncated}`; read the whole memory with `get_memory` when
+  it is truncated.
+- `FullKnowledgeGraphRequest::content_preview_chars` and
+  `CrossAgentNetworkRequest::content_preview_chars`; `KnowledgeNode` / `AgentNetworkNode` gain
+  `content_len` and `content_truncated`. A preview outside 1..=10000 is refused client-side.
+- `derivations_status()` — `GET /admin/derivations/status` (`DerivationStatus`) and
+  `drain_derivations(timeout_secs)` — `POST /admin/derivations/drain` (`DrainDerivationsResponse`).
+- `DeduplicateResponse::duplicates_skipped_changed`; `CompressResponse::{summary_ids,
+  summaries_skipped}` (`SkippedSummary`).
+- `unavailable: Vec<UnavailableNamespace>` on the node-wide answers: `OpsStats`, `ClusterStatus`,
+  `NodeListResponse`, `NamespaceListResponse`, `IndexStatsResponse`, `TtlStatsResponse`,
+  `ShardListResponse`, `StorageTierOverview`, `MemoryTypeStatsResponse`, `AnalyticsOverview`,
+  `StorageAnalytics`; `AgentSummary::{vector_count, unavailable}`.
+
+### Changed (source-breaking for struct literals)
+
+- New public fields on request structs built with struct literals:
+  `FullKnowledgeGraphRequest` (now also `Default`) and `CrossAgentNetworkRequest` gain
+  `content_preview_chars`; `SessionStartRequest` gains `idle_timeout_secs`. Add the field or use
+  `..Default::default()`. Response structs gain fields as listed above.
+- `CreateNamespaceKeyRequest` gains the `scope` the server requires (it answered `422` to every
+  request without it) and `extra_namespaces`; build it with `CreateNamespaceKeyRequest::new(name,
+  scope)`.
+
+### Fixed
+
+- The namespace-key answers (`list_namespace_keys`, `create_namespace_key`) failed to deserialize:
+  the server sends its key shape without a `namespace` echo. `namespace` now defaults (empty) and
+  `scope` / `namespaces` are read.
+- `RotateKeyResponse::key_id` was documented as unchanged; it is the NEW key's id.
+
 ## [0.12.1] - 2026-10-01
 
 Calls whose requests or answers did not match the server now do (each checked live against

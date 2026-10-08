@@ -466,6 +466,7 @@ impl GrpcClient {
             dimensions: response.dimension,
             index_type: None,
             created: None,
+            kind: None,
         })
     }
 

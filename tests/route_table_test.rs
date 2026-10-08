@@ -1,6 +1,7 @@
-//! Every endpoint the SDK calls must exist in the Dakera v0.12.0 router.
+//! Every endpoint the SDK calls must exist in the Dakera v0.12 router.
 //!
 //! `v012_routes.txt` is the route table of the server's `crates/api/src/lib.rs`
+//! (v0.12.0, plus the routes v0.12.2 adds)
 //! (method and path, `{x}` placeholders normalised to `{}`; the `/admin/*`
 //! routes also under `/v1/admin/*`, the key router under `/admin/keys`).  The
 //! test reads the SDK sources, finds every `"{}/path"` URL template and checks
@@ -91,6 +92,14 @@ fn the_routes_this_release_depends_on_are_in_the_table() {
         "/v1/admin/quotas/{}",
         "/v1/admin/quotas/default",
         "/v1/admin/indexes/stats",
+        // v0.12.2
+        "/v1/agents",
+        "/admin/keys/{}",
+        "/v1/namespaces/{}/keys/{}",
+        "/v1/auth/whoami",
+        "/v1/sessions/{}/touch",
+        "/v1/admin/derivations/status",
+        "/v1/admin/derivations/drain",
     ] {
         assert!(server.contains(p), "{p} missing from the route table");
     }
