@@ -152,6 +152,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
+## Recall: at most `top_k` results, context apart
+
+A recall also returns *neighbourhood context*: memories written in the same session within a few
+minutes of the top results. By default (server `DAKERA_NEIGHBORHOOD_MODE=inline`) they follow the
+ranked results in `memories`, so `memories.len()` can exceed `top_k`; each has
+`is_neighborhood()` true and a `score` that is not comparable with the ranked results'. Ask for
+`NeighborhoodMode::Separate` to keep `memories` to at most `top_k` ranked results and get the
+context in `context_memories` (each with `context_of`, the id of the ranked memory it belongs to):
+
+```rust,no_run
+use dakera_client::{DakeraClient, NeighborhoodMode, RecallRequest};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::new("http://localhost:3000")?;
+    let resp = client
+        .recall(
+            RecallRequest::new("my-agent", "where does Alice live?")
+                .with_top_k(3)
+                .with_neighborhood_mode(NeighborhoodMode::Separate),
+        )
+        .await?;
+    for m in &resp.memories {
+        // at most 3; matched_text / matched_ids: see below
+        println!("{} {} {:?}", m.id, m.score, m.matched_text);
+    }
+    for c in resp.context_memories.iter().flatten() {
+        println!("context of {:?}: {}", c.context_of, c.content);
+    }
+    Ok(())
+}
+```
+
+`with_include_summaries(bool)` says whether session summaries may be recalled (unset: the server's
+choice). When the server collapses derived sentence sub-memories into their source
+(`DAKERA_RECALL_COLLAPSE_DERIVED`), a result is the source memory with `matched_ids` (the sentences
+that matched, best first) and `matched_text` (the best sentence, when it outranked the source's own
+text); search results carry the same fields. Every new field is omitted from requests unless set
+and optional in answers, so older servers keep working (they ignore `neighborhood_mode` and answer
+inline).
+
+---
+
 ## What's new in v0.12.2
 
 `dakera-client` 0.12.2 supports the Dakera server **v0.12.2** (Dakera-AI/dakera#916) and keeps
@@ -357,6 +400,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+Defaults: a 30 s request timeout (also the connect timeout unless `connect_timeout` is set), TLS
+through rustls with the platform verifier and the OS root store (no OpenSSL; certificate and
+hostname verification always on). Event streams have no overall timeout; they end when the server
+closes them or the receiver is dropped. The client's methods make one attempt; retrying is opt-in
+with `execute_with_retry` (`429` / `503` honour `Retry-After`; `max_retries` is the number of
+attempts). Wrap reads and idempotent writes in it: a non-idempotent write such as `store_memory`
+can be applied twice when a `5xx` or a dropped connection hides that the first attempt succeeded.
+The API key never appears in `Debug` output (`DakeraClientBuilder`, `DakeraClient`, and
+`RotateEncryptionKeyRequest`'s `new_key` are redacted).
+
+`ops_shutdown` (`POST /ops/shutdown`) needs a global **`super_admin`** key; an `admin` key gets
+`403` (`ClientError::Authorization`) from servers after v0.12.2.
 
 ---
 

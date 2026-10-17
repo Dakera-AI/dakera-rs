@@ -207,10 +207,11 @@ impl ClientError {
     pub fn is_retryable(&self) -> bool {
         match self {
             #[cfg(feature = "http-client")]
-            // All reqwest Http errors are network-layer (connection closed, timeout, connect
-            // failure, hyper IncompleteMessage, etc.). API-level errors (4xx/5xx) are parsed
-            // by the client and surfaced as ClientError::Server, never as ClientError::Http.
-            ClientError::Http(_) => true,
+            // Network-layer failures (connect, timeout, connection closed mid-request,
+            // reading the body) are transient. A body that does not decode, a request
+            // that could not be built and a redirect loop are not. API-level errors
+            // (4xx/5xx) are parsed by the client and never surface as ClientError::Http.
+            ClientError::Http(e) => !(e.is_decode() || e.is_builder() || e.is_redirect()),
             #[cfg(feature = "grpc")]
             ClientError::Grpc(_) => true, // gRPC errors are generally retryable
             ClientError::Server { status, .. } => *status >= 500 || *status == 408,

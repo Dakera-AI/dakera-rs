@@ -312,7 +312,11 @@ impl DakeraClient {
         data: impl Into<Vec<u8>>,
         content_type: &str,
     ) -> Result<AttachmentUploadResponse> {
-        let url = format!("{}/v1/namespaces/{}/attachments", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/attachments",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let body: Vec<u8> = data.into();
         let response = self
             .client
@@ -326,7 +330,11 @@ impl DakeraClient {
 
     /// List a namespace's attachments (`GET /v1/namespaces/{namespace}/attachments`).
     pub async fn list_attachments(&self, namespace: &str) -> Result<AttachmentListResponse> {
-        let url = format!("{}/v1/namespaces/{}/attachments", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/attachments",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -340,7 +348,9 @@ impl DakeraClient {
     ) -> Result<AttachmentDownload> {
         let url = format!(
             "{}/v1/namespaces/{}/attachments/{}",
-            self.base_url, namespace, attachment_ref
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(attachment_ref)
         );
         let response = self.client.get(&url).send().await?;
         if !response.status().is_success() {
@@ -373,7 +383,9 @@ impl DakeraClient {
     pub async fn delete_attachment(&self, namespace: &str, attachment_ref: &str) -> Result<()> {
         let url = format!(
             "{}/v1/namespaces/{}/attachments/{}",
-            self.base_url, namespace, attachment_ref
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(attachment_ref)
         );
         let response = self.client.delete(&url).send().await?;
         if response.status().is_success() {
@@ -396,7 +408,9 @@ impl DakeraClient {
     ) -> Result<TranscribeAccepted> {
         let url = format!(
             "{}/v1/namespaces/{}/attachments/{}/transcribe",
-            self.base_url, namespace, attachment_ref
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(attachment_ref)
         );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -416,7 +430,10 @@ impl DakeraClient {
     ) -> Result<JobInfo> {
         let url = format!(
             "{}/v1/namespaces/{}/attachments/{}/transcribe/{}",
-            self.base_url, namespace, attachment_ref, job_id
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(attachment_ref),
+            crate::client::enc(job_id)
         );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
@@ -434,7 +451,9 @@ impl DakeraClient {
     ) -> Result<IndexImageAccepted> {
         let url = format!(
             "{}/v1/namespaces/{}/attachments/{}/index",
-            self.base_url, namespace, attachment_ref
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(attachment_ref)
         );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -450,7 +469,10 @@ impl DakeraClient {
     ) -> Result<JobInfo> {
         let url = format!(
             "{}/v1/namespaces/{}/attachments/{}/index/{}",
-            self.base_url, namespace, attachment_ref, job_id
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(attachment_ref),
+            crate::client::enc(job_id)
         );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await

@@ -4022,6 +4022,11 @@ pub struct BackupListResponse {
 }
 
 /// Request for `POST /v1/admin/backups`.
+///
+/// The server refuses unknown fields on this route with `422`; these are
+/// exactly the fields it accepts, and unset optionals are omitted.
+/// `backup_type`: `full`, `incremental` or `snapshot`; `compression`:
+/// `none`, `zstd` or `lz4`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateBackupRequest {
     pub name: String,

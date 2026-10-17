@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Support for the next Dakera server release (Dakera-AI/dakera#917, #920, #921) and a client
+hardening pass. Every new request field is omitted unless set and every new response field is
+optional, so the crate keeps working against v0.12.x servers.
+
+### Added
+
+- **Recall neighbourhood modes (#917)**: `NeighborhoodMode` (`Inline`, `Separate`, `Off`) and
+  `RecallRequest::neighborhood_mode` / `with_neighborhood_mode`; `include_summaries` /
+  `with_include_summaries`. `RecallResponse::context_memories` holds the context under `separate`,
+  so `memories` has at most `top_k` ranked results.
+- **Result provenance**: `RecalledMemory::matched_text`, `matched_ids` (collapsed derived
+  sentences), `retrieval` (`RETRIEVAL_NEIGHBORHOOD` for inline context, whose score is not
+  comparable with ranked results), `context_of` and `is_neighborhood()`. Search results carry the
+  same fields.
+- `RecallResponse::query_embedding_time_ms`, `search_time_ms`, `rerank_report` (`RerankReport`),
+  `effective_top_k` (search) and `late_interaction_first_stage`.
+- `RecallRequest::rerank_candidates` / `with_rerank_candidates` and `importance_weighted`.
+- Encryption at rest: `rotate_encryption_key_with` (`wait_secs`), `encryption_status`
+  (`GET /v1/admin/encryption/status`), `reseal_encryption` (`POST /v1/admin/encryption/reseal`,
+  `ResealEncryptionRequest`), `revoke_encryption_master`
+  (`POST /v1/admin/encryption/keys/{id}/revoke-master`). `RotateEncryptionKeyResponse` gains
+  `key_id`, `previous_key_id`, `scope`, `namespace`, `reseal`, `fulltext_indices_rotated`,
+  `failed_namespaces`, `action_required`, `status_url`.
+- `stream_audit_memory_events`: the audit stream as `MemoryEvent`s.
+- `AdminCreateBackupRequest`, `AdminCreateBackupResponse`, `AdminRestoreBackupRequest`,
+  `AdminRestoreBackupResponse`, `AdminBackupListResponse`: the types `admin_create_backup`,
+  `admin_restore_backup` and `admin_list_backups` take and return could not be named outside the
+  crate (the plain names are the legacy `admin` types).
+
+### Fixed
+
+- **Admin requests send only fields the server accepts** (it now answers `422` for unknown fields
+  on `POST /admin/keys`, `/v1/namespaces/{ns}/keys`, `/admin/backups`,
+  `/admin/encryption/rotate-key`): `rotate_encryption_key("", ..)` no longer sends
+  `"new_key": ""` (the server then generates a key); `CreateKeyRequest`,
+  `CreateNamespaceKeyRequest` and both `CreateBackupRequest`s are checked field by field.
+- `RecalledMemory::depth` (KG-3 associated memories) is read from the result, where the server
+  puts it; it was always `None`.
+- Path and query parameters (memory, agent, session, key, backup and job ids, namespaces, attachment
+  references, analytics filters) are percent-encoded everywhere; most routes put them in the URL
+  unescaped, so a value holding `/`, `?` or `&` reached another route or added parameters.
+- Event streams no longer stop after the request timeout (30 s by default): they use a client with
+  the same headers, connect timeout and TLS settings but no overall timeout. The SSE parser splits
+  lines on bytes, so a multi-byte UTF-8 character split across network chunks is no longer
+  replaced by U+FFFD; a line is bounded at 16 MiB.
+- `stream_audit_events` decoded the audit stream's memory events as `DakeraEvent`, which fails for
+  every event but the handshake; it is deprecated in favour of `stream_audit_memory_events`.
+- `execute_with_retry` with `max_retries: 0` returned an error without running the operation; it
+  now makes one attempt. An answer that does not decode (`reqwest` decode error), a request that
+  cannot be built and a redirect loop are no longer retried.
+
+### Changed
+
+- `DakeraClientBuilder`'s `Debug` redacts the API key and header values; custom header values are
+  marked sensitive (the `Authorization` header already was). `RotateEncryptionKeyRequest`'s `Debug`
+  redacts `new_key`.
+- Docs: `ops_shutdown` needs a global `super_admin` key (`403` for `admin` on newer servers);
+  `execute_with_retry` says which operations are safe to wrap; hybrid fusion default is `MinMax`;
+  the rerank pool on hybrid routing is 10x the ranking depth.
+
 ## [0.12.2] - 2026-10-08
 
 Support for the Dakera server **v0.12.2** (Dakera-AI/dakera#916). Compatible with v0.12.0 and

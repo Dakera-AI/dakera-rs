@@ -170,9 +170,13 @@ pub use memory::{
     // DX-1: Memory Import / Export
     MemoryImportResponse,
     MemoryType,
+    // #917: recall neighbourhood modes and result provenance
+    NeighborhoodMode,
     RecallRequest,
     RecallResponse,
     RecalledMemory,
+    RerankReport,
+    ResealEncryptionRequest,
     // SEC-3: AES-256-GCM Encryption Key Rotation
     RotateEncryptionKeyRequest,
     RotateEncryptionKeyResponse,
@@ -187,6 +191,7 @@ pub use memory::{
     SessionTouchResponse,
     StoreMemoryRequest,
     StoreMemoryResponse,
+    RETRIEVAL_NEIGHBORHOOD,
 };
 // v0.12: records with named representations
 pub use records::{
@@ -196,6 +201,17 @@ pub use records::{
 #[cfg(feature = "http-client")]
 pub use session::ChatMemorySession;
 pub use types::*;
+/// The `/v1/admin/backups` types taken and returned by
+/// [`DakeraClient::admin_create_backup`], [`DakeraClient::admin_restore_backup`],
+/// [`DakeraClient::admin_list_backups`] and friends. Their plain names are the
+/// legacy [`admin`] types, so these are exported under `Admin*` names to be
+/// nameable.
+pub use types::{
+    BackupListResponse as AdminBackupListResponse, CreateBackupRequest as AdminCreateBackupRequest,
+    CreateBackupResponse as AdminCreateBackupResponse,
+    RestoreBackupRequest as AdminRestoreBackupRequest,
+    RestoreBackupResponse as AdminRestoreBackupResponse,
+};
 
 // gRPC exports
 #[cfg(feature = "grpc")]

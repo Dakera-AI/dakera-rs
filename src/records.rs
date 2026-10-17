@@ -226,7 +226,11 @@ impl DakeraClient {
         namespace: &str,
         records: Vec<RecordInput>,
     ) -> Result<RecordUpsertResponse> {
-        let url = format!("{}/v1/namespaces/{}/records", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/records",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let request = RecordUpsertRequest { records };
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -245,7 +249,10 @@ impl DakeraClient {
     ) -> Result<RecordView> {
         let url = format!(
             "{}/v1/namespaces/{}/records/{}?include_vectors={}",
-            self.base_url, namespace, id, include_vectors
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(id),
+            include_vectors
         );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
