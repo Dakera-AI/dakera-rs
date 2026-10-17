@@ -152,7 +152,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
-## Recall: at most `top_k` results, context apart
+## What's new in v0.12.3
+
+`dakera-client` 0.12.3 supports the Dakera server **v0.12.3** (Dakera-AI/dakera#917, #920, #921) and
+keeps working against **v0.12.0 – v0.12.2**: every new request field is omitted unless set and every new
+response field is optional (`None` / empty from an older server). The neighbourhood modes,
+`include_summaries`, `matched_text` / `matched_ids`, `retrieval`, `context_of` and
+`context_memories` need **server >= 0.12.3** (an older server ignores the new request fields and
+answers inline). The `super_admin` requirement of `ops_shutdown` and the `422` on unknown
+admin-request fields are server 0.12.3 behaviour.
+
+### Recall: at most `top_k` results, context apart
 
 A recall also returns *neighbourhood context*: memories written in the same session within a few
 minutes of the top results. By default (server `DAKERA_NEIGHBORHOOD_MODE=inline`) they follow the
@@ -354,7 +364,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | v0.11.108 | yes | v0.12-only calls return `404` (capabilities, records, attachments); everything else is unchanged |
 | v0.12.0 | yes | opt-in features answer `501 FEATURE_DISABLED` until the operator enables them |
 | v0.12.1 | yes | as v0.12.0; the v0.12.2 calls answer `404` and the new fields are `None` / empty |
-| v0.12.2 | yes | everything above |
+| v0.12.2 | yes | as v0.12.1 plus the v0.12.2 calls; the v0.12.3 recall fields are ignored / `None` |
+| v0.12.3 | yes | everything above |
 
 ---
 
@@ -409,10 +420,12 @@ with `execute_with_retry` (`429` / `503` honour `Retry-After`; `max_retries` is 
 attempts). Wrap reads and idempotent writes in it: a non-idempotent write such as `store_memory`
 can be applied twice when a `5xx` or a dropped connection hides that the first attempt succeeded.
 The API key never appears in `Debug` output (`DakeraClientBuilder`, `DakeraClient`, and
-`RotateEncryptionKeyRequest`'s `new_key` are redacted).
+`RotateEncryptionKeyRequest`'s `new_key` are redacted). Requests to the ODE sidecar (`ode_url`,
+`extract_entities`) currently carry the Dakera API key; tracked in
+[Dakera-AI/dakera#924](https://github.com/Dakera-AI/dakera/issues/924).
 
 `ops_shutdown` (`POST /ops/shutdown`) needs a global **`super_admin`** key; an `admin` key gets
-`403` (`ClientError::Authorization`) from servers after v0.12.2.
+`403` (`ClientError::Authorization`) from servers v0.12.3 and later.
 
 ---
 

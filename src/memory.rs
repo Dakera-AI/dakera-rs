@@ -272,8 +272,8 @@ pub enum FusionStrategy {
 /// memories of the top results (`neighborhood_mode`, Dakera-AI/dakera#917).
 ///
 /// Leave [`RecallRequest::neighborhood_mode`] `None` for the server default
-/// (`DAKERA_NEIGHBORHOOD_MODE`, itself `inline` by default). Servers older than
-/// the release that added it ignore the field and answer `inline`.
+/// (`DAKERA_NEIGHBORHOOD_MODE`, itself `inline` by default). Needs server
+/// >= 0.12.3; older servers ignore the field and answer `inline`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum NeighborhoodMode {

@@ -1768,7 +1768,9 @@ impl DakeraClientBuilder {
 
     /// Set the base URL of the dakera-ode sidecar (ODE-2).
     ///
-    /// Required to call [`DakeraClient::extract_entities`].
+    /// Required to call [`DakeraClient::extract_entities`]. Requests to the
+    /// sidecar currently carry the Dakera API key; tracked in
+    /// <https://github.com/Dakera-AI/dakera/issues/924>.
     pub fn ode_url(mut self, ode_url: impl Into<String>) -> Self {
         self.ode_url = Some(ode_url.into().trim_end_matches('/').to_string());
         self

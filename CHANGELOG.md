@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Support for the next Dakera server release (Dakera-AI/dakera#917, #920, #921) and a client
-hardening pass. Every new request field is omitted unless set and every new response field is
-optional, so the crate keeps working against v0.12.x servers.
+## [0.12.3] - Unreleased
+
+Support for the Dakera server **v0.12.3** (Dakera-AI/dakera#917, #920, #921) and a client hardening
+pass. Every new request field is omitted unless set and every new response field is optional, so
+the crate keeps working against v0.12.0 – v0.12.2 servers; the neighbourhood modes, `include_summaries` and
+the result provenance fields need server >= 0.12.3.
 
 ### Added
 
@@ -63,7 +66,9 @@ optional, so the crate keeps working against v0.12.x servers.
 - `DakeraClientBuilder`'s `Debug` redacts the API key and header values; custom header values are
   marked sensitive (the `Authorization` header already was). `RotateEncryptionKeyRequest`'s `Debug`
   redacts `new_key`.
-- Docs: `ops_shutdown` needs a global `super_admin` key (`403` for `admin` on newer servers);
+- Docs: `ops_shutdown` needs a global `super_admin` key (`403` for `admin` from server v0.12.3);
+  requests to the ODE sidecar (`ode_url`) currently carry the Dakera API key, tracked in
+  Dakera-AI/dakera#924;
   `execute_with_retry` says which operations are safe to wrap; hybrid fusion default is `MinMax`;
   the rerank pool on hybrid routing is 10x the ranking depth.
 

@@ -1454,7 +1454,7 @@ impl DakeraClient {
     /// It stops the node for every tenant, so the server requires a global
     /// **`super_admin`** key; a global `admin` key gets `403`
     /// ([`ClientError::Authorization`](crate::ClientError::Authorization))
-    /// from servers newer than v0.12.2. Do not wrap it in
+    /// from server v0.12.3 on. Do not wrap it in
     /// [`DakeraClient::execute_with_retry`](crate::DakeraClient::execute_with_retry).
     pub async fn ops_shutdown(&self) -> Result<serde_json::Value> {
         let url = format!("{}/ops/shutdown", self.base_url);
