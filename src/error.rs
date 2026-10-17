@@ -53,6 +53,11 @@ pub enum ServerErrorCode {
     /// 404: no operations / transcription / image-index job with that id
     /// (after a server restart too: jobs live in memory).
     JobNotFound,
+    /// 422: a document import could not read its source (binary data sent
+    /// as text, nesting too deep, an extraction refusal) — server v0.12.3+.
+    UnprocessableContent,
+    /// 504: a PDF / DOCX extraction ran past its time limit (server v0.12.3+).
+    ExtractionTimeout,
     #[serde(other)]
     Unknown,
 }

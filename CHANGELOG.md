@@ -16,6 +16,18 @@ the result provenance fields need server >= 0.12.3.
 
 ### Added
 
+- **Document import (#923)**: `import_document` (`POST /v1/memory/documents`: text, Markdown or
+  HTML), `import_attachment_document` (`POST /v1/namespaces/{ns}/attachments/{ref}/document`: PDF,
+  DOCX, HTML, Markdown, text), `document_job`, `wait_for_document_job` /
+  `wait_for_document_job_every` (timeout-bounded polling), `list_documents` (cursor),
+  `get_document`, `delete_document`. Module `documents` with `ImportDocumentRequest`,
+  `ImportAttachmentDocumentRequest`, `DocumentImportOptions`, `ChunkingOptions`, `ChunkStrategy`
+  (with an `Unknown` variant for values a newer server sends), `ImportDocumentAccepted`,
+  `DocumentSummary`, `DocumentListResponse`, `DocumentDetail`, `DocumentChunkInfo`,
+  `DeleteDocumentResponse`, `DocumentChunkMeta` and `RecalledMemory::document_chunk()` (reads
+  `_dakera_document`). `ServerCapabilities::documents` (`DocumentsCapability`) and
+  `supports_documents()`; `ServerErrorCode::UnprocessableContent` and `ExtractionTimeout`. A `404`
+  from a server older than v0.12.3 says the routes need it.
 - **Recall neighbourhood modes (#917)**: `NeighborhoodMode` (`Inline`, `Separate`, `Off`) and
   `RecallRequest::neighborhood_mode` / `with_neighborhood_mode`; `include_summaries` /
   `with_include_summaries`. `RecallResponse::context_memories` holds the context under `separate`,

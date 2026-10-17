@@ -79,6 +79,8 @@ pub mod attachments;
 mod capabilities;
 #[cfg(feature = "http-client")]
 mod client;
+#[cfg(feature = "http-client")]
+pub mod documents;
 mod error;
 pub mod events;
 pub mod filter;
@@ -125,12 +127,20 @@ pub use attachments::{
     AttachmentUploadResponse, IndexImageAccepted, IndexImageRequest, TranscribeAccepted,
     TranscribeRequest,
 };
+// #923: document import (server v0.12.3+)
+#[cfg(feature = "http-client")]
+pub use documents::{
+    ChunkStrategy, ChunkingOptions, DeleteDocumentResponse, DocumentChunkInfo, DocumentChunkMeta,
+    DocumentDetail, DocumentImportOptions, DocumentListResponse, DocumentSummary,
+    ImportAttachmentDocumentRequest, ImportDocumentAccepted, ImportDocumentRequest,
+    DOCUMENT_IMPORT_JOB_TYPE, DOCUMENT_META_KEY, DOCUMENT_TAG_PREFIX, DOCUMENT_TEXT_MEDIA_TYPES,
+};
 // R9 / DAK-10004: GET /v1/capabilities
 pub use capabilities::{
     parse_accepted_values, AttachmentCapability, AuthCapability, CapabilityKind,
-    LateInteractionCapability, ModelCapability, NamingCapability, RecordCapabilities,
-    ScoringCapability, ServerCapabilities, SessionsCapability, TranscriptionCapability,
-    VisionCapability,
+    DocumentsCapability, LateInteractionCapability, ModelCapability, NamingCapability,
+    RecordCapabilities, ScoringCapability, ServerCapabilities, SessionsCapability,
+    TranscriptionCapability, VisionCapability,
 };
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};

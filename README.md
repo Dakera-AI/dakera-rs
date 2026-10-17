@@ -203,6 +203,73 @@ text); search results carry the same fields. Every new field is omitted from req
 and optional in answers, so older servers keep working (they ignore `neighborhood_mode` and answer
 inline).
 
+### Document import (server v0.12.3+)
+
+A PDF, DOCX, HTML, Markdown or text document becomes a set of *chunk memories* of an agent:
+ordinary memories, each sized for the embedding model, with its heading breadcrumb and its
+provenance (`_dakera_document`: document id, title, pages, heading path). Recall, search and
+filters treat them as memories; a result can cite the document, page and section.
+
+```rust,no_run
+use dakera_client::{
+    ChunkStrategy, ChunkingOptions, DakeraClient, DocumentImportOptions,
+    ImportAttachmentDocumentRequest, ImportDocumentRequest, RecallRequest,
+};
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::new("http://localhost:3000")?;
+
+    // Text, Markdown or HTML given inline
+    let accepted = client
+        .import_document(
+            ImportDocumentRequest::new("docs-bot", "# Manual\n\nInstall it.")
+                .with_media_type("text/markdown")
+                .with_options(DocumentImportOptions {
+                    tags: vec!["manual".into()],
+                    chunking: Some(ChunkingOptions {
+                        strategy: Some(ChunkStrategy::Structure),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+        )
+        .await?;
+    let job = client
+        .wait_for_document_job("docs-bot", &accepted.job_id, Duration::from_secs(300))
+        .await?;
+    assert!(job.is_completed(), "{:?}", job.error);
+
+    // A PDF / DOCX: upload it as an attachment, then import it
+    let pdf = std::fs::read("manual.pdf")?;
+    let up = client.upload_attachment("library", pdf, "application/pdf").await?;
+    client
+        .import_attachment_document(
+            "library",
+            &up.attachment_ref,
+            ImportAttachmentDocumentRequest::new("docs-bot").with_document_id("manual-v3"),
+        )
+        .await?;
+
+    // Cite where a recalled chunk comes from
+    let resp = client.recall(RecallRequest::new("docs-bot", "how do I install it?")).await?;
+    for m in &resp.memories {
+        if let Some(doc) = m.document_chunk() {
+            println!("{:?} {:?} p.{:?}", doc.title, doc.heading_path, doc.page_start);
+        }
+    }
+    Ok(())
+}
+```
+
+`list_documents` (cursor paging), `get_document` (a document and its chunks) and `delete_document`
+complete the surface; `capabilities().await?.supports_documents()` and `.documents` report whether
+it is on and its limits. A server with `DAKERA_DOCUMENTS` off answers `501`
+(`ClientError::FeatureDisabled`); a server older than v0.12.3 answers `404`, whose message says
+so. A failed job is `Ok` with `is_failed()` and `error` (`413`, `422 UNPROCESSABLE_CONTENT`,
+`504 EXTRACTION_TIMEOUT`).
+
 ---
 
 ## What's new in v0.12.2
@@ -364,7 +431,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | v0.11.108 | yes | v0.12-only calls return `404` (capabilities, records, attachments); everything else is unchanged |
 | v0.12.0 | yes | opt-in features answer `501 FEATURE_DISABLED` until the operator enables them |
 | v0.12.1 | yes | as v0.12.0; the v0.12.2 calls answer `404` and the new fields are `None` / empty |
-| v0.12.2 | yes | as v0.12.1 plus the v0.12.2 calls; the v0.12.3 recall fields are ignored / `None` |
+| v0.12.2 | yes | as v0.12.1 plus the v0.12.2 calls; the v0.12.3 recall fields are ignored / `None` and the document routes answer `404` |
 | v0.12.3 | yes | everything above |
 
 ---
