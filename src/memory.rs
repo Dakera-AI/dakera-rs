@@ -608,9 +608,14 @@ pub struct RecalledMemory {
     pub content: String,
     pub memory_type: MemoryType,
     pub importance: f32,
-    /// The ranking score — equals `smart_score` when present, then `weighted_score`, then raw `score`.
+    /// The ranking score — the server's `rank_score` when present (v0.12.3+), then
+    /// `smart_score`, then `weighted_score`, then raw `score`.
     pub score: f32,
-    /// Raw smart_score from the server (the primary ranking key).
+    /// The server's ranking field (recall, v0.12.3+, #940): non-increasing over
+    /// `memories` in response order. `None` from older servers and from search.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank_score: Option<f32>,
+    /// Raw smart_score from the server.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smart_score: Option<f32>,
     /// Raw weighted_score from the server.
@@ -698,7 +703,14 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             .get("weighted_score")
             .and_then(|v| v.as_f64())
             .map(|v| v as f32);
-        let score = smart_score
+        // #940: rank_score is the server's ranking field (non-increasing over a recall's
+        // results); older servers send none.
+        let rank_score = val
+            .get("rank_score")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32);
+        let score = rank_score
+            .or(smart_score)
             .or(weighted_score)
             .or_else(|| val.get("score").and_then(|v| v.as_f64()).map(|v| v as f32))
             .unwrap_or(0.0);
@@ -783,6 +795,7 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             memory_type,
             importance,
             score,
+            rank_score,
             smart_score,
             weighted_score,
             tags,
