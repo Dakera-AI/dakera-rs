@@ -154,13 +154,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## What's new in v0.12.3
 
-`dakera-client` 0.12.3 supports the Dakera server **v0.12.3** (Dakera-AI/dakera#917, #920, #921) and
+`dakera-client` 0.12.3 supports the Dakera server **v0.12.3** (Dakera-AI/dakera#917, #920, #921,
+#926, #930, #932, #933, #938, #940) and
 keeps working against **v0.12.0 – v0.12.2**: every new request field is omitted unless set and every new
 response field is optional (`None` / empty from an older server). The neighbourhood modes,
 `include_summaries`, `matched_text` / `matched_ids`, `retrieval`, `context_of` and
 `context_memories` need **server >= 0.12.3** (an older server ignores the new request fields and
 answers inline). The `super_admin` requirement of `ops_shutdown` and the `422` on unknown
-admin-request fields are server 0.12.3 behaviour.
+admin-request fields are server 0.12.3 behaviour, as are `event_time`, the truncation report,
+`warnings`, the deduplication trash, the autopilot dedup modes and `get_memory_by_id`.
 
 ### Recall: at most `top_k` results, context apart
 
@@ -269,6 +271,104 @@ it is on and its limits. A server with `DAKERA_DOCUMENTS` off answers `501`
 (`ClientError::FeatureDisabled`); a server older than v0.12.3 answers `404`, whose message says
 so. A failed job is `Ok` with `is_failed()` and `error` (`413`, `422 UNPROCESSABLE_CONTENT`,
 `504 EXTRACTION_TIMEOUT`).
+
+### Event time, truncation report and ignored fields (server v0.12.3+)
+
+`with_event_time` says when a memory's event *happened* — for imports, backfills and replayed
+conversations — as Unix seconds (`i64`) or an RFC 3339 string (`EventTime`). The server records it
+as metadata `_dakera_event_time` (`EVENT_TIME_META_KEY`), and recency, `since` / `until` and the
+time range a query implies then use it instead of the ingest time; `created_at` stays the ingest
+time. The single store and each batch item take it; the server refuses a time before 1970 or more
+than a day in the future with a `400`.
+
+A store whose content is longer than the embedding model reads answers `truncation`
+(`EmbedTruncation`: `content_tokens`, `embedded_tokens`, `max_tokens`, `windows`,
+`tokens_estimated`) — the vector covers the first `embedded_tokens` only. `update_memory` reports
+the same for new content, and a batch store lists the cut memories in `truncated`
+(`TruncatedMemory`). Store, batch store, recall and batch recall answers carry `warnings`: the
+request fields the server ignored (a misspelt field no longer passes silently).
+
+```rust,no_run
+use dakera_client::memory::{BatchStoreMemoryItem, BatchStoreMemoryRequest};
+use dakera_client::{DakeraClient, StoreMemoryRequest};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::new("http://localhost:3000")?;
+    let stored = client
+        .store_memory(
+            StoreMemoryRequest::new("my-agent", "Met Alice in Lisbon")
+                .with_event_time("2023-05-20T02:21:00Z"),
+        )
+        .await?;
+    if let Some(cut) = stored.truncation {
+        println!("only {} of {} tokens embedded", cut.embedded_tokens, cut.content_tokens);
+    }
+    assert!(stored.warnings.is_empty(), "{:?}", stored.warnings);
+
+    let batch = client
+        .store_memories_batch(BatchStoreMemoryRequest::new(
+            "my-agent",
+            vec![BatchStoreMemoryItem::new("Flew back").with_event_time(1_684_663_200i64)],
+        ))
+        .await?;
+    for t in &batch.truncated {
+        println!("{} was cut at {} tokens", t.id, t.truncation.embedded_tokens);
+    }
+    Ok(())
+}
+```
+
+`with_valid_from` (the bi-temporal validity start) is now sent as `metadata.valid_from`, where the
+server reads it; a top-level `valid_from` was ignored. A `valid_from` already in the metadata wins.
+
+### Deduplication trash and autopilot dedup modes (server v0.12.3+)
+
+The autopilot's dedup can run in `report` mode (find duplicates, delete none) or `merge` mode,
+across sessions or not (`AutoPilotConfigRequest::dedup_mode`, `dedup_cross_session`,
+`consolidate_cross_session`, `trash_retention_hours`; `DEDUP_MODE_OFF` / `_REPORT` / `_MERGE`).
+A memory that deduplication or consolidation deleted stays restorable for `trash_retention_hours`:
+
+```rust,no_run
+use dakera_client::{AutoPilotConfigRequest, DakeraClient, DEDUP_MODE_MERGE};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::new("http://localhost:3000")?;
+    client
+        .autopilot_update_config(AutoPilotConfigRequest {
+            dedup_mode: Some(DEDUP_MODE_MERGE.to_string()),
+            trash_retention_hours: Some(72),
+            ..Default::default()
+        })
+        .await?;
+    let trash = client.list_deduplicated("my-agent").await?;
+    for m in &trash.memories {
+        println!("{} folded into {} ({:?})", m.id, m.survivor_id, m.kind);
+    }
+    if let Some(m) = trash.memories.first() {
+        let restored = client.restore_deduplicated("my-agent", &m.id).await?;
+        println!("restored {}", restored.id);
+    }
+    Ok(())
+}
+```
+
+The trigger and status answers report `duplicates_found` (and the trigger the `mode`);
+`RuntimeConfig` carries the `autopilot_*` overrides set at runtime. Audit and memory events of
+type `deduplicated` (`reason` names the survivor), `consolidated` and `restored` record each step.
+
+### Smaller changes (server v0.12.3+)
+
+- `get_memory_by_id(id)` finds a memory without its agent (one agent holds it: the memory; none:
+  `404`; several: `400` naming them). `get_memory` with an empty agent id does the same.
+- Recall, search and batch recall for an agent that has stored nothing answer `200` with no
+  memories (older servers answered `404 NAMESPACE_NOT_FOUND`).
+- Session ids may contain `:`; `capabilities().naming` reports `session_id_pattern` and
+  `session_id_max_bytes`.
+- `rerank_report.capped`: the server's candidate cap left part of the pool unscored.
+- `ServerErrorCode::HostNotAllowed` (`421`): with authentication off the server answers only for
+  local and allowed host names; the error keeps the server's message and code.
 
 ---
 
