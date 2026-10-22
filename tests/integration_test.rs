@@ -61,9 +61,12 @@ async fn test_health() {
 
 #[test]
 fn test_store_memory_request_valid_from_serialized_when_set() {
+    // The server reads valid_from from the memory's metadata; a top-level
+    // valid_from is not a store field (it would come back as a warning).
     let req = StoreMemoryRequest::new("agent-1", "temporal memory").with_valid_from(1_700_000_000);
     let json = serde_json::to_value(&req).unwrap();
-    assert_eq!(json["valid_from"], 1_700_000_000i64);
+    assert!(json.get("valid_from").is_none(), "{json}");
+    assert_eq!(json["metadata"]["valid_from"], 1_700_000_000i64);
 }
 
 #[test]
@@ -649,4 +652,225 @@ async fn test_auth_accepts_valid_key() {
     };
     // list_namespaces succeeded — the unwrap() above is the real assertion
     let _ = client.list_namespaces().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Server v0.12.3 behaviour (skipped on older servers: CI pins 0.12.0)
+// ---------------------------------------------------------------------------
+
+/// The client when the server is at least v0.12.3 (its `server_version` in
+/// `GET /v1/capabilities`), else `None` with a note.
+async fn client_at_least_0123() -> Option<DakeraClient> {
+    let Some(client) = get_client() else {
+        eprintln!("DAKERA_TEST_URL not set — skipping");
+        return None;
+    };
+    let version = match client.capabilities().await {
+        Ok(caps) => caps.server_version.clone(),
+        Err(e) => {
+            eprintln!("capabilities unavailable ({e}) — skipping a v0.12.3 test");
+            return None;
+        }
+    };
+    let mut parts = version
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|p| !p.is_empty())
+        .map(|p| p.parse::<u64>().unwrap_or(0));
+    let v = (
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+    );
+    if v < (0, 12, 3) {
+        eprintln!("server {version} is older than 0.12.3 — skipping");
+        return None;
+    }
+    Some(client)
+}
+
+fn agent_0123(tag: &str) -> String {
+    format!("integ-0123-{tag}-{}", random_hex())
+}
+
+#[tokio::test]
+async fn test_0123_empty_agent_answers_empty() {
+    let Some(client) = client_at_least_0123().await else {
+        return;
+    };
+    let agent = agent_0123("empty");
+    let recall = client
+        .recall(RecallRequest::new(&agent, "anything"))
+        .await
+        .unwrap();
+    assert!(recall.memories.is_empty());
+    let search = client
+        .search_memories(RecallRequest::new(&agent, "anything"))
+        .await
+        .unwrap();
+    assert!(search.memories.is_empty());
+    let batch = client
+        .batch_recall(BatchRecallRequest::new(&agent))
+        .await
+        .unwrap();
+    assert!(batch.memories.is_empty());
+}
+
+#[tokio::test]
+async fn test_0123_event_time_is_recorded() {
+    let Some(client) = client_at_least_0123().await else {
+        return;
+    };
+    let agent = agent_0123("event");
+    let stored = client
+        .store_memory(
+            StoreMemoryRequest::new(&agent, "Met Alice in Lisbon")
+                .with_event_time(1_684_549_260i64),
+        )
+        .await
+        .unwrap();
+    let memory = client.get_memory(&agent, &stored.memory_id).await.unwrap();
+    let meta = memory.metadata.expect("metadata");
+    assert_eq!(
+        meta[dakera_client::EVENT_TIME_META_KEY],
+        serde_json::json!(1_684_549_260i64)
+    );
+
+    let resp = client
+        .store_memories_batch(dakera_client::memory::BatchStoreMemoryRequest::new(
+            &agent,
+            vec![
+                dakera_client::memory::BatchStoreMemoryItem::new("Flew back")
+                    .with_event_time("2023-05-21T10:00:00Z"),
+            ],
+        ))
+        .await
+        .unwrap();
+    let memory = client.get_memory(&agent, &resp.stored[0].id).await.unwrap();
+    assert_eq!(
+        memory.metadata.expect("metadata")[dakera_client::EVENT_TIME_META_KEY],
+        serde_json::json!(1_684_663_200i64)
+    );
+}
+
+#[tokio::test]
+async fn test_0123_every_sdk_field_is_known_to_the_server() {
+    use dakera_client::memory::{BatchStoreMemoryItem, BatchStoreMemoryRequest, FusionStrategy};
+    use dakera_client::{MemoryType, NeighborhoodMode, RoutingMode};
+
+    let Some(client) = client_at_least_0123().await else {
+        return;
+    };
+    let agent = agent_0123("fields");
+    let store = client
+        .store_memory(
+            StoreMemoryRequest::new(&agent, "Met Alice in Lisbon for the conference")
+                .with_type(MemoryType::Semantic)
+                .with_importance(0.8)
+                .with_tags(vec!["trip".to_string()])
+                .with_session("conv:42")
+                .with_metadata(serde_json::json!({"source": "import"}))
+                .with_ttl(86_400)
+                .with_expires_at(4_102_444_800)
+                .with_valid_from(1_684_540_800)
+                .with_lang("en")
+                .with_event_time(1_684_549_260i64),
+        )
+        .await
+        .unwrap();
+    assert!(store.warnings.is_empty(), "{:?}", store.warnings);
+
+    let mut item = BatchStoreMemoryItem::new("Flew back from Lisbon")
+        .with_importance(0.6)
+        .with_tags(vec!["trip".to_string()])
+        .with_session("conv:42")
+        .with_metadata(serde_json::json!({"source": "import"}))
+        .with_valid_from(1_684_540_800)
+        .with_id(format!("{agent}-b1"))
+        .with_event_time("2023-05-21T10:00:00Z");
+    item.memory_type = MemoryType::Episodic;
+    item.ttl_seconds = Some(86_400);
+    item.expires_at = Some(4_102_444_800);
+    let batch = client
+        .store_memories_batch(BatchStoreMemoryRequest::new(&agent, vec![item]).with_lang("en"))
+        .await
+        .unwrap();
+    assert!(batch.warnings.is_empty(), "{:?}", batch.warnings);
+
+    let mut recall = RecallRequest::new(&agent, "Where did I meet Alice?")
+        .with_lang("en")
+        .with_top_k(5)
+        .with_type(MemoryType::Semantic)
+        .with_min_importance(0.25)
+        .with_session("conv:42")
+        .with_tags(vec!["trip".to_string()])
+        .with_associated_cap(5)
+        .with_associated_depth(2)
+        .with_associated_min_weight(0.25)
+        .with_since("2023-01-01T00:00:00Z")
+        .with_until("2030-01-01T00:00:00Z")
+        .with_routing(RoutingMode::Hybrid)
+        .with_rerank(true)
+        .with_rerank_candidates(50)
+        .with_fusion(FusionStrategy::MinMax)
+        .with_vector_weight(0.5)
+        .with_iterations(2)
+        .with_neighborhood(true)
+        .with_neighborhood_mode(NeighborhoodMode::Separate)
+        .with_include_summaries(false);
+    recall.importance_weighted = Some(true);
+    let recalled = client.recall(recall).await.unwrap();
+    assert!(recalled.warnings.is_empty(), "{:?}", recalled.warnings);
+
+    let filter = BatchMemoryFilter {
+        tags: Some(vec!["trip".to_string()]),
+        min_importance: Some(0.25),
+        max_importance: Some(1.0),
+        created_after: Some(0),
+        created_before: Some(4_102_444_800),
+        memory_type: Some(MemoryType::Semantic),
+        session_id: Some("conv:42".to_string()),
+    };
+    let batch_recall = client
+        .batch_recall(
+            BatchRecallRequest::new(&agent)
+                .with_filter(filter)
+                .with_limit(10),
+        )
+        .await
+        .unwrap();
+    assert!(
+        batch_recall.warnings.is_empty(),
+        "{:?}",
+        batch_recall.warnings
+    );
+}
+
+#[tokio::test]
+async fn test_0123_deduplication_trash() {
+    let Some(client) = client_at_least_0123().await else {
+        return;
+    };
+    let agent = agent_0123("trash");
+    let list = client.list_deduplicated(&agent).await.unwrap();
+    assert_eq!(list.count, 0);
+    assert!(list.memories.is_empty());
+    let err = client
+        .restore_deduplicated(&agent, "no-such-memory")
+        .await
+        .unwrap_err();
+    assert!(err.is_not_found(), "{err:?}");
+}
+
+#[tokio::test]
+async fn test_0123_get_memory_without_agent_id() {
+    let Some(client) = client_at_least_0123().await else {
+        return;
+    };
+    let agent = agent_0123("get");
+    let stored = client
+        .store_memory(StoreMemoryRequest::new(&agent, "Find me by id alone"))
+        .await
+        .unwrap();
+    let memory = client.get_memory_by_id(&stored.memory_id).await.unwrap();
+    assert_eq!(memory.content, "Find me by id alone");
 }

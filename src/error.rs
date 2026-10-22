@@ -36,6 +36,10 @@ pub enum ServerErrorCode {
     Conflict,
     /// 403: cross-origin state-changing request refused (auth disabled).
     CrossOriginRequestRefused,
+    /// 421: authentication is disabled and the request's `Host` names a host
+    /// the server does not answer for (DNS rebinding protection; allow it with
+    /// the server's `DAKERA_ALLOWED_HOSTS`).
+    HostNotAllowed,
     /// 429.
     RateLimitExceeded,
     /// 504: a query ran past `query_timeout_ms`.
@@ -53,6 +57,11 @@ pub enum ServerErrorCode {
     /// 404: no operations / transcription / image-index job with that id
     /// (after a server restart too: jobs live in memory).
     JobNotFound,
+    /// 422: a document import could not read its source (binary data sent
+    /// as text, nesting too deep, an extraction refusal) — server v0.12.3+.
+    UnprocessableContent,
+    /// 504: a PDF / DOCX extraction ran past its time limit (server v0.12.3+).
+    ExtractionTimeout,
     #[serde(other)]
     Unknown,
 }
@@ -207,10 +216,11 @@ impl ClientError {
     pub fn is_retryable(&self) -> bool {
         match self {
             #[cfg(feature = "http-client")]
-            // All reqwest Http errors are network-layer (connection closed, timeout, connect
-            // failure, hyper IncompleteMessage, etc.). API-level errors (4xx/5xx) are parsed
-            // by the client and surfaced as ClientError::Server, never as ClientError::Http.
-            ClientError::Http(_) => true,
+            // Network-layer failures (connect, timeout, connection closed mid-request,
+            // reading the body) are transient. A body that does not decode, a request
+            // that could not be built and a redirect loop are not. API-level errors
+            // (4xx/5xx) are parsed by the client and never surface as ClientError::Http.
+            ClientError::Http(e) => !(e.is_decode() || e.is_builder() || e.is_redirect()),
             #[cfg(feature = "grpc")]
             ClientError::Grpc(_) => true, // gRPC errors are generally retryable
             ClientError::Server { status, .. } => *status >= 500 || *status == 408,

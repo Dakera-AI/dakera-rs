@@ -169,10 +169,10 @@ impl DakeraClient {
         let mut url = format!("{}/v1/analytics/overview", self.base_url);
         let mut params = Vec::new();
         if let Some(p) = period {
-            params.push(format!("period={}", p));
+            params.push(format!("period={}", crate::client::enc_query(p)));
         }
         if let Some(ns) = namespace {
-            params.push(format!("namespace={}", ns));
+            params.push(format!("namespace={}", crate::client::enc_query(ns)));
         }
         if !params.is_empty() {
             url.push('?');
@@ -191,10 +191,10 @@ impl DakeraClient {
         let mut url = format!("{}/v1/analytics/latency", self.base_url);
         let mut params = Vec::new();
         if let Some(p) = period {
-            params.push(format!("period={}", p));
+            params.push(format!("period={}", crate::client::enc_query(p)));
         }
         if let Some(ns) = namespace {
-            params.push(format!("namespace={}", ns));
+            params.push(format!("namespace={}", crate::client::enc_query(ns)));
         }
         if !params.is_empty() {
             url.push('?');
@@ -213,10 +213,10 @@ impl DakeraClient {
         let mut url = format!("{}/v1/analytics/throughput", self.base_url);
         let mut params = Vec::new();
         if let Some(p) = period {
-            params.push(format!("period={}", p));
+            params.push(format!("period={}", crate::client::enc_query(p)));
         }
         if let Some(ns) = namespace {
-            params.push(format!("namespace={}", ns));
+            params.push(format!("namespace={}", crate::client::enc_query(ns)));
         }
         if !params.is_empty() {
             url.push('?');
@@ -235,7 +235,7 @@ impl DakeraClient {
     pub async fn analytics_storage(&self, namespace: Option<&str>) -> Result<StorageAnalytics> {
         let mut url = format!("{}/v1/analytics/storage", self.base_url);
         if let Some(ns) = namespace {
-            url.push_str(&format!("?namespace={}", ns));
+            url.push_str(&format!("?namespace={}", crate::client::enc_query(ns)));
         }
         let response = self.client.get(&url).send().await?;
         let mut st: StorageAnalytics = self.handle_response(response).await?;

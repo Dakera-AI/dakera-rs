@@ -109,6 +109,9 @@ pub enum DakeraEvent {
 /// - `recalled` — a memory was recalled
 /// - `forgotten` — a memory was deleted
 /// - `consolidated` — memories were merged
+/// - `deduplicated` — a memory was deleted by deduplication; `reason` names
+///   the memory it was absorbed into (server v0.12.3+)
+/// - `restored` — a deduplicated memory was put back (server v0.12.3+)
 /// - `importance_updated` — importance score changed
 /// - `session_started` / `session_ended` — agent session lifecycle
 /// - `stream_lagged` — consumer fell behind; some events were dropped
@@ -135,7 +138,9 @@ pub struct MemoryEvent {
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    /// For `session_ended`: `"client"` or `"idle"` (server v0.12.2+).
+    /// Why the event happened, where the server says: for `session_ended`
+    /// `"client"` or `"idle"` (server v0.12.2+); for `deduplicated` the
+    /// memory it was absorbed into (server v0.12.3+). `None` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }

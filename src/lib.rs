@@ -79,6 +79,8 @@ pub mod attachments;
 mod capabilities;
 #[cfg(feature = "http-client")]
 mod client;
+#[cfg(feature = "http-client")]
+pub mod documents;
 mod error;
 pub mod events;
 pub mod filter;
@@ -108,7 +110,8 @@ pub use admin::{
     FulltextReindexNamespaceResult, FulltextReindexResponse, IndexStats, IndexStatsResponse,
     KpiSnapshot, LastDecayCycleStats, NodeInfo, NodeListResponse, OpsStats, RestoreBackupRequest,
     RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse, TtlCleanupRequest,
-    TtlCleanupResponse, TtlStats, TtlStatsResponse,
+    TtlCleanupResponse, TtlStats, TtlStatsResponse, DEDUP_MODE_MERGE, DEDUP_MODE_OFF,
+    DEDUP_MODE_REPORT,
 };
 pub use agents::{
     AgentMemoriesOptions, AgentStats, AgentSummary, CompressResponse, CreateAgentRequest,
@@ -125,12 +128,20 @@ pub use attachments::{
     AttachmentUploadResponse, IndexImageAccepted, IndexImageRequest, TranscribeAccepted,
     TranscribeRequest,
 };
+// #923: document import (server v0.12.3+)
+#[cfg(feature = "http-client")]
+pub use documents::{
+    ChunkStrategy, ChunkingOptions, DeleteDocumentResponse, DocumentChunkInfo, DocumentChunkMeta,
+    DocumentDetail, DocumentImportOptions, DocumentListResponse, DocumentSummary,
+    ImportAttachmentDocumentRequest, ImportDocumentAccepted, ImportDocumentRequest,
+    DOCUMENT_IMPORT_JOB_TYPE, DOCUMENT_META_KEY, DOCUMENT_TAG_PREFIX, DOCUMENT_TEXT_MEDIA_TYPES,
+};
 // R9 / DAK-10004: GET /v1/capabilities
 pub use capabilities::{
     parse_accepted_values, AttachmentCapability, AuthCapability, CapabilityKind,
-    LateInteractionCapability, ModelCapability, NamingCapability, RecordCapabilities,
-    ScoringCapability, ServerCapabilities, SessionsCapability, TranscriptionCapability,
-    VisionCapability,
+    DocumentsCapability, LateInteractionCapability, ModelCapability, NamingCapability,
+    RecordCapabilities, ScoringCapability, ServerCapabilities, SessionsCapability,
+    TranscriptionCapability, VisionCapability,
 };
 #[cfg(feature = "http-client")]
 pub use client::{DakeraClient, DakeraClientBuilder};
@@ -162,6 +173,13 @@ pub use memory::{
     // CE-6: DBSCAN Adaptive Consolidation
     ConsolidationConfig,
     ConsolidationLogEntry,
+    // v0.12.3: deduplication trash
+    DeduplicatedListResponse,
+    DeduplicatedMemory,
+    DeduplicationKind,
+    // v0.12.3: truncation report and event time
+    EmbedTruncation,
+    EventTime,
     // EXT-1: External Extraction Providers
     ExtractionResult,
     ForgetRequest,
@@ -170,9 +188,13 @@ pub use memory::{
     // DX-1: Memory Import / Export
     MemoryImportResponse,
     MemoryType,
+    // #917: recall neighbourhood modes and result provenance
+    NeighborhoodMode,
     RecallRequest,
     RecallResponse,
     RecalledMemory,
+    RerankReport,
+    ResealEncryptionRequest,
     // SEC-3: AES-256-GCM Encryption Key Rotation
     RotateEncryptionKeyRequest,
     RotateEncryptionKeyResponse,
@@ -187,6 +209,13 @@ pub use memory::{
     SessionTouchResponse,
     StoreMemoryRequest,
     StoreMemoryResponse,
+    TruncatedMemory,
+    EVENT_CONSOLIDATED,
+    EVENT_DEDUPLICATED,
+    EVENT_RESTORED,
+    EVENT_TIME_META_KEY,
+    RETRIEVAL_NEIGHBORHOOD,
+    VALID_FROM_META_KEY,
 };
 // v0.12: records with named representations
 pub use records::{
@@ -196,6 +225,17 @@ pub use records::{
 #[cfg(feature = "http-client")]
 pub use session::ChatMemorySession;
 pub use types::*;
+/// The `/v1/admin/backups` types taken and returned by
+/// [`DakeraClient::admin_create_backup`], [`DakeraClient::admin_restore_backup`],
+/// [`DakeraClient::admin_list_backups`] and friends. Their plain names are the
+/// legacy [`admin`] types, so these are exported under `Admin*` names to be
+/// nameable.
+pub use types::{
+    BackupListResponse as AdminBackupListResponse, CreateBackupRequest as AdminCreateBackupRequest,
+    CreateBackupResponse as AdminCreateBackupResponse,
+    RestoreBackupRequest as AdminRestoreBackupRequest,
+    RestoreBackupResponse as AdminRestoreBackupResponse,
+};
 
 // gRPC exports
 #[cfg(feature = "grpc")]

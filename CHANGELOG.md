@@ -7,6 +7,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-10-22
+
+Support for the Dakera server **v0.12.3** (Dakera-AI/dakera#917, #920, #921, #926, #930, #932, #933,
+#938, #940) and a client hardening pass. Every new request field is omitted unless set and every new response field is optional, so
+the crate keeps working against v0.12.0 – v0.12.2 servers; the neighbourhood modes, `include_summaries` and
+the result provenance fields need server >= 0.12.3.
+
+### Added
+
+- **Event time (#932)**: `EventTime` (`Unix(i64)` or `Rfc3339(String)`, `From<i64>`, `From<&str>`,
+  `From<String>`), `StoreMemoryRequest::event_time` / `with_event_time` and
+  `BatchStoreMemoryItem::event_time` / `with_event_time`: when the memory's event happened. The
+  server records it as metadata `_dakera_event_time` (`EVENT_TIME_META_KEY`); omitted unless set.
+- **Truncation report (#933)**: `StoreMemoryResponse::truncation` (`EmbedTruncation`:
+  `content_tokens`, `embedded_tokens`, `max_tokens`, `tokens_estimated`, `windows`), also from
+  `update_memory`; `BatchStoreMemoryResponse::truncated` (`TruncatedMemory`).
+- **Ignored-field warnings (#938)**: `warnings` on `StoreMemoryResponse`,
+  `BatchStoreMemoryResponse`, `RecallResponse` and `BatchRecallResponse` — the request fields the
+  server ignored.
+- **Deduplication trash (#930)**: `list_deduplicated` (`GET /v1/memory/deduplicated`,
+  `DeduplicatedListResponse`, `DeduplicatedMemory`, `DeduplicationKind` with an `Unknown` variant)
+  and `restore_deduplicated` (`POST /v1/memory/deduplicated/{id}/restore`; 404 without a
+  restorable copy, 409 when the agent holds the id again). Event type constants
+  `EVENT_DEDUPLICATED`, `EVENT_CONSOLIDATED`, `EVENT_RESTORED`.
+- **Autopilot dedup modes (#930)**: `AutoPilotConfig` and `AutoPilotConfigRequest` gain
+  `dedup_mode` (`DEDUP_MODE_OFF` / `DEDUP_MODE_REPORT` / `DEDUP_MODE_MERGE`),
+  `dedup_cross_session`, `consolidate_cross_session`, `trash_retention_hours`;
+  `DedupResultSnapshot::duplicates_found`; `AutoPilotDedupResult::duplicates_found` and `mode`;
+  `RuntimeConfig::autopilot_dedup_mode`, `autopilot_dedup_cross_session`,
+  `autopilot_consolidate_cross_session`, `autopilot_trash_retention_hours`.
+- `get_memory_by_id` (#938): `GET /v1/memory/get/{id}` without `agent_id`; `get_memory` with an
+  empty agent id omits it too.
+- `NamingCapability::session_id_pattern` and `session_id_max_bytes` (session ids may contain `:`).
+- `AuditEvent::reason`; `MemoryEvent::reason` documents the `deduplicated` / `restored` events.
+- `RerankReport::capped` (#926): the server's candidate cap left part of the pool unscored.
+- `ServerErrorCode::HostNotAllowed` (421, DNS rebinding protection with authentication off).
+- **Document import (#923)**: `import_document` (`POST /v1/memory/documents`: text, Markdown or
+  HTML), `import_attachment_document` (`POST /v1/namespaces/{ns}/attachments/{ref}/document`: PDF,
+  DOCX, HTML, Markdown, text), `document_job`, `wait_for_document_job` /
+  `wait_for_document_job_every` (timeout-bounded polling), `list_documents` (cursor),
+  `get_document`, `delete_document`. Module `documents` with `ImportDocumentRequest`,
+  `ImportAttachmentDocumentRequest`, `DocumentImportOptions`, `ChunkingOptions`, `ChunkStrategy`
+  (with an `Unknown` variant for values a newer server sends), `ImportDocumentAccepted`,
+  `DocumentSummary`, `DocumentListResponse`, `DocumentDetail`, `DocumentChunkInfo`,
+  `DeleteDocumentResponse`, `DocumentChunkMeta` and `RecalledMemory::document_chunk()` (reads
+  `_dakera_document`). `ServerCapabilities::documents` (`DocumentsCapability`) and
+  `supports_documents()`; `ServerErrorCode::UnprocessableContent` and `ExtractionTimeout`. A `404`
+  from a server older than v0.12.3 says the routes need it.
+- **Recall neighbourhood modes (#917)**: `NeighborhoodMode` (`Inline`, `Separate`, `Off`) and
+  `RecallRequest::neighborhood_mode` / `with_neighborhood_mode`; `include_summaries` /
+  `with_include_summaries`. `RecallResponse::context_memories` holds the context under `separate`,
+  so `memories` has at most `top_k` ranked results.
+- **Result provenance**: `RecalledMemory::matched_text`, `matched_ids` (collapsed derived
+  sentences), `retrieval` (`RETRIEVAL_NEIGHBORHOOD` for inline context, whose score is not
+  comparable with ranked results), `context_of` and `is_neighborhood()`. Search results carry the
+  same fields.
+- `RecallResponse::query_embedding_time_ms`, `search_time_ms`, `rerank_report` (`RerankReport`),
+  `effective_top_k` (search) and `late_interaction_first_stage`.
+- `RecallRequest::rerank_candidates` / `with_rerank_candidates` and `importance_weighted`.
+- Encryption at rest: `rotate_encryption_key_with` (`wait_secs`), `encryption_status`
+  (`GET /v1/admin/encryption/status`), `reseal_encryption` (`POST /v1/admin/encryption/reseal`,
+  `ResealEncryptionRequest`), `revoke_encryption_master`
+  (`POST /v1/admin/encryption/keys/{id}/revoke-master`). `RotateEncryptionKeyResponse` gains
+  `key_id`, `previous_key_id`, `scope`, `namespace`, `reseal`, `fulltext_indices_rotated`,
+  `failed_namespaces`, `action_required`, `status_url`.
+- `stream_audit_memory_events`: the audit stream as `MemoryEvent`s.
+- `AdminCreateBackupRequest`, `AdminCreateBackupResponse`, `AdminRestoreBackupRequest`,
+  `AdminRestoreBackupResponse`, `AdminBackupListResponse`: the types `admin_create_backup`,
+  `admin_restore_backup` and `admin_list_backups` take and return could not be named outside the
+  crate (the plain names are the legacy `admin` types).
+
+### Fixed
+
+- `valid_from` (`StoreMemoryRequest`, `BatchStoreMemoryItem`) is sent as `metadata.valid_from`,
+  where the server's bi-temporal boost reads it; the top-level field was ignored (server v0.12.3
+  lists it in `warnings`). A `valid_from` already in the metadata wins. Both request types now
+  serialize to exactly the body the server reads.
+- **Admin requests send only fields the server accepts** (it now answers `422` for unknown fields
+  on `POST /admin/keys`, `/v1/namespaces/{ns}/keys`, `/admin/backups`,
+  `/admin/encryption/rotate-key`): `rotate_encryption_key("", ..)` no longer sends
+  `"new_key": ""` (the server then generates a key); `CreateKeyRequest`,
+  `CreateNamespaceKeyRequest` and both `CreateBackupRequest`s are checked field by field.
+- `RecalledMemory::depth` (KG-3 associated memories) is read from the result, where the server
+  puts it; it was always `None`.
+- Path and query parameters (memory, agent, session, key, backup and job ids, namespaces, attachment
+  references, analytics filters) are percent-encoded everywhere; most routes put them in the URL
+  unescaped, so a value holding `/`, `?` or `&` reached another route or added parameters.
+- Event streams no longer stop after the request timeout (30 s by default): they use a client with
+  the same headers, connect timeout and TLS settings but no overall timeout. The SSE parser splits
+  lines on bytes, so a multi-byte UTF-8 character split across network chunks is no longer
+  replaced by U+FFFD; a line is bounded at 16 MiB.
+- `stream_audit_events` decoded the audit stream's memory events as `DakeraEvent`, which fails for
+  every event but the handshake; it is deprecated in favour of `stream_audit_memory_events`.
+- `execute_with_retry` with `max_retries: 0` returned an error without running the operation; it
+  now makes one attempt. An answer that does not decode (`reqwest` decode error), a request that
+  cannot be built and a redirect loop are no longer retried.
+
+### Changed
+
+- Docs: recall, search and batch recall for an agent that has stored nothing answer `200` with no
+  memories on server v0.12.3 (older servers answered `404 NAMESPACE_NOT_FOUND`).
+- `AuditListResponse::cursor` and `AuditQuery::cursor` are documented as unused: `GET /v1/audit`
+  answers `{events, count}` and pages with `from` / `to`.
+- `DakeraClientBuilder`'s `Debug` redacts the API key and header values; custom header values are
+  marked sensitive (the `Authorization` header already was). `RotateEncryptionKeyRequest`'s `Debug`
+  redacts `new_key`.
+- Docs: `ops_shutdown` needs a global `super_admin` key (`403` for `admin` from server v0.12.3);
+  requests to the ODE sidecar (`ode_url`) currently carry the Dakera API key, tracked in
+  Dakera-AI/dakera#924;
+  `execute_with_retry` says which operations are safe to wrap; hybrid fusion default is `MinMax`;
+  the rerank pool on hybrid routing is 10x the ranking depth.
+
 ## [0.12.2] - 2026-10-08
 
 Support for the Dakera server **v0.12.2** (Dakera-AI/dakera#916). Compatible with v0.12.0 and

@@ -661,12 +661,16 @@ impl DakeraClient {
         max_depth: Option<u32>,
         limit: Option<usize>,
     ) -> Result<KgQueryResponse> {
-        let mut url = format!("{}/v1/knowledge/query?agent_id={}", self.base_url, agent_id);
+        let mut url = format!(
+            "{}/v1/knowledge/query?agent_id={}",
+            self.base_url,
+            crate::client::enc_query(agent_id)
+        );
         if let Some(v) = root_id {
-            url.push_str(&format!("&root_id={}", v));
+            url.push_str(&format!("&root_id={}", crate::client::enc_query(v)));
         }
         if let Some(v) = edge_type {
-            url.push_str(&format!("&edge_type={}", v));
+            url.push_str(&format!("&edge_type={}", crate::client::enc_query(v)));
         }
         if let Some(v) = min_weight {
             url.push_str(&format!("&min_weight={}", v));
@@ -694,7 +698,10 @@ impl DakeraClient {
     ) -> Result<KgPathResponse> {
         let url = format!(
             "{}/v1/knowledge/path?agent_id={}&from={}&to={}",
-            self.base_url, agent_id, from_id, to_id
+            self.base_url,
+            crate::client::enc_query(agent_id),
+            crate::client::enc_query(from_id),
+            crate::client::enc_query(to_id)
         );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
@@ -714,7 +721,9 @@ impl DakeraClient {
         let fmt = format.unwrap_or("json");
         let url = format!(
             "{}/v1/knowledge/export?agent_id={}&format={}",
-            self.base_url, agent_id, fmt
+            self.base_url,
+            crate::client::enc_query(agent_id),
+            crate::client::enc_query(fmt)
         );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await

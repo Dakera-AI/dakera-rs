@@ -24,11 +24,99 @@ pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<u64> {
         .and_then(|s| s.trim().parse::<u64>().ok())
 }
 
+/// Percent-encode one URL path segment (an id, a namespace, an agent id), so
+/// a value holding `/`, `?`, `#` or `%` cannot reach another route. RFC 3986
+/// `pchar`s are kept as they are (`sha256:<hex>` attachment references stay
+/// readable).
+pub(crate) fn enc(value: &str) -> std::borrow::Cow<'_, str> {
+    fn keep(b: u8) -> bool {
+        b.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@".contains(&b)
+    }
+    if value.bytes().all(keep) {
+        return std::borrow::Cow::Borrowed(value);
+    }
+    let mut out = String::with_capacity(value.len() + 8);
+    for b in value.bytes() {
+        if keep(b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// Percent-encode one query-string value (everything but unreserved
+/// characters), so it cannot add parameters.
+pub(crate) fn enc_query(value: &str) -> std::borrow::Cow<'_, str> {
+    urlencoding::encode(value)
+}
+
+/// Longest line accepted on a server-sent event stream (16 MiB). A memory
+/// event carries the memory's content.
+pub const MAX_SSE_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Incremental server-sent events parser: feed it network chunks, get back
+/// the `data` payload of every complete event.
+///
+/// Lines are split on the raw bytes (LF, with an optional CR before it), so
+/// UTF-8 split across chunks is decoded intact. Comment lines (`:` heartbeat)
+/// and fields other than `data` are ignored; an event is dispatched at the
+/// blank line that ends it.
+#[derive(Debug, Default)]
+pub(crate) struct SseParser {
+    buf: Vec<u8>,
+    data_lines: Vec<String>,
+}
+
+impl SseParser {
+    /// Feed one chunk; returns the payloads of the events it completed.
+    pub(crate) fn push(&mut self, chunk: &[u8]) -> Result<Vec<String>> {
+        self.buf.extend_from_slice(chunk);
+        let mut out = Vec::new();
+        let mut start = 0;
+        while let Some(pos) = self.buf[start..].iter().position(|&b| b == b'\n') {
+            let end = start + pos;
+            let mut line = &self.buf[start..end];
+            if line.last() == Some(&b'\r') {
+                line = &line[..line.len() - 1];
+            }
+            let line = String::from_utf8_lossy(line);
+            if line.is_empty() {
+                if !self.data_lines.is_empty() {
+                    out.push(self.data_lines.join("\n"));
+                    self.data_lines.clear();
+                }
+            } else if let Some(data) = line.strip_prefix("data:") {
+                self.data_lines
+                    .push(data.strip_prefix(' ').unwrap_or(data).to_string());
+            } else if line == "data" {
+                self.data_lines.push(String::new());
+            }
+            // ':' comments / heartbeats and other fields (event:, id:, retry:) are ignored.
+            start = end + 1;
+        }
+        self.buf.drain(..start);
+        if self.buf.len() > MAX_SSE_LINE_BYTES {
+            return Err(ClientError::Connection(format!(
+                "event stream line longer than {MAX_SSE_LINE_BYTES} bytes"
+            )));
+        }
+        Ok(out)
+    }
+}
+
 /// Dakera client for interacting with the vector database
+///
+/// Its `Debug` output never shows the API key (the `Authorization` header is
+/// marked sensitive).
 #[derive(Debug, Clone)]
 pub struct DakeraClient {
     /// HTTP client
     pub(crate) client: Client,
+    /// HTTP client for long-lived event streams: same headers, connect
+    /// timeout and TLS settings, but no overall request timeout.
+    pub(crate) stream_client: Client,
     /// Base URL of the Dakera server
     pub(crate) base_url: String,
     /// ODE-2: Base URL of the dakera-ode sidecar (optional)
@@ -295,7 +383,11 @@ impl DakeraClient {
     /// Get namespace information
     #[instrument(skip(self))]
     pub async fn get_namespace(&self, namespace: &str) -> Result<NamespaceInfo> {
-        let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -317,7 +409,11 @@ impl DakeraClient {
             self.preflight_check(CapabilityKind::IndexKind, kind)
                 .await?;
         }
-        let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -337,7 +433,11 @@ impl DakeraClient {
             self.preflight_check(CapabilityKind::DistanceMetric, metric.as_str())
                 .await?;
         }
-        let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -345,7 +445,11 @@ impl DakeraClient {
     /// Delete a namespace and all its data.
     #[instrument(skip(self))]
     pub async fn delete_namespace(&self, namespace: &str) -> Result<()> {
-        let url = format!("{}/v1/namespaces/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.delete(&url).send().await?;
         if response.status().is_success() {
             Ok(())
@@ -383,7 +487,11 @@ impl DakeraClient {
     /// Upsert vectors into a namespace
     #[instrument(skip(self, request), fields(vector_count = request.vectors.len()))]
     pub async fn upsert(&self, namespace: &str, request: UpsertRequest) -> Result<UpsertResponse> {
-        let url = format!("{}/v1/namespaces/{}/vectors", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/vectors",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!(
             "Upserting {} vectors to {}",
             request.vectors.len(),
@@ -440,7 +548,8 @@ impl DakeraClient {
     ) -> Result<UpsertResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/upsert-columns",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         debug!(
             "Upserting {} vectors in column format to {}",
@@ -455,7 +564,11 @@ impl DakeraClient {
     /// Query for similar vectors
     #[instrument(skip(self, request), fields(top_k = request.top_k))]
     pub async fn query(&self, namespace: &str, request: QueryRequest) -> Result<QueryResponse> {
-        let url = format!("{}/v1/namespaces/{}/query", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/query",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!(
             "Querying namespace {} for top {} results",
             namespace, request.top_k
@@ -506,7 +619,11 @@ impl DakeraClient {
         namespace: &str,
         request: BatchQueryRequest,
     ) -> Result<BatchQueryResponse> {
-        let url = format!("{}/v1/namespaces/{}/batch-query", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/batch-query",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!(
             "Batch querying namespace {} with {} queries",
             namespace,
@@ -522,7 +639,8 @@ impl DakeraClient {
     pub async fn delete(&self, namespace: &str, request: DeleteRequest) -> Result<DeleteResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/vectors/delete",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         debug!("Deleting {} vectors from {}", request.ids.len(), namespace);
 
@@ -545,7 +663,8 @@ impl DakeraClient {
     ) -> Result<BulkUpdateResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/vectors/bulk-update",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -560,7 +679,8 @@ impl DakeraClient {
     ) -> Result<BulkDeleteResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/vectors/bulk-delete",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -575,7 +695,8 @@ impl DakeraClient {
     ) -> Result<CountVectorsResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/vectors/count",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -594,7 +715,8 @@ impl DakeraClient {
     ) -> Result<IndexDocumentsResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/fulltext/index",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         debug!(
             "Indexing {} documents in {}",
@@ -631,7 +753,8 @@ impl DakeraClient {
     ) -> Result<FullTextSearchResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/fulltext/search",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         debug!("Full-text search in {} for: {}", namespace, request.query);
 
@@ -656,7 +779,8 @@ impl DakeraClient {
     pub async fn fulltext_stats(&self, namespace: &str) -> Result<FullTextStats> {
         let url = format!(
             "{}/v1/namespaces/{}/fulltext/stats",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
@@ -671,7 +795,8 @@ impl DakeraClient {
     ) -> Result<DeleteResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/fulltext/delete",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -688,7 +813,11 @@ impl DakeraClient {
         namespace: &str,
         request: HybridSearchRequest,
     ) -> Result<HybridSearchResponse> {
-        let url = format!("{}/v1/namespaces/{}/hybrid", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/hybrid",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!(
             "Hybrid search in {} with vector_weight={}",
             namespace, request.vector_weight
@@ -740,7 +869,11 @@ impl DakeraClient {
         namespace: &str,
         request: MultiVectorSearchRequest,
     ) -> Result<MultiVectorSearchResponse> {
-        let url = format!("{}/v1/namespaces/{}/multi-vector", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/multi-vector",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!(
             "Multi-vector search in {} with {} positive vectors",
             namespace,
@@ -790,7 +923,11 @@ impl DakeraClient {
         namespace: &str,
         request: AggregationRequest,
     ) -> Result<AggregationResponse> {
-        let url = format!("{}/v1/namespaces/{}/aggregate", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/aggregate",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!(
             "Aggregating in namespace {} with {} aggregations",
             namespace,
@@ -846,7 +983,8 @@ impl DakeraClient {
     ) -> Result<UnifiedQueryResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/unified-query",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         debug!(
             "Unified query in namespace {} with top_k={}",
@@ -931,7 +1069,11 @@ impl DakeraClient {
         namespace: &str,
         request: QueryExplainRequest,
     ) -> Result<QueryExplainResponse> {
-        let url = format!("{}/v1/namespaces/{}/explain", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/explain",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!(
             "Explaining query in namespace {} (query_type={:?}, top_k={})",
             namespace, request.query_type, request.top_k
@@ -972,7 +1114,8 @@ impl DakeraClient {
     pub async fn warm_cache(&self, request: WarmCacheRequest) -> Result<WarmCacheResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/cache/warm",
-            self.base_url, request.namespace
+            self.base_url,
+            crate::client::enc(&request.namespace)
         );
         debug!(
             "Warming cache for namespace {} with priority {:?}",
@@ -1028,7 +1171,11 @@ impl DakeraClient {
     /// ```
     #[instrument(skip(self, request), fields(namespace = %namespace))]
     pub async fn export(&self, namespace: &str, request: ExportRequest) -> Result<ExportResponse> {
-        let url = format!("{}/v1/namespaces/{}/export", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/export",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!(
             "Exporting vectors from namespace {} (top_k={}, cursor={:?})",
             namespace, request.top_k, request.cursor
@@ -1079,7 +1226,7 @@ impl DakeraClient {
     /// Get a specific job status
     #[instrument(skip(self))]
     pub async fn get_job(&self, job_id: &str) -> Result<Option<JobInfo>> {
-        let url = format!("{}/ops/jobs/{}", self.base_url, job_id);
+        let url = format!("{}/ops/jobs/{}", self.base_url, crate::client::enc(job_id));
         let response = self.client.get(&url).send().await?;
 
         if response.status() == StatusCode::NOT_FOUND {
@@ -1125,7 +1272,11 @@ impl DakeraClient {
             self.preflight_check(CapabilityKind::Model, model.as_str())
                 .await?;
         }
-        let url = format!("{}/v1/namespaces/{}/upsert-text", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/upsert-text",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!(
             "Upserting {} text documents to {}",
             request.documents.len(),
@@ -1146,7 +1297,11 @@ impl DakeraClient {
             self.preflight_check(CapabilityKind::Model, model.as_str())
                 .await?;
         }
-        let url = format!("{}/v1/namespaces/{}/query-text", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/query-text",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         debug!("Text query in {} for: {}", namespace, request.text);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -1177,7 +1332,8 @@ impl DakeraClient {
         }
         let url = format!(
             "{}/v1/namespaces/{}/batch-query-text",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         debug!(
             "Batch text query in {} with {} queries",
@@ -1198,7 +1354,11 @@ impl DakeraClient {
         &self,
         namespace: &str,
     ) -> Result<NamespaceEntityConfig> {
-        let url = format!("{}/v1/namespaces/{}/config", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/config",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1209,7 +1369,11 @@ impl DakeraClient {
         &self,
         namespace: &str,
     ) -> Result<NamespaceExtractorConfig> {
-        let url = format!("{}/v1/namespaces/{}/extractor", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/extractor",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1227,7 +1391,11 @@ impl DakeraClient {
         namespace: &str,
         config: NamespaceNerConfig,
     ) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/namespaces/{}/config", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/config",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.patch(&url).json(&config).send().await?;
         self.handle_response(response).await
     }
@@ -1244,7 +1412,11 @@ impl DakeraClient {
         namespace: &str,
         config: NamespaceNerConfig,
     ) -> Result<NamespaceEntityConfig> {
-        let url = format!("{}/v1/namespaces/{}/config", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/config",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         // PUT carries the full config: entity_types is always sent, empty
         // meaning cleared.
         let body = serde_json::json!({
@@ -1298,7 +1470,11 @@ impl DakeraClient {
     /// Sends `GET /v1/memory/entities/{memory_id}`.
     #[instrument(skip(self))]
     pub async fn memory_entities(&self, memory_id: &str) -> Result<MemoryEntitiesResponse> {
-        let url = format!("{}/v1/memory/entities/{}", self.base_url, memory_id);
+        let url = format!(
+            "{}/v1/memory/entities/{}",
+            self.base_url,
+            crate::client::enc(memory_id)
+        );
         let response = self.client.get(&url).send().await?;
         let mut result: MemoryEntitiesResponse = self.handle_response(response).await?;
         // The server answers `{entities, count}` without the id.
@@ -1382,21 +1558,27 @@ impl DakeraClient {
     /// Respects the `Retry-After` header (whole seconds, capped at
     /// `RetryConfig::max_delay`) when the server answers HTTP 429 or 503 --
     /// every v0.12 `503` carries one.  Does NOT retry on 4xx client errors
-    /// (except 429), nor on 413 / 501.
+    /// (except 429), nor on 413 / 501.  `RetryConfig::max_retries` is the
+    /// number of attempts; `0` is treated as `1` (the operation always runs).
     ///
-    /// Wrap any call in it: `client.execute_with_retry(|| client.recall(req.clone())).await`.
+    /// The client's own methods make a single attempt; retrying is opt-in
+    /// through this wrapper.  Wrap reads and idempotent writes
+    /// (`client.execute_with_retry(|| client.recall(req.clone())).await`); a
+    /// non-idempotent write such as `store_memory` can be applied twice when a
+    /// `5xx` or a dropped connection hides that the first attempt succeeded.
     pub async fn execute_with_retry<F, Fut, T>(&self, f: F) -> Result<T>
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
     {
         let rc = &self.retry_config;
+        let attempts = rc.max_retries.max(1);
 
-        for attempt in 0..rc.max_retries {
+        for attempt in 0..attempts {
             match f().await {
                 Ok(v) => return Ok(v),
                 Err(e) => {
-                    let is_last = attempt == rc.max_retries - 1;
+                    let is_last = attempt == attempts - 1;
                     if is_last || !e.is_retryable() {
                         return Err(e);
                     }
@@ -1515,8 +1697,8 @@ impl DakeraClient {
     }
 }
 
-/// Builder for DakeraClient
-#[derive(Debug)]
+/// Builder for DakeraClient (its `Debug` output redacts the API key and
+/// header values).
 pub struct DakeraClientBuilder {
     base_url: String,
     api_key: Option<String>,
@@ -1527,6 +1709,23 @@ pub struct DakeraClientBuilder {
     user_agent: Option<String>,
     extra_headers: Vec<(String, String)>,
     preflight: bool,
+}
+
+impl std::fmt::Debug for DakeraClientBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let header_names: Vec<&str> = self.extra_headers.iter().map(|(n, _)| n.as_str()).collect();
+        f.debug_struct("DakeraClientBuilder")
+            .field("base_url", &self.base_url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("ode_url", &self.ode_url)
+            .field("timeout", &self.timeout)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("retry_config", &self.retry_config)
+            .field("user_agent", &self.user_agent)
+            .field("extra_headers", &header_names)
+            .field("preflight", &self.preflight)
+            .finish()
+    }
 }
 
 impl DakeraClientBuilder {
@@ -1569,7 +1768,9 @@ impl DakeraClientBuilder {
 
     /// Set the base URL of the dakera-ode sidecar (ODE-2).
     ///
-    /// Required to call [`DakeraClient::extract_entities`].
+    /// Required to call [`DakeraClient::extract_entities`]. Requests to the
+    /// sidecar currently carry the Dakera API key; tracked in
+    /// <https://github.com/Dakera-AI/dakera/issues/924>.
     pub fn ode_url(mut self, ode_url: impl Into<String>) -> Self {
         self.ode_url = Some(ode_url.into().trim_end_matches('/').to_string());
         self
@@ -1655,13 +1856,25 @@ impl DakeraClientBuilder {
         for (name, value) in &self.extra_headers {
             let header_name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| ClientError::Config(format!("invalid header name: {name}")))?;
-            let header_value = HeaderValue::from_str(value)
+            let mut header_value = HeaderValue::from_str(value)
                 .map_err(|_| ClientError::Config(format!("invalid header value for {name}")))?;
+            // A custom header may carry a credential: keep it out of Debug output.
+            header_value.set_sensitive(true);
             default_headers.insert(header_name, header_value);
         }
 
+        // TLS: rustls with the platform verifier and the OS root store (no
+        // OpenSSL); certificate and hostname verification always on.
         let client = Client::builder()
             .timeout(self.timeout)
+            .connect_timeout(connect_timeout)
+            .user_agent(user_agent.clone())
+            .default_headers(default_headers.clone())
+            .build()
+            .map_err(|e| ClientError::Config(e.to_string()))?;
+        // Event streams stay open far longer than any request timeout; they
+        // end when the server closes them or the receiver is dropped.
+        let stream_client = Client::builder()
             .connect_timeout(connect_timeout)
             .user_agent(user_agent)
             .default_headers(default_headers)
@@ -1670,6 +1883,7 @@ impl DakeraClientBuilder {
 
         Ok(DakeraClient {
             client,
+            stream_client,
             base_url,
             ode_url: self.ode_url,
             retry_config: self.retry_config,
@@ -1751,6 +1965,14 @@ impl DakeraClient {
     }
 
     /// Low-level generic SSE streaming helper.
+    ///
+    /// Opens the stream on a client with no overall request timeout (the
+    /// connect timeout still applies), so it stays open until the server
+    /// closes it or the receiver is dropped.  A non-2xx answer is returned as
+    /// the same typed [`ClientError`] a JSON request gets.  Lines are split on
+    /// LF (CRLF accepted) on the raw bytes, so a multi-byte UTF-8 character
+    /// split across network chunks is decoded intact; a line longer than
+    /// [`MAX_SSE_LINE_BYTES`] ends the stream with an error.
     pub(crate) async fn stream_sse<T>(
         &self,
         url: String,
@@ -1761,7 +1983,7 @@ impl DakeraClient {
         use futures_util::StreamExt;
 
         let response = self
-            .client
+            .stream_client
             .get(&url)
             .header("Accept", "text/event-stream")
             .header("Cache-Control", "no-cache")
@@ -1776,37 +1998,25 @@ impl DakeraClient {
 
         tokio::spawn(async move {
             let mut byte_stream = response.bytes_stream();
-            let mut remaining = String::new();
-            let mut data_lines: Vec<String> = Vec::new();
+            let mut parser = SseParser::default();
 
             while let Some(chunk) = byte_stream.next().await {
                 match chunk {
-                    Ok(bytes) => {
-                        remaining.push_str(&String::from_utf8_lossy(&bytes));
-                        while let Some(pos) = remaining.find('\n') {
-                            let raw = &remaining[..pos];
-                            let line = raw.trim_end_matches('\r').to_string();
-                            remaining = remaining[pos + 1..].to_string();
-
-                            if line.starts_with(':') {
-                                // SSE comment / heartbeat — skip
-                            } else if let Some(data) = line.strip_prefix("data:") {
-                                data_lines.push(data.trim_start().to_string());
-                            } else if line.is_empty() {
-                                if !data_lines.is_empty() {
-                                    let payload = data_lines.join("\n");
-                                    data_lines.clear();
-                                    let result = serde_json::from_str::<T>(&payload)
-                                        .map_err(ClientError::Json);
-                                    if tx.send(result).await.is_err() {
-                                        return; // receiver dropped
-                                    }
+                    Ok(bytes) => match parser.push(&bytes) {
+                        Ok(payloads) => {
+                            for payload in payloads {
+                                let result =
+                                    serde_json::from_str::<T>(&payload).map_err(ClientError::Json);
+                                if tx.send(result).await.is_err() {
+                                    return; // receiver dropped
                                 }
-                            } else {
-                                // Unrecognised field (e.g. "event:") — ignore
                             }
                         }
-                    }
+                        Err(e) => {
+                            let _ = tx.send(Err(e)).await;
+                            return;
+                        }
+                    },
                     Err(e) => {
                         let _ = tx.send(Err(ClientError::Http(e))).await;
                         return;
@@ -1837,7 +2047,11 @@ impl DakeraClient {
     /// Get import job status via `GET /v1/import/{job_id}/status`.
     #[instrument(skip(self))]
     pub async fn import_job_status(&self, job_id: &str) -> Result<ImportJobStatus> {
-        let url = format!("{}/v1/import/{}/status", self.base_url, job_id);
+        let url = format!(
+            "{}/v1/import/{}/status",
+            self.base_url,
+            crate::client::enc(job_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1846,6 +2060,46 @@ impl DakeraClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sse_parser_keeps_utf8_split_across_chunks() {
+        let event = "data: {\"c\":\"caf\u{e9} \u{1F600}\"}\n\n".as_bytes();
+        // Split inside the 4-byte emoji and inside the 2-byte é.
+        let emoji_at = event.iter().position(|&b| b == 0xF0).unwrap();
+        let e_at = event.iter().position(|&b| b == 0xC3).unwrap();
+        let mut parser = SseParser::default();
+        let mut out = parser.push(&event[..e_at + 1]).unwrap();
+        out.extend(parser.push(&event[e_at + 1..emoji_at + 2]).unwrap());
+        out.extend(parser.push(&event[emoji_at + 2..]).unwrap());
+        assert_eq!(out, vec!["{\"c\":\"caf\u{e9} \u{1F600}\"}".to_string()]);
+    }
+
+    #[test]
+    fn sse_parser_crlf_comments_fields_and_multiline_data() {
+        let mut parser = SseParser::default();
+        let out = parser
+            .push(
+                b": heartbeat\r\nevent: stored\r\nid: 7\r\ndata: a\r\ndata:b\r\n\r\n\r\ndata: c\n",
+            )
+            .unwrap();
+        assert_eq!(out, vec!["a\nb".to_string()]);
+        // The last event is not complete until its blank line.
+        assert_eq!(parser.push(b"\n").unwrap(), vec!["c".to_string()]);
+    }
+
+    #[test]
+    fn sse_parser_bounds_a_line() {
+        let mut parser = SseParser::default();
+        let chunk = vec![b'x'; MAX_SSE_LINE_BYTES + 1];
+        assert!(parser.push(&chunk).is_err());
+    }
+
+    #[test]
+    fn enc_escapes_path_separators_and_keeps_pchars() {
+        assert_eq!(enc("sha256:ab@c"), "sha256:ab@c");
+        assert_eq!(enc("a/b?c#d%e f"), "a%2Fb%3Fc%23d%25e%20f");
+        assert_eq!(enc_query("a&b=c+d"), "a%26b%3Dc%2Bd");
+    }
 
     #[test]
     fn test_client_builder() {

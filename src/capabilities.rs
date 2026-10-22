@@ -215,6 +215,13 @@ pub struct NamingCapability {
     /// Longest agent id (bytes; 241 since v0.12.2).
     #[serde(default)]
     pub agent_id_max_bytes: usize,
+    /// Regular expression a session id must match: the agent-id alphabet
+    /// plus `:` (server v0.12.3+; empty from older servers).
+    #[serde(default)]
+    pub session_id_pattern: String,
+    /// Longest session id (bytes; server v0.12.3+, `0` from older servers).
+    #[serde(default)]
+    pub session_id_max_bytes: usize,
     /// Prefix of an agent's memory namespace (`_dakera_agent_`).
     #[serde(default)]
     pub agent_namespace_prefix: String,
@@ -257,6 +264,41 @@ pub struct SessionsCapability {
     /// Sessions carry `ended_reason`.
     #[serde(default)]
     pub ended_reason: bool,
+    /// Fields this SDK version does not model yet.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Document import (`capabilities.documents`, server v0.12.3+).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DocumentsCapability {
+    /// The document routes answer (`DAKERA_DOCUMENTS`).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Media types `POST /v1/memory/documents` takes as text.
+    #[serde(default)]
+    pub text_media_types: Vec<String>,
+    /// Media types an attachment may have to be imported.
+    #[serde(default)]
+    pub media_types: Vec<String>,
+    /// Largest source document in bytes (`DAKERA_DOCUMENT_MAX_BYTES`).
+    #[serde(default)]
+    pub max_bytes: u64,
+    /// Most text one extraction may produce, in bytes.
+    #[serde(default)]
+    pub max_text_bytes: u64,
+    /// Most chunks one document may become.
+    #[serde(default)]
+    pub max_chunks: u64,
+    /// Default token budget of a chunk's text.
+    #[serde(default)]
+    pub default_chunk_tokens: u64,
+    /// Default overlap between chunks, in tokens.
+    #[serde(default)]
+    pub default_overlap_tokens: u64,
+    /// `chunking.strategy` values (kept as strings: newer servers may add some).
+    #[serde(default)]
+    pub strategies: Vec<String>,
     /// Fields this SDK version does not model yet.
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -402,6 +444,10 @@ pub struct ServerCapabilities {
     /// Session lifecycle (server v0.12.2+; all-default from older servers).
     #[serde(default)]
     pub sessions: SessionsCapability,
+    /// Document import (server v0.12.3+; all-default, `enabled: false`, from
+    /// older servers).
+    #[serde(default)]
+    pub documents: DocumentsCapability,
     /// Top-level fields this SDK version does not model yet (kept, never rejected).
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -468,6 +514,11 @@ impl ServerCapabilities {
     /// Whether the server supports `POST /v1/sessions/{id}/touch`.
     pub fn supports_session_touch(&self) -> bool {
         self.sessions.touch
+    }
+
+    /// Document import is switched on (`documents.enabled`, server v0.12.3+).
+    pub fn supports_documents(&self) -> bool {
+        self.documents.enabled
     }
 
     /// Whether the record routes are switched on (`records.enabled`).

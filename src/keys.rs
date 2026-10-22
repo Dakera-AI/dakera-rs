@@ -11,7 +11,10 @@ use crate::DakeraClient;
 // Key Types
 // ============================================================================
 
-/// Request to create a new API key
+/// Request to create a new API key (`POST /admin/keys`).
+///
+/// The server refuses unknown fields on this route with `422`; these are
+/// exactly the fields it accepts, and unset optionals are omitted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateKeyRequest {
     /// Human-readable name for this key
@@ -306,28 +309,44 @@ impl DakeraClient {
 
     /// Get a specific API key by ID
     pub async fn get_key(&self, key_id: &str) -> Result<KeyInfo> {
-        let url = format!("{}/admin/keys/{}", self.base_url, key_id);
+        let url = format!(
+            "{}/admin/keys/{}",
+            self.base_url,
+            crate::client::enc(key_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// Delete (revoke) an API key
     pub async fn delete_key(&self, key_id: &str) -> Result<KeySuccessResponse> {
-        let url = format!("{}/admin/keys/{}", self.base_url, key_id);
+        let url = format!(
+            "{}/admin/keys/{}",
+            self.base_url,
+            crate::client::enc(key_id)
+        );
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// Deactivate an API key (soft delete)
     pub async fn deactivate_key(&self, key_id: &str) -> Result<KeySuccessResponse> {
-        let url = format!("{}/admin/keys/{}/deactivate", self.base_url, key_id);
+        let url = format!(
+            "{}/admin/keys/{}/deactivate",
+            self.base_url,
+            crate::client::enc(key_id)
+        );
         let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// Rotate an API key (creates new key, deactivates old)
     pub async fn rotate_key(&self, key_id: &str) -> Result<RotateKeyResponse> {
-        let url = format!("{}/admin/keys/{}/rotate", self.base_url, key_id);
+        let url = format!(
+            "{}/admin/keys/{}/rotate",
+            self.base_url,
+            crate::client::enc(key_id)
+        );
         let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
@@ -355,7 +374,11 @@ impl DakeraClient {
                 "grace_secs must be at most {MAX_ROTATION_GRACE_SECS} (7 days), got {grace_secs}"
             )));
         }
-        let url = format!("{}/admin/keys/{}/rotate", self.base_url, key_id);
+        let url = format!(
+            "{}/admin/keys/{}/rotate",
+            self.base_url,
+            crate::client::enc(key_id)
+        );
         let body = RotateKeyRequest {
             grace_secs: Some(grace_secs),
         };
@@ -376,7 +399,11 @@ impl DakeraClient {
                 "update_key needs a name or namespaces to change".to_string(),
             ));
         }
-        let url = format!("{}/admin/keys/{}", self.base_url, key_id);
+        let url = format!(
+            "{}/admin/keys/{}",
+            self.base_url,
+            crate::client::enc(key_id)
+        );
         let response = self.client.patch(&url).json(request).send().await?;
         self.handle_response(response).await
     }
@@ -391,7 +418,11 @@ impl DakeraClient {
 
     /// Get API key usage statistics
     pub async fn key_usage(&self, key_id: &str) -> Result<ApiKeyUsageResponse> {
-        let url = format!("{}/admin/keys/{}/usage", self.base_url, key_id);
+        let url = format!(
+            "{}/admin/keys/{}/usage",
+            self.base_url,
+            crate::client::enc(key_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -408,14 +439,22 @@ impl DakeraClient {
         namespace: &str,
         request: CreateNamespaceKeyRequest,
     ) -> Result<CreateNamespaceKeyResponse> {
-        let url = format!("{}/v1/namespaces/{}/keys", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/keys",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
     /// List all API keys scoped to a namespace (SEC-1).
     pub async fn list_namespace_keys(&self, namespace: &str) -> Result<ListNamespaceKeysResponse> {
-        let url = format!("{}/v1/namespaces/{}/keys", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/namespaces/{}/keys",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -428,7 +467,9 @@ impl DakeraClient {
     ) -> Result<KeySuccessResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/keys/{}",
-            self.base_url, namespace, key_id
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(key_id)
         );
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
@@ -454,7 +495,9 @@ impl DakeraClient {
         }
         let url = format!(
             "{}/v1/namespaces/{}/keys/{}",
-            self.base_url, namespace, key_id
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(key_id)
         );
         let response = self.client.patch(&url).json(request).send().await?;
         self.handle_response(response).await
@@ -468,7 +511,9 @@ impl DakeraClient {
     ) -> Result<NamespaceKeyUsageResponse> {
         let url = format!(
             "{}/v1/namespaces/{}/keys/{}/usage",
-            self.base_url, namespace, key_id
+            self.base_url,
+            crate::client::enc(namespace),
+            crate::client::enc(key_id)
         );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
@@ -489,6 +534,9 @@ impl DakeraClient {
 // ============================================================================
 
 /// Request body for `POST /v1/namespaces/:namespace/keys` (SEC-1).
+///
+/// The server refuses unknown fields on this route with `422`; these are
+/// exactly the fields it accepts, and unset optionals are omitted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateNamespaceKeyRequest {
     /// Human-readable label for this key.

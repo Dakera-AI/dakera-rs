@@ -250,6 +250,20 @@ pub struct RuntimeConfig {
     /// never ended for inactivity). `None` from older servers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_idle_timeout_secs: Option<u64>,
+    /// AutoPilot dedup mode (`off`, `report`, `merge`) set through
+    /// [`DakeraClient::autopilot_update_config`] (server v0.12.3+). `None`
+    /// until set there (the server's environment rules) and from older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot_dedup_mode: Option<String>,
+    /// AutoPilot cross-session dedup, when set at runtime (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot_dedup_cross_session: Option<bool>,
+    /// AutoPilot cross-session consolidation, when set at runtime (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot_consolidate_cross_session: Option<bool>,
+    /// AutoPilot trash retention in hours, when set at runtime (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot_trash_retention_hours: Option<u64>,
 }
 
 fn default_true() -> bool {
@@ -339,6 +353,11 @@ pub struct BackupListResponse {
 }
 
 /// Create backup request
+///
+/// The server refuses unknown fields on this route with `422`; these are
+/// exactly the fields it accepts, and unset optionals are omitted.
+/// `backup_type`: `full`, `incremental` or `snapshot`; `compression`:
+/// `none`, `zstd` or `lz4`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateBackupRequest {
     pub name: String,
@@ -398,6 +417,15 @@ pub struct RestoreBackupResponse {
 // AutoPilot Types (PILOT-1 / PILOT-2 / PILOT-3)
 // ============================================================================
 
+/// AutoPilot dedup mode values (server v0.12.3+,
+/// [`AutoPilotConfig::dedup_mode`]): no dedup pass.
+pub const DEDUP_MODE_OFF: &str = "off";
+/// Dedup finds and reports duplicates, deletes none.
+pub const DEDUP_MODE_REPORT: &str = "report";
+/// Dedup folds duplicates into their survivor (restorable for
+/// `trash_retention_hours`, see [`DakeraClient::restore_deduplicated`]).
+pub const DEDUP_MODE_MERGE: &str = "merge";
+
 /// AutoPilot configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutoPilotConfig {
@@ -405,6 +433,22 @@ pub struct AutoPilotConfig {
     pub dedup_threshold: f32,
     pub dedup_interval_hours: u64,
     pub consolidation_interval_hours: u64,
+    /// What dedup does: [`DEDUP_MODE_OFF`] (the server default),
+    /// [`DEDUP_MODE_REPORT`] or [`DEDUP_MODE_MERGE`] (server v0.12.3+; empty
+    /// from older servers).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub dedup_mode: String,
+    /// Whether dedup may fold memories of different sessions (server v0.12.3+).
+    #[serde(default)]
+    pub dedup_cross_session: bool,
+    /// Whether consolidation may merge memories of different sessions
+    /// (server v0.12.3+).
+    #[serde(default)]
+    pub consolidate_cross_session: bool,
+    /// Hours a memory deleted by dedup or consolidation stays restorable
+    /// (`0` = none; server v0.12.3+).
+    #[serde(default)]
+    pub trash_retention_hours: u64,
 }
 
 /// Result snapshot from a deduplication cycle
@@ -413,6 +457,10 @@ pub struct DedupResultSnapshot {
     pub namespaces_processed: usize,
     pub memories_scanned: usize,
     pub duplicates_removed: usize,
+    /// Duplicates the pass found; in `report` mode none is removed (server
+    /// v0.12.3+; `0` from older servers).
+    #[serde(default)]
+    pub duplicates_found: usize,
 }
 
 /// Result snapshot from a consolidation cycle
@@ -451,6 +499,19 @@ pub struct AutoPilotConfigRequest {
     pub dedup_interval_hours: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub consolidation_interval_hours: Option<u64>,
+    /// [`DEDUP_MODE_OFF`], [`DEDUP_MODE_REPORT`] or [`DEDUP_MODE_MERGE`]
+    /// (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedup_mode: Option<String>,
+    /// Let dedup fold memories of different sessions (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedup_cross_session: Option<bool>,
+    /// Let consolidation merge memories of different sessions (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consolidate_cross_session: Option<bool>,
+    /// Hours a deleted memory stays restorable (`0..=8760`, server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trash_retention_hours: Option<u64>,
 }
 
 /// PILOT-2: AutoPilot configuration update response
@@ -482,6 +543,14 @@ pub struct AutoPilotDedupResult {
     pub namespaces_processed: usize,
     pub memories_scanned: usize,
     pub duplicates_removed: usize,
+    /// Duplicates found; in `report` mode none is removed (server v0.12.3+;
+    /// `0` from older servers).
+    #[serde(default)]
+    pub duplicates_found: usize,
+    /// The mode the pass ran in (`report` or `merge`; server v0.12.3+, empty
+    /// from older servers).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mode: String,
 }
 
 /// Consolidation result returned by a manual trigger
@@ -680,7 +749,11 @@ impl DakeraClient {
 
     /// Delete an entire namespace and all its data
     pub async fn delete_namespace_admin(&self, namespace: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/admin/namespaces/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/namespaces/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
@@ -693,7 +766,8 @@ impl DakeraClient {
     ) -> Result<OptimizeResponse> {
         let url = format!(
             "{}/v1/admin/namespaces/{}/optimize",
-            self.base_url, namespace
+            self.base_url,
+            crate::client::enc(namespace)
         );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -837,7 +911,11 @@ impl DakeraClient {
 
     /// Get quota for a specific namespace
     pub async fn get_quota(&self, namespace: &str) -> Result<QuotaStatus> {
-        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/quotas/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -848,7 +926,11 @@ impl DakeraClient {
         namespace: &str,
         config: QuotaConfig,
     ) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/quotas/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let request = serde_json::json!({ "config": config });
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -856,7 +938,11 @@ impl DakeraClient {
 
     /// Delete quota for a specific namespace
     pub async fn delete_quota(&self, namespace: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/quotas/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
@@ -886,10 +972,10 @@ impl DakeraClient {
             params.push(format!("limit={}", l));
         }
         if let Some(ns) = namespace {
-            params.push(format!("namespace={}", ns));
+            params.push(format!("namespace={}", crate::client::enc_query(ns)));
         }
         if let Some(qt) = query_type {
-            params.push(format!("query_type={}", qt));
+            params.push(format!("query_type={}", crate::client::enc_query(qt)));
         }
         if !params.is_empty() {
             url.push('?');
@@ -936,7 +1022,11 @@ impl DakeraClient {
 
     /// Get backup details by ID
     pub async fn get_backup(&self, backup_id: &str) -> Result<BackupInfo> {
-        let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
+        let url = format!(
+            "{}/v1/admin/backups/{}",
+            self.base_url,
+            crate::client::enc(backup_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -953,7 +1043,11 @@ impl DakeraClient {
 
     /// Delete a backup
     pub async fn delete_backup(&self, backup_id: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
+        let url = format!(
+            "{}/v1/admin/backups/{}",
+            self.base_url,
+            crate::client::enc(backup_id)
+        );
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1180,7 +1274,11 @@ impl DakeraClient {
 
     /// GET /v1/admin/quotas/{namespace} — get namespace quota.
     pub async fn admin_get_quota(&self, namespace: &str) -> Result<crate::types::QuotaStatus> {
-        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/quotas/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1191,14 +1289,22 @@ impl DakeraClient {
         namespace: &str,
         request: crate::types::SetQuotaRequest,
     ) -> Result<crate::types::SetQuotaResponse> {
-        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/quotas/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.put(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
 
     /// DELETE /v1/admin/quotas/{namespace} — remove namespace quota.
     pub async fn admin_delete_quota(&self, namespace: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/admin/quotas/{}", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/quotas/{}",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1209,7 +1315,11 @@ impl DakeraClient {
         namespace: &str,
         request: crate::types::QuotaCheckRequest,
     ) -> Result<crate::types::QuotaCheckResult> {
-        let url = format!("{}/v1/admin/quotas/{}/check", self.base_url, namespace);
+        let url = format!(
+            "{}/v1/admin/quotas/{}/check",
+            self.base_url,
+            crate::client::enc(namespace)
+        );
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
     }
@@ -1228,10 +1338,10 @@ impl DakeraClient {
         let mut url = format!("{}/v1/admin/slow-queries", self.base_url);
         let mut params = Vec::new();
         if let Some(ns) = namespace {
-            params.push(format!("namespace={}", ns));
+            params.push(format!("namespace={}", crate::client::enc_query(ns)));
         }
         if let Some(qt) = query_type {
-            params.push(format!("query_type={}", qt));
+            params.push(format!("query_type={}", crate::client::enc_query(qt)));
         }
         if let Some(l) = limit {
             params.push(format!("limit={}", l));
@@ -1268,7 +1378,7 @@ impl DakeraClient {
     ) -> Result<serde_json::Value> {
         let mut url = format!("{}/v1/admin/slow-queries", self.base_url);
         if let Some(ns) = namespace {
-            url.push_str(&format!("?namespace={}", ns));
+            url.push_str(&format!("?namespace={}", crate::client::enc_query(ns)));
         }
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
@@ -1307,14 +1417,22 @@ impl DakeraClient {
 
     /// GET /v1/admin/backups/{id} — get backup details.
     pub async fn admin_get_backup(&self, backup_id: &str) -> Result<crate::types::AdminBackupInfo> {
-        let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
+        let url = format!(
+            "{}/v1/admin/backups/{}",
+            self.base_url,
+            crate::client::enc(backup_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// DELETE /v1/admin/backups/{id} — delete a backup.
     pub async fn admin_delete_backup(&self, backup_id: &str) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/admin/backups/{}", self.base_url, backup_id);
+        let url = format!(
+            "{}/v1/admin/backups/{}",
+            self.base_url,
+            crate::client::enc(backup_id)
+        );
         let response = self.client.delete(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1351,7 +1469,11 @@ impl DakeraClient {
         &self,
         restore_id: &str,
     ) -> Result<crate::types::RestoreBackupResponse> {
-        let url = format!("{}/v1/admin/backups/restore/{}", self.base_url, restore_id);
+        let url = format!(
+            "{}/v1/admin/backups/restore/{}",
+            self.base_url,
+            crate::client::enc(restore_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1376,7 +1498,7 @@ impl DakeraClient {
 
     /// GET /ops/jobs/{id} — get job status.
     pub async fn ops_get_job(&self, job_id: &str) -> Result<crate::types::JobInfo> {
-        let url = format!("{}/ops/jobs/{}", self.base_url, job_id);
+        let url = format!("{}/ops/jobs/{}", self.base_url, crate::client::enc(job_id));
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1392,6 +1514,12 @@ impl DakeraClient {
     }
 
     /// POST /ops/shutdown — request graceful shutdown.
+    ///
+    /// It stops the node for every tenant, so the server requires a global
+    /// **`super_admin`** key; a global `admin` key gets `403`
+    /// ([`ClientError::Authorization`](crate::ClientError::Authorization))
+    /// from server v0.12.3 on. Do not wrap it in
+    /// [`DakeraClient::execute_with_retry`](crate::DakeraClient::execute_with_retry).
     pub async fn ops_shutdown(&self) -> Result<serde_json::Value> {
         let url = format!("{}/ops/shutdown", self.base_url);
         let response = self.client.post(&url).send().await?;
@@ -1404,7 +1532,11 @@ impl DakeraClient {
 
     /// Download a backup as gzipped bytes via `GET /v1/admin/backups/{id}/download`.
     pub async fn download_backup(&self, backup_id: &str) -> Result<Vec<u8>> {
-        let url = format!("{}/v1/admin/backups/{}/download", self.base_url, backup_id);
+        let url = format!(
+            "{}/v1/admin/backups/{}/download",
+            self.base_url,
+            crate::client::enc(backup_id)
+        );
         let response = self.client.get(&url).send().await?;
         if !response.status().is_success() {
             return Err(Self::error_from_response(response).await);

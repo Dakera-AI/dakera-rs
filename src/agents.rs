@@ -234,7 +234,11 @@ impl DakeraClient {
         options: &AgentMemoriesOptions,
     ) -> Result<Vec<RecalledMemory>> {
         check_content_preview(options.content_preview_chars)?;
-        let url = format!("{}/v1/agents/{}/memories", self.base_url, agent_id);
+        let url = format!(
+            "{}/v1/agents/{}/memories",
+            self.base_url,
+            crate::client::enc(agent_id)
+        );
         let response = self
             .client
             .get(&url)
@@ -246,7 +250,11 @@ impl DakeraClient {
 
     /// Get stats for an agent
     pub async fn agent_stats(&self, agent_id: &str) -> Result<AgentStats> {
-        let url = format!("{}/v1/agents/{}/stats", self.base_url, agent_id);
+        let url = format!(
+            "{}/v1/agents/{}/stats",
+            self.base_url,
+            crate::client::enc(agent_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -341,7 +349,11 @@ impl DakeraClient {
         active_only: Option<bool>,
         limit: Option<u32>,
     ) -> Result<Vec<Session>> {
-        let mut url = format!("{}/v1/agents/{}/sessions", self.base_url, agent_id);
+        let mut url = format!(
+            "{}/v1/agents/{}/sessions",
+            self.base_url,
+            crate::client::enc(agent_id)
+        );
         let mut params = Vec::new();
         if let Some(active) = active_only {
             params.push(format!("active_only={}", active));
@@ -393,7 +405,11 @@ impl DakeraClient {
         agent_id: &str,
         options: &WakeUpOptions,
     ) -> Result<WakeUpResponse> {
-        let url = format!("{}/v1/agents/{}/wake-up", self.base_url, agent_id);
+        let url = format!(
+            "{}/v1/agents/{}/wake-up",
+            self.base_url,
+            crate::client::enc(agent_id)
+        );
         let mut query: Vec<(&str, String)> = Vec::new();
         if let Some(n) = options.top_n {
             query.push(("top_n", n.to_string()));
@@ -416,7 +432,11 @@ impl DakeraClient {
     /// # Arguments
     /// * `agent_id` — Agent identifier.
     pub async fn compress(&self, agent_id: &str) -> Result<CompressResponse> {
-        let url = format!("{}/v1/agents/{}/compress", self.base_url, agent_id);
+        let url = format!(
+            "{}/v1/agents/{}/compress",
+            self.base_url,
+            crate::client::enc(agent_id)
+        );
         let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
@@ -429,7 +449,11 @@ impl DakeraClient {
     /// Consolidate memories for an agent using the agent-scoped endpoint.
     #[tracing::instrument(skip(self))]
     pub async fn consolidate_agent(&self, agent_id: &str) -> Result<AgentConsolidateResponse> {
-        let url = format!("{}/v1/agents/{}/consolidate", self.base_url, agent_id);
+        let url = format!(
+            "{}/v1/agents/{}/consolidate",
+            self.base_url,
+            crate::client::enc(agent_id)
+        );
         let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
@@ -440,7 +464,11 @@ impl DakeraClient {
         &self,
         agent_id: &str,
     ) -> Result<Vec<AgentConsolidationLogEntry>> {
-        let url = format!("{}/v1/agents/{}/consolidation/log", self.base_url, agent_id);
+        let url = format!(
+            "{}/v1/agents/{}/consolidation/log",
+            self.base_url,
+            crate::client::enc(agent_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -454,7 +482,8 @@ impl DakeraClient {
     ) -> Result<AgentConsolidationConfig> {
         let url = format!(
             "{}/v1/agents/{}/consolidation/config",
-            self.base_url, agent_id
+            self.base_url,
+            crate::client::enc(agent_id)
         );
         let response = self.client.patch(&url).json(&patch).send().await?;
         self.handle_response(response).await

@@ -20,6 +20,21 @@ fn test_smart_score_takes_priority() {
     assert_eq!(m.weighted_score, Some(0.7));
 }
 
+/// #940: rank_score (server v0.12.3+) is the ranking field and wins over smart_score.
+#[test]
+fn test_rank_score_takes_priority() {
+    let json = r#"{
+        "memory": {"id": "m1", "content": "test", "memory_type": "episodic", "importance": 0.8, "created_at": 1000, "last_accessed_at": 1000, "access_count": 0, "tags": []},
+        "score": 0.0023,
+        "smart_score": 0.5,
+        "rank_score": 0.41
+    }"#;
+    let m = deserialize(json);
+    assert_eq!(m.score, 0.41, ".score must equal rank_score when present");
+    assert_eq!(m.rank_score, Some(0.41));
+    assert_eq!(m.smart_score, Some(0.5));
+}
+
 #[test]
 fn test_weighted_score_used_when_no_smart_score() {
     let json = r#"{

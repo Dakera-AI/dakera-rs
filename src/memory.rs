@@ -28,8 +28,94 @@ pub enum MemoryType {
     Working,
 }
 
+/// When a memory's event happened (`event_time`, server v0.12.3+,
+/// Dakera-AI/dakera#932): Unix seconds or an RFC 3339 timestamp such as
+/// `2023-05-20T02:21:00Z`.
+///
+/// For a client that writes history (an import, a backfill, a replayed
+/// conversation). The server records it as metadata
+/// [`EVENT_TIME_META_KEY`] (integer seconds) and as the memory's event date;
+/// recency, `since` / `until`, the time range a query implies and the
+/// temporal edges then read it instead of the ingest time. `created_at` stays
+/// the ingest time (TTL and decay count from it). The server refuses a time
+/// before 1970 or more than 24 h in the future with a 400 naming the field;
+/// a server older than v0.12.3 ignores it. Build one with `From`:
+/// `EventTime::from(1_684_549_260)` or `EventTime::from("2023-05-20T02:21:00Z")`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EventTime {
+    /// Seconds since the Unix epoch.
+    Unix(i64),
+    /// An RFC 3339 timestamp (`2023-05-20T02:21:00Z`).
+    Rfc3339(String),
+}
+
+impl From<i64> for EventTime {
+    fn from(secs: i64) -> Self {
+        EventTime::Unix(secs)
+    }
+}
+
+impl From<String> for EventTime {
+    fn from(rfc3339: String) -> Self {
+        EventTime::Rfc3339(rfc3339)
+    }
+}
+
+impl From<&str> for EventTime {
+    fn from(rfc3339: &str) -> Self {
+        EventTime::Rfc3339(rfc3339.to_string())
+    }
+}
+
+/// Metadata key under which the server records a memory's
+/// [`EventTime`] (integer Unix seconds, server v0.12.3+). Set it with
+/// [`StoreMemoryRequest::with_event_time`]: the server refuses it in
+/// `metadata`.
+pub const EVENT_TIME_META_KEY: &str = "_dakera_event_time";
+
+/// Metadata key the server's bi-temporal validity boost reads (Unix seconds);
+/// [`StoreMemoryRequest::valid_from`] is sent under it.
+pub const VALID_FROM_META_KEY: &str = "valid_from";
+
+/// `metadata` as sent: with `valid_from` folded in under
+/// [`VALID_FROM_META_KEY`], which is where the server reads it (a top-level
+/// `valid_from` is not a store field). A value the caller put in the
+/// metadata wins; metadata that is not an object is sent unchanged.
+fn metadata_with_valid_from(
+    metadata: Option<&serde_json::Value>,
+    valid_from: Option<i64>,
+) -> Option<std::borrow::Cow<'_, serde_json::Value>> {
+    use std::borrow::Cow;
+    let Some(valid_from) = valid_from else {
+        return metadata.map(Cow::Borrowed);
+    };
+    match metadata {
+        None => {
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                VALID_FROM_META_KEY.to_string(),
+                serde_json::Value::from(valid_from),
+            );
+            Some(Cow::Owned(serde_json::Value::Object(obj)))
+        }
+        Some(serde_json::Value::Object(obj)) if !obj.contains_key(VALID_FROM_META_KEY) => {
+            let mut obj = obj.clone();
+            obj.insert(
+                VALID_FROM_META_KEY.to_string(),
+                serde_json::Value::from(valid_from),
+            );
+            Some(Cow::Owned(serde_json::Value::Object(obj)))
+        }
+        other => other.map(Cow::Borrowed),
+    }
+}
+
 /// Store a memory request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Serializes to exactly the body of `POST /v1/memory/store`: optional
+/// fields are omitted unless set, and `valid_from` travels in `metadata`.
+#[derive(Debug, Clone, Deserialize)]
 pub struct StoreMemoryRequest {
     pub agent_id: String,
     pub content: String,
@@ -53,9 +139,12 @@ pub struct StoreMemoryRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
     /// Bi-temporal validity start — Unix timestamp (seconds) indicating when this
-    /// memory becomes temporally valid. Defaults to ingest time when omitted.
-    /// Used by temporal recall queries (server v0.11.98+, DAK-7424).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// memory becomes temporally valid. Used by the server's bi-temporal
+    /// recall boost, which reads it from the memory's metadata: it is sent as
+    /// `metadata.valid_from` ([`VALID_FROM_META_KEY`]; a value already in
+    /// `metadata` wins). To say when the event happened, prefer
+    /// [`event_time`](Self::event_time).
+    #[serde(default)]
     pub valid_from: Option<i64>,
     /// Language of `content` for the write-time derivations (event date,
     /// rule-based entity tags): an ISO 639-1 code or name, optionally with a
@@ -71,6 +160,48 @@ pub struct StoreMemoryRequest {
     /// (server v0.12+).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachment_ref: Option<String>,
+    /// When the memory's event happened (server v0.12.3+, see [`EventTime`]).
+    /// `None` = the ingest time, as before.
+    #[serde(default)]
+    pub event_time: Option<EventTime>,
+}
+
+impl Serialize for StoreMemoryRequest {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let metadata = metadata_with_valid_from(self.metadata.as_ref(), self.valid_from);
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("agent_id", &self.agent_id)?;
+        map.serialize_entry("content", &self.content)?;
+        map.serialize_entry("memory_type", &self.memory_type)?;
+        map.serialize_entry("importance", &self.importance)?;
+        map.serialize_entry("tags", &self.tags)?;
+        if let Some(session_id) = &self.session_id {
+            map.serialize_entry("session_id", session_id)?;
+        }
+        if let Some(metadata) = &metadata {
+            map.serialize_entry("metadata", metadata)?;
+        }
+        if let Some(ttl_seconds) = &self.ttl_seconds {
+            map.serialize_entry("ttl_seconds", ttl_seconds)?;
+        }
+        if let Some(expires_at) = &self.expires_at {
+            map.serialize_entry("expires_at", expires_at)?;
+        }
+        if let Some(lang) = &self.lang {
+            map.serialize_entry("lang", lang)?;
+        }
+        if let Some(attachment_ref) = &self.attachment_ref {
+            map.serialize_entry("attachment_ref", attachment_ref)?;
+        }
+        if let Some(event_time) = &self.event_time {
+            map.serialize_entry("event_time", event_time)?;
+        }
+        map.end()
+    }
 }
 
 fn default_importance() -> f32 {
@@ -93,7 +224,15 @@ impl StoreMemoryRequest {
             valid_from: None,
             lang: None,
             attachment_ref: None,
+            event_time: None,
         }
+    }
+
+    /// Set when the memory's event happened (server v0.12.3+): Unix seconds
+    /// (`i64`) or an RFC 3339 string. See [`EventTime`].
+    pub fn with_event_time(mut self, event_time: impl Into<EventTime>) -> Self {
+        self.event_time = Some(event_time.into());
+        self
     }
 
     /// Set the language of `content` (server v0.12+).
@@ -152,12 +291,91 @@ impl StoreMemoryRequest {
         self
     }
 
-    /// Set bi-temporal validity start as a Unix timestamp (seconds).
-    /// Defaults to ingest time when omitted (server v0.11.98+, DAK-7424).
+    /// Set bi-temporal validity start as a Unix timestamp (seconds); sent as
+    /// `metadata.valid_from` (see [`valid_from`](Self::valid_from)).
     pub fn with_valid_from(mut self, valid_from: i64) -> Self {
         self.valid_from = Some(valid_from);
         self
     }
+}
+
+/// How the embedding model cut a memory's text (server v0.12.3+,
+/// Dakera-AI/dakera#933): the text is longer than the model reads, so its
+/// vector covers the first `embedded_tokens` only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbedTruncation {
+    /// Always `true` when reported.
+    #[serde(default)]
+    pub truncated: bool,
+    /// Tokens of the whole text.
+    #[serde(default)]
+    pub content_tokens: usize,
+    /// Tokens the model embedded (the prefix the vector covers).
+    #[serde(default)]
+    pub embedded_tokens: usize,
+    /// The model's token cap on this server.
+    #[serde(default)]
+    pub max_tokens: usize,
+    /// The counts are a model-free estimate (the model is not loaded on that
+    /// node), not the tokenizer's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tokens_estimated: bool,
+    /// Overlapping windows of the text stored as sub-memories so its tail is
+    /// searchable (`0` when the server does not derive them).
+    #[serde(default)]
+    pub windows: usize,
+}
+
+impl EmbedTruncation {
+    /// The report flattened into a store / update answer: `Some` only when
+    /// it says `truncated: true`.
+    fn from_flat(val: &serde_json::Value) -> Option<Self> {
+        if val.get("truncated").and_then(|v| v.as_bool()) != Some(true) {
+            return None;
+        }
+        let count = |key: &str| {
+            val.get(key)
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+                .unwrap_or(0)
+        };
+        Some(Self {
+            truncated: true,
+            content_tokens: count("content_tokens"),
+            embedded_tokens: count("embedded_tokens"),
+            max_tokens: count("max_tokens"),
+            tokens_estimated: val
+                .get("tokens_estimated")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            windows: count("windows"),
+        })
+    }
+}
+
+/// A memory of a batch store whose text the embedding model cut (server
+/// v0.12.3+): [`BatchStoreMemoryResponse::truncated`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TruncatedMemory {
+    /// The memory's id.
+    pub id: String,
+    /// How its text was cut.
+    #[serde(flatten)]
+    pub truncation: EmbedTruncation,
+}
+
+/// The `warnings` of a store or recall answer (server v0.12.3+): the request
+/// fields the server ignored. Empty when there are none.
+fn warnings_of(val: &serde_json::Value) -> Vec<String> {
+    val.get("warnings")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|w| w.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Stored memory response from `POST /v1/memory/store`.
@@ -180,6 +398,17 @@ pub struct StoreMemoryResponse {
     /// `"ended"` — storing into an ended session still succeeds. `None` when
     /// the memory has no started session, or from older servers.
     pub session_state: Option<String>,
+    /// Set when the content is longer than the embedding model reads (server
+    /// v0.12.3+): the vector covers only its first
+    /// [`embedded_tokens`](EmbedTruncation::embedded_tokens). `None` when the
+    /// model read it whole, and from older servers. Also set by
+    /// [`DakeraClient::update_memory`] when the new content was cut.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncation: Option<EmbedTruncation>,
+    /// Request fields the server ignored (server v0.12.3+), e.g.
+    /// `"unknown field 'created_at' ignored"`. Empty when there were none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
@@ -217,6 +446,8 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
                 namespace,
                 embedding_time_ms,
                 session_state,
+                truncation: EmbedTruncation::from_flat(&val),
+                warnings: warnings_of(&val),
             });
         }
 
@@ -245,6 +476,8 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
             namespace,
             embedding_time_ms: None,
             session_state: None,
+            truncation: EmbedTruncation::from_flat(&val),
+            warnings: warnings_of(&val),
         })
     }
 }
@@ -268,6 +501,56 @@ pub enum FusionStrategy {
     MinMax,
 }
 
+/// Where a recall returns its neighbourhood context — the session-adjacent
+/// memories of the top results (`neighborhood_mode`, Dakera-AI/dakera#917).
+///
+/// Leave [`RecallRequest::neighborhood_mode`] `None` for the server default
+/// (`DAKERA_NEIGHBORHOOD_MODE`, itself `inline` by default). Needs server
+/// >= 0.12.3; older servers ignore the field and answer `inline`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NeighborhoodMode {
+    /// Appended to [`RecallResponse::memories`] after the `top_k` ranked
+    /// results, each with `retrieval: "neighborhood"` (the v0.11 behaviour:
+    /// `memories.len()` may exceed `top_k`).
+    Inline,
+    /// Returned in [`RecallResponse::context_memories`], each with
+    /// `context_of`, so `memories.len() <= top_k`. Use it when `top_k` means
+    /// "at most `top_k` results".
+    Separate,
+    /// No neighbourhood context.
+    Off,
+    /// A mode this SDK version does not know (a newer server sent it) —
+    /// never a deserialisation error. Do not send it.
+    #[serde(other)]
+    Unknown,
+}
+
+/// [`RecalledMemory::retrieval`] of neighbourhood context returned inline.
+pub const RETRIEVAL_NEIGHBORHOOD: &str = "neighborhood";
+
+/// What the cross-encoder did for one recall or search (`rerank_report`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RerankReport {
+    /// The cross-encoder rescored candidates and its order was used.
+    #[serde(default)]
+    pub applied: bool,
+    /// How many candidates it scored.
+    #[serde(default)]
+    pub candidates: usize,
+    /// Why it did not run (`disabled`, `bm25_routing`, `no_query`, ...) or
+    /// why its order was not used (`low_confidence`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<String>,
+    /// The server's candidate cap (`DAKERA_RERANK_MAX_CANDIDATES`) left part
+    /// of the pool unscored: the best `candidates` by retrieval score were
+    /// rescored and the rest stayed below them in retrieval order. Also set
+    /// when the request's `rerank_candidates` was above the cap and lowered
+    /// to it. `false` otherwise and from servers older than v0.12.3.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capped: bool,
+}
+
 /// Retrieval routing mode for recall and search (CE-10).
 ///
 /// Controls which retrieval index the server uses. `Auto` (default) lets the
@@ -281,7 +564,7 @@ pub enum RoutingMode {
     Vector,
     /// Force BM25 full-text search.
     Bm25,
-    /// Fuse ANN and BM25 scores (RRF).
+    /// Fuse ANN and BM25 scores (see [`FusionStrategy`]).
     Hybrid,
     /// A mode this SDK version does not know (a newer server sent it) — R9
     /// forward-compat: never a deserialisation error.
@@ -335,9 +618,18 @@ pub struct RecallRequest {
     pub routing: Option<RoutingMode>,
     /// CE-13: cross-encoder reranking. `None` uses server default (`true` for recall,
     /// `false` for search). Set to `Some(false)` to disable on latency-sensitive paths.
+    /// On hybrid routing the candidate pool is 10x the ranking depth
+    /// (`max(top_k, 10)`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rerank: Option<bool>,
-    /// CE-14: fusion strategy when `routing = Hybrid`. `None` uses server default (`Rrf`).
+    /// Rerank at most this many retrieved candidates (the best by retrieval
+    /// score). `None` = the whole candidate pool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerank_candidates: Option<usize>,
+    /// Importance-weighted re-ranking. `None` uses the server default (`true`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub importance_weighted: Option<bool>,
+    /// CE-14: fusion strategy when `routing = Hybrid`. `None` uses server default (`MinMax`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fusion: Option<FusionStrategy>,
     /// CE-17: explicit vector/BM25 weight for Hybrid routing (0.0–1.0).
@@ -354,9 +646,20 @@ pub struct RecallRequest {
     pub iterations: Option<u8>,
     /// v0.11.0: fetch session-adjacent memories within ±5 min of each top result.
     /// `None` uses server default (`true`). Set to `Some(false)` to disable for
-    /// latency-sensitive paths.
+    /// latency-sensitive paths; `false` means [`NeighborhoodMode::Off`] and
+    /// wins over `neighborhood_mode`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub neighborhood: Option<bool>,
+    /// Where the neighbourhood context goes (`inline`, `separate`, `off`).
+    /// `None` uses the server default. [`NeighborhoodMode::Separate`] keeps
+    /// `memories` to at most `top_k` ranked results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub neighborhood_mode: Option<NeighborhoodMode>,
+    /// Whether session-summary memories may be recalled. `None` uses the
+    /// server default (`DAKERA_RECALL_EXCLUDE_SUMMARIES`; they may unless the
+    /// server excludes them).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_summaries: Option<bool>,
     /// Language of `query` for rule-based routing and temporal expressions
     /// ("when", "how long ago", "after she ..."): an ISO 639-1 code or name,
     /// optionally with a region.  Omitted means the server-wide choice
@@ -393,6 +696,10 @@ impl RecallRequest {
             vector_weight: None,
             iterations: None,
             neighborhood: None,
+            neighborhood_mode: None,
+            include_summaries: None,
+            rerank_candidates: None,
+            importance_weighted: None,
             lang: None,
         }
     }
@@ -483,7 +790,7 @@ impl RecallRequest {
         self
     }
 
-    /// CE-14: set fusion strategy for hybrid recall (server default: `Rrf`)
+    /// CE-14: set fusion strategy for hybrid recall (server default: `MinMax`)
     pub fn with_fusion(mut self, fusion: FusionStrategy) -> Self {
         self.fusion = Some(fusion);
         self
@@ -512,6 +819,26 @@ impl RecallRequest {
         self.neighborhood = Some(neighborhood);
         self
     }
+
+    /// Where the neighbourhood context goes. [`NeighborhoodMode::Separate`]
+    /// returns at most `top_k` ranked results in `memories` and the context in
+    /// [`RecallResponse::context_memories`].
+    pub fn with_neighborhood_mode(mut self, mode: NeighborhoodMode) -> Self {
+        self.neighborhood_mode = Some(mode);
+        self
+    }
+
+    /// Whether session-summary memories may be recalled (server default when unset).
+    pub fn with_include_summaries(mut self, include: bool) -> Self {
+        self.include_summaries = Some(include);
+        self
+    }
+
+    /// Rerank at most `n` retrieved candidates with the cross-encoder.
+    pub fn with_rerank_candidates(mut self, n: usize) -> Self {
+        self.rerank_candidates = Some(n);
+        self
+    }
 }
 
 /// A recalled memory
@@ -521,9 +848,14 @@ pub struct RecalledMemory {
     pub content: String,
     pub memory_type: MemoryType,
     pub importance: f32,
-    /// The ranking score — equals `smart_score` when present, then `weighted_score`, then raw `score`.
+    /// The ranking score — the server's `rank_score` when present (v0.12.3+), then
+    /// `smart_score`, then `weighted_score`, then raw `score`.
     pub score: f32,
-    /// Raw smart_score from the server (the primary ranking key).
+    /// The server's ranking field (recall, v0.12.3+, #940): non-increasing over
+    /// `memories` in response order. `None` from older servers and from search.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank_score: Option<f32>,
+    /// Raw smart_score from the server.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smart_score: Option<f32>,
     /// Raw weighted_score from the server.
@@ -561,8 +893,38 @@ pub struct RecalledMemory {
     /// showing or editing it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_truncated: Option<bool>,
+    /// When the server collapses derived sentence sub-memories into their
+    /// source (`DAKERA_RECALL_COLLAPSE_DERIVED`): the sentence that matched
+    /// best, when it outranked the source's own text. This result is then the
+    /// source memory. `None` otherwise and on older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_text: Option<String>,
+    /// The ids of the derived sentence sub-memories collapsed into this
+    /// result, best first. `None` when none matched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_ids: Option<Vec<String>>,
+    /// How a non-ranked item got into the response: `"neighborhood"`
+    /// ([`RETRIEVAL_NEIGHBORHOOD`]) for neighbourhood context returned inline.
+    /// Its `score` is then the raw similarity of a different search, NOT
+    /// comparable with the ranked results'. `None` for ranked results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval: Option<String>,
+    /// On a [`RecallResponse::context_memories`] entry: the id of the ranked
+    /// memory it is neighbourhood context for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_of: Option<String>,
 }
 
+impl RecalledMemory {
+    /// `true` for neighbourhood context rather than a ranked result
+    /// (`retrieval == "neighborhood"`, or `context_of` set).
+    pub fn is_neighborhood(&self) -> bool {
+        self.retrieval.as_deref() == Some(RETRIEVAL_NEIGHBORHOOD) || self.context_of.is_some()
+    }
+}
+
+/// Unknown fields are ignored and fields an older server does not send stay
+/// `None`, so answers of older and newer servers decode alike.
 impl<'de> serde::Deserialize<'de> for RecalledMemory {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -581,7 +943,14 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             .get("weighted_score")
             .and_then(|v| v.as_f64())
             .map(|v| v as f32);
-        let score = smart_score
+        // #940: rank_score is the server's ranking field (non-increasing over a recall's
+        // results); older servers send none.
+        let rank_score = val
+            .get("rank_score")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32);
+        let score = rank_score
+            .or(smart_score)
             .or(weighted_score)
             .or_else(|| val.get("score").and_then(|v| v.as_f64()).map(|v| v as f32))
             .unwrap_or(0.0);
@@ -633,7 +1002,19 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             .get("access_count")
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
-        let depth = mem.get("depth").and_then(|v| v.as_u64()).map(|v| v as u8);
+        // `depth` is a field of the result (next to the scores), not of the memory.
+        let depth = val
+            .get("depth")
+            .or_else(|| mem.get("depth"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u8);
+        let top_str = |key: &str| val.get(key).and_then(|v| v.as_str()).map(String::from);
+        let matched_text = top_str("matched_text");
+        let retrieval = top_str("retrieval");
+        let context_of = top_str("context_of");
+        let matched_ids: Option<Vec<String>> = val
+            .get("matched_ids")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
         let attachment_ref = mem
             .get("attachment_ref")
             .and_then(|v| v.as_str())
@@ -654,6 +1035,7 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             memory_type,
             importance,
             score,
+            rank_score,
             smart_score,
             weighted_score,
             tags,
@@ -668,11 +1050,23 @@ impl<'de> serde::Deserialize<'de> for RecalledMemory {
             attachment_ref,
             content_len,
             content_truncated,
+            matched_text,
+            matched_ids,
+            retrieval,
+            context_of,
         })
     }
 }
 
-/// Recall response
+/// Recall (and search) response.
+///
+/// The first `k` memories of a `top_k = k` recall are the first `k` of a
+/// `top_k = 10` recall for `k <= 10` (server `DAKERA_RECALL_RANK_DEPTH`,
+/// default 10). Under [`NeighborhoodMode::Inline`] neighbourhood context
+/// follows the ranked results in `memories`
+/// ([`RecalledMemory::is_neighborhood`]); under
+/// [`NeighborhoodMode::Separate`] it is in `context_memories` instead.
+/// Unknown fields are ignored; fields a server does not send are `None`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecallResponse {
     pub memories: Vec<RecalledMemory>,
@@ -683,6 +1077,33 @@ pub struct RecallResponse {
     /// COG-2 / KG-3: KG associated memories at configurable depth (only present when include_associated was true)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub associated_memories: Option<Vec<RecalledMemory>>,
+    /// Neighbourhood context under [`NeighborhoodMode::Separate`], each entry
+    /// with `context_of`. `None` in the other modes and from older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_memories: Option<Vec<RecalledMemory>>,
+    /// Server-side query embedding time (recall only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_embedding_time_ms: Option<u64>,
+    /// Server-side search time (recall only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_time_ms: Option<u64>,
+    /// What the cross-encoder did. Recall answers it under both `rerank`
+    /// (the v0.12 pre-release name) and `rerank_report`; search under
+    /// `rerank_report`. `None` from older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerank_report: Option<RerankReport>,
+    /// Search only: the `top_k` the search could honour (a search with a
+    /// query ranks at most 500 candidates).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_top_k: Option<usize>,
+    /// Recall under the late-interaction strategy: the first stage that
+    /// served it. `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub late_interaction_first_stage: Option<String>,
+    /// Recall only: request fields the server ignored (server v0.12.3+).
+    /// Empty when there were none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Forget (delete) memories request
@@ -1080,9 +1501,23 @@ pub struct AuditEvent {
     pub namespace: Option<String>,
     /// Unix milliseconds.
     pub timestamp: u64,
+    /// Why the event happened, when the server says (server v0.12.3+): for a
+    /// `deduplicated` event, the memory it was absorbed into. `None` on rows
+    /// written by older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     #[serde(default)]
     pub details: serde_json::Value,
 }
+
+/// Audit / memory event types of the deduplication trash (server v0.12.3+):
+/// a memory deleted by deduplication.
+pub const EVENT_DEDUPLICATED: &str = "deduplicated";
+/// A memory merged into another by consolidation.
+pub const EVENT_CONSOLIDATED: &str = "consolidated";
+/// A deduplicated or consolidated memory put back
+/// ([`DakeraClient::restore_deduplicated`]).
+pub const EVENT_RESTORED: &str = "restored";
 
 fn id_as_string<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
@@ -1104,6 +1539,8 @@ pub struct AuditListResponse {
     /// Number of events returned (the server's `count`).
     #[serde(default, alias = "count")]
     pub total: usize,
+    /// Not sent by the server (`GET /v1/audit` has no cursor; page with
+    /// `from` / `to`); kept for compatibility. Always `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
 }
@@ -1130,6 +1567,9 @@ pub struct AuditQuery {
     pub to: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Not read by the server (`GET /v1/audit` has no cursor; page with
+    /// `from` / `to`, Unix milliseconds, both inclusive). Kept for
+    /// compatibility.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
 }
@@ -1153,22 +1593,93 @@ pub struct ExtractionResult {
 // ============================================================================
 
 /// Request body for `POST /v1/admin/encryption/rotate-key` (SEC-3).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// The server refuses unknown fields on this route with `422`; these are the
+/// fields it accepts, and unset ones are omitted. `Debug` redacts `new_key`.
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct RotateEncryptionKeyRequest {
-    /// New passphrase or 64-char hex key to rotate to.
+    /// Passphrase or 64-char hex key the new data key is derived from. Empty
+    /// is omitted: the server generates a random 256-bit key.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub new_key: String,
-    /// If set, rotate only memories in this namespace. Omit to rotate all.
+    /// If set, rotate only this namespace's key. `None` rotates the global key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
+    /// How long the server waits for the re-seal before answering (server
+    /// default 10 s, at most 300; 0 = answer at once).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait_secs: Option<u64>,
 }
 
-/// Response from `POST /v1/admin/encryption/rotate-key` (SEC-3).
+impl std::fmt::Debug for RotateEncryptionKeyRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RotateEncryptionKeyRequest")
+            .field(
+                "new_key",
+                &if self.new_key.is_empty() {
+                    ""
+                } else {
+                    "<redacted>"
+                },
+            )
+            .field("namespace", &self.namespace)
+            .field("wait_secs", &self.wait_secs)
+            .finish()
+    }
+}
+
+/// Response from `POST /v1/admin/encryption/rotate-key` (SEC-3). Key ids
+/// only, never key material; fields an older server does not send are
+/// empty / `None`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RotateEncryptionKeyResponse {
+    /// Values re-sealed under the new key by the time of the answer.
+    #[serde(default)]
     pub rotated: usize,
+    /// Values not re-sealed by the time of the answer.
+    #[serde(default)]
     pub skipped: usize,
+    /// Namespaces with values re-sealed by the time of the answer.
     #[serde(default)]
     pub namespaces: Vec<String>,
+    /// Id of the new active key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_id: Option<String>,
+    /// Id of the key it replaces for this scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_key_id: Option<String>,
+    /// `"global"` or `"namespace"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// The rotated namespace (namespace scope).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// `"completed"`, `"running"` or `"partial"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reseal: Option<String>,
+    /// BM25 index blobs re-sealed by the time of the answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fulltext_indices_rotated: Option<u64>,
+    /// Namespaces the re-seal could not process (retried in the background).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failed_namespaces: Vec<String>,
+    /// Set when the operator must act (e.g. set `DAKERA_ENCRYPTION_KEY`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_required: Option<String>,
+    /// Where the re-seal progress is reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_url: Option<String>,
+}
+
+/// Body of `POST /v1/admin/encryption/reseal`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ResealEncryptionRequest {
+    /// Re-seal only this namespace. `None` re-seals everything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// How long to wait for the pass (server default 0: start it and answer).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait_secs: Option<u64>,
 }
 
 /// Request for memory feedback (`POST /v1/memory/feedback`).
@@ -1314,6 +1825,10 @@ pub struct BatchRecallResponse {
     /// True when the result set was capped by `limit` and more matching memories exist.
     #[serde(default)]
     pub truncated: bool,
+    /// Request fields the server ignored (server v0.12.3+), e.g. a misspelt
+    /// filter field. Empty when there were none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 // ============================================================================
@@ -1323,7 +1838,9 @@ pub struct BatchRecallResponse {
 /// A single memory entry within a [`BatchStoreMemoryRequest`].
 ///
 /// Mirrors [`StoreMemoryRequest`] but omits `agent_id` (supplied at batch level).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// Serializes to exactly the item the server reads: optional fields are
+/// omitted unless set, and `valid_from` travels in `metadata`.
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct BatchStoreMemoryItem {
     /// Memory content (required, max 100 000 chars).
     pub content: String,
@@ -1341,9 +1858,9 @@ pub struct BatchStoreMemoryItem {
     pub ttl_seconds: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
-    /// Bi-temporal validity start — Unix timestamp (seconds). Defaults to ingest time when omitted.
-    /// Used by temporal recall queries (server v0.11.98+, DAK-7424).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Bi-temporal validity start — Unix timestamp (seconds); sent as
+    /// `metadata.valid_from` (see [`StoreMemoryRequest::valid_from`]).
+    #[serde(default)]
     pub valid_from: Option<i64>,
     /// Optional custom ID. Auto-generated if not provided.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1352,6 +1869,46 @@ pub struct BatchStoreMemoryItem {
     /// namespace (server v0.12+, needs `DAKERA_ATTACHMENTS`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachment_ref: Option<String>,
+    /// When the memory's event happened (server v0.12.3+, see [`EventTime`]).
+    #[serde(default)]
+    pub event_time: Option<EventTime>,
+}
+
+impl Serialize for BatchStoreMemoryItem {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let metadata = metadata_with_valid_from(self.metadata.as_ref(), self.valid_from);
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("content", &self.content)?;
+        map.serialize_entry("memory_type", &self.memory_type)?;
+        map.serialize_entry("importance", &self.importance)?;
+        map.serialize_entry("tags", &self.tags)?;
+        if let Some(session_id) = &self.session_id {
+            map.serialize_entry("session_id", session_id)?;
+        }
+        if let Some(metadata) = &metadata {
+            map.serialize_entry("metadata", metadata)?;
+        }
+        if let Some(ttl_seconds) = &self.ttl_seconds {
+            map.serialize_entry("ttl_seconds", ttl_seconds)?;
+        }
+        if let Some(expires_at) = &self.expires_at {
+            map.serialize_entry("expires_at", expires_at)?;
+        }
+        if let Some(id) = &self.id {
+            map.serialize_entry("id", id)?;
+        }
+        if let Some(attachment_ref) = &self.attachment_ref {
+            map.serialize_entry("attachment_ref", attachment_ref)?;
+        }
+        if let Some(event_time) = &self.event_time {
+            map.serialize_entry("event_time", event_time)?;
+        }
+        map.end()
+    }
 }
 
 impl BatchStoreMemoryItem {
@@ -1388,10 +1945,17 @@ impl BatchStoreMemoryItem {
         self
     }
 
-    /// Set bi-temporal validity start as a Unix timestamp (seconds).
-    /// Defaults to ingest time when omitted (server v0.11.98+, DAK-7424).
+    /// Set bi-temporal validity start as a Unix timestamp (seconds); sent as
+    /// `metadata.valid_from`.
     pub fn with_valid_from(mut self, valid_from: i64) -> Self {
         self.valid_from = Some(valid_from);
+        self
+    }
+
+    /// Set when the memory's event happened (server v0.12.3+): Unix seconds
+    /// (`i64`) or an RFC 3339 string. See [`EventTime`].
+    pub fn with_event_time(mut self, event_time: impl Into<EventTime>) -> Self {
+        self.event_time = Some(event_time.into());
         self
     }
 
@@ -1468,6 +2032,68 @@ pub struct BatchStoreMemoryResponse {
     /// none, or from older servers). The memories were stored.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ended_sessions: Vec<String>,
+    /// The stored memories whose text is longer than the embedding model
+    /// reads (server v0.12.3+): their vectors cover a prefix only. Empty when
+    /// none was cut, and from older servers. (Not the `truncated` flag of
+    /// [`BatchRecallResponse`], which says a recall hit its `limit`.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub truncated: Vec<TruncatedMemory>,
+    /// Request fields the server ignored (server v0.12.3+); an unknown item
+    /// field is reported once, e.g. `"unknown field 'memories[].created_at'
+    /// ignored (in 3 items)"`. Empty when there were none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+// ============================================================================
+// Deduplication trash (server v0.12.3+, Dakera-AI/dakera#930)
+// ============================================================================
+
+/// Which background pass deleted a [`DeduplicatedMemory`].
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DeduplicationKind {
+    /// Folded into a duplicate of it (`survivor_id`) by deduplication.
+    Deduplication,
+    /// Merged with others into a new memory (`survivor_id`) by consolidation.
+    Consolidation,
+    /// A kind this SDK version does not know (a newer server sent it).
+    #[serde(other)]
+    Unknown,
+}
+
+/// A memory that deduplication or consolidation deleted and that can still
+/// be restored with [`DakeraClient::restore_deduplicated`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeduplicatedMemory {
+    /// The deleted memory's id (it is restored under this id).
+    pub id: String,
+    /// Which pass deleted it.
+    pub kind: DeduplicationKind,
+    /// The memory it was folded (deduplication) or merged (consolidation) into.
+    pub survivor_id: String,
+    /// Its session, if it had one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// When it was deleted (Unix seconds).
+    pub deleted_at: u64,
+    /// Until when it can be restored (Unix seconds); purged after.
+    pub restorable_until: u64,
+}
+
+/// Response of [`DakeraClient::list_deduplicated`]
+/// (`GET /v1/memory/deduplicated`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeduplicatedListResponse {
+    /// The agent.
+    #[serde(default)]
+    pub agent_id: String,
+    /// Its restorable deleted memories, newest first.
+    #[serde(default)]
+    pub memories: Vec<DeduplicatedMemory>,
+    /// How many.
+    #[serde(default)]
+    pub count: usize,
 }
 
 /// Request body for `DELETE /v1/memories/forget/batch`.
@@ -1549,6 +2175,10 @@ impl DakeraClient {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// An agent that has stored nothing yet answers an empty `memories` list
+    /// (server v0.12.3+; older servers answered 404 `NAMESPACE_NOT_FOUND`).
+    /// [`RecallResponse::warnings`] lists request fields the server ignored.
     pub async fn recall(&self, request: RecallRequest) -> Result<RecallResponse> {
         let url = format!("{}/v1/memory/recall", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
@@ -1566,14 +2196,34 @@ impl DakeraClient {
             .await
     }
 
-    /// Get a specific memory by ID (requires agent_id for namespace lookup)
+    /// Get a specific memory by ID in `agent_id`'s memories.
+    ///
+    /// An empty `agent_id` omits it, as [`get_memory_by_id`](Self::get_memory_by_id)
+    /// does (server v0.12.3+).
     pub async fn get_memory(&self, agent_id: &str, memory_id: &str) -> Result<RecalledMemory> {
-        let url = format!(
-            "{}/v1/memory/get/{}?agent_id={}",
-            self.base_url, memory_id, agent_id
+        let mut url = format!(
+            "{}/v1/memory/get/{}",
+            self.base_url,
+            crate::client::enc(memory_id)
         );
+        if !agent_id.is_empty() {
+            url.push_str("?agent_id=");
+            url.push_str(&crate::client::enc_query(agent_id));
+        }
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
+    }
+
+    /// Get a memory by ID alone, without naming its agent (server v0.12.3+):
+    /// `GET /v1/memory/get/{id}` without `agent_id`.
+    ///
+    /// The server looks in the agent memories the key may read. One agent
+    /// holds the id: that memory. None: a 404 ([`ClientError::is_not_found`]).
+    /// Several: a 400 naming them; pass the agent with
+    /// [`get_memory`](Self::get_memory).
+    /// A server older than v0.12.3 answers 400 (`agent_id` was required).
+    pub async fn get_memory_by_id(&self, memory_id: &str) -> Result<RecalledMemory> {
+        self.get_memory("", memory_id).await
     }
 
     /// Forget (delete) memories
@@ -1584,6 +2234,9 @@ impl DakeraClient {
     }
 
     /// Search memories with advanced filters
+    ///
+    /// An agent that has stored nothing yet answers an empty `memories` list
+    /// (server v0.12.3+; older servers answered 404 `NAMESPACE_NOT_FOUND`).
     pub async fn search_memories(&self, request: RecallRequest) -> Result<RecallResponse> {
         let url = format!("{}/v1/memory/search", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
@@ -1597,7 +2250,11 @@ impl DakeraClient {
         memory_id: &str,
         request: UpdateMemoryRequest,
     ) -> Result<StoreMemoryResponse> {
-        let url = format!("{}/v1/memory/update/{}", self.base_url, memory_id);
+        let url = format!(
+            "{}/v1/memory/update/{}",
+            self.base_url,
+            crate::client::enc(memory_id)
+        );
         let response = self
             .client
             .put(&url)
@@ -1683,7 +2340,11 @@ impl DakeraClient {
         agent_id: &str,
         signal: FeedbackSignal,
     ) -> Result<FeedbackResponse> {
-        let url = format!("{}/v1/memories/{}/feedback", self.base_url, memory_id);
+        let url = format!(
+            "{}/v1/memories/{}/feedback",
+            self.base_url,
+            crate::client::enc(memory_id)
+        );
         let body = MemoryFeedbackBody {
             agent_id: agent_id.to_string(),
             signal,
@@ -1701,7 +2362,11 @@ impl DakeraClient {
         memory_id: &str,
         agent_id: &str,
     ) -> Result<FeedbackHistoryResponse> {
-        let url = format!("{}/v1/memories/{}/feedback", self.base_url, memory_id);
+        let url = format!(
+            "{}/v1/memories/{}/feedback",
+            self.base_url,
+            crate::client::enc(memory_id)
+        );
         let response = self
             .client
             .get(&url)
@@ -1728,7 +2393,11 @@ impl DakeraClient {
 
     /// Get aggregate feedback counts and health score for an agent (INT-1).
     pub async fn get_agent_feedback_summary(&self, agent_id: &str) -> Result<AgentFeedbackSummary> {
-        let url = format!("{}/v1/agents/{}/feedback/summary", self.base_url, agent_id);
+        let url = format!(
+            "{}/v1/agents/{}/feedback/summary",
+            self.base_url,
+            crate::client::enc(agent_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1745,7 +2414,11 @@ impl DakeraClient {
         agent_id: &str,
         importance: f32,
     ) -> Result<MemoryImportanceResponse> {
-        let url = format!("{}/v1/memories/{}/importance", self.base_url, memory_id);
+        let url = format!(
+            "{}/v1/memories/{}/importance",
+            self.base_url,
+            crate::client::enc(memory_id)
+        );
         let body = MemoryImportancePatch {
             agent_id: agent_id.to_string(),
             importance,
@@ -1759,7 +2432,11 @@ impl DakeraClient {
     /// The health score is the mean importance of all non-expired memories (0.0–1.0).
     /// A higher score indicates a healthier, more relevant memory store.
     pub async fn get_feedback_health(&self, agent_id: &str) -> Result<FeedbackHealthResponse> {
-        let url = format!("{}/v1/feedback/health?agent_id={}", self.base_url, agent_id);
+        let url = format!(
+            "{}/v1/feedback/health?agent_id={}",
+            self.base_url,
+            crate::client::enc_query(agent_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1789,7 +2466,11 @@ impl DakeraClient {
         memory_id: &str,
         options: GraphOptions,
     ) -> Result<MemoryGraph> {
-        let mut url = format!("{}/v1/memories/{}/graph", self.base_url, memory_id);
+        let mut url = format!(
+            "{}/v1/memories/{}/graph",
+            self.base_url,
+            crate::client::enc(memory_id)
+        );
         let depth = options.depth.unwrap_or(1);
         url.push_str(&format!("?depth={}", depth));
         // The server reads only `depth`; `types` is applied to the answer here.
@@ -1831,7 +2512,7 @@ impl DakeraClient {
         let url = format!(
             "{}/v1/memories/{}/path?to={}",
             self.base_url,
-            source_id,
+            crate::client::enc(source_id),
             urlencoding::encode(target_id)
         );
         let response = self.client.get(&url).send().await?;
@@ -1862,7 +2543,11 @@ impl DakeraClient {
         target_id: &str,
         label: Option<&str>,
     ) -> Result<GraphLinkResponse> {
-        let url = format!("{}/v1/memories/{}/links", self.base_url, source_id);
+        let url = format!(
+            "{}/v1/memories/{}/links",
+            self.base_url,
+            crate::client::enc(source_id)
+        );
         let request = GraphLinkRequest {
             target_id: target_id.to_string(),
             agent_id: agent_id.to_string(),
@@ -1884,7 +2569,9 @@ impl DakeraClient {
     pub async fn agent_graph_export(&self, agent_id: &str, format: &str) -> Result<GraphExport> {
         let url = format!(
             "{}/v1/agents/{}/graph/export?format={}",
-            self.base_url, agent_id, format
+            self.base_url,
+            crate::client::enc(agent_id),
+            crate::client::enc_query(format)
         );
         let response = self.client.get(&url).send().await?;
         let mut export: GraphExport = self.handle_response(response).await?;
@@ -1945,7 +2632,11 @@ impl DakeraClient {
     /// A session of an agent the key cannot reach answers 404, like a
     /// missing one.
     pub async fn touch_session(&self, session_id: &str) -> Result<SessionTouchResponse> {
-        let url = format!("{}/v1/sessions/{}/touch", self.base_url, session_id);
+        let url = format!(
+            "{}/v1/sessions/{}/touch",
+            self.base_url,
+            crate::client::enc(session_id)
+        );
         let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1957,7 +2648,11 @@ impl DakeraClient {
         session_id: &str,
         summary: Option<String>,
     ) -> Result<SessionEndResponse> {
-        let url = format!("{}/v1/sessions/{}/end", self.base_url, session_id);
+        let url = format!(
+            "{}/v1/sessions/{}/end",
+            self.base_url,
+            crate::client::enc(session_id)
+        );
         let request = SessionEndRequest { summary };
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await
@@ -1965,14 +2660,22 @@ impl DakeraClient {
 
     /// Get a session by ID
     pub async fn get_session(&self, session_id: &str) -> Result<Session> {
-        let url = format!("{}/v1/sessions/{}", self.base_url, session_id);
+        let url = format!(
+            "{}/v1/sessions/{}",
+            self.base_url,
+            crate::client::enc(session_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
 
     /// List sessions for an agent
     pub async fn list_sessions(&self, agent_id: &str) -> Result<Vec<Session>> {
-        let url = format!("{}/v1/sessions?agent_id={}", self.base_url, agent_id);
+        let url = format!(
+            "{}/v1/sessions?agent_id={}",
+            self.base_url,
+            crate::client::enc_query(agent_id)
+        );
         let response = self.client.get(&url).send().await?;
         let wrapper: ListSessionsResponse = self.handle_response(response).await?;
         Ok(wrapper.sessions)
@@ -1980,7 +2683,11 @@ impl DakeraClient {
 
     /// Get memories in a session
     pub async fn session_memories(&self, session_id: &str) -> Result<RecallResponse> {
-        let url = format!("{}/v1/sessions/{}/memories", self.base_url, session_id);
+        let url = format!(
+            "{}/v1/sessions/{}/memories",
+            self.base_url,
+            crate::client::enc(session_id)
+        );
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
     }
@@ -1997,7 +2704,11 @@ impl DakeraClient {
         options: &SessionMemoriesOptions,
     ) -> Result<SessionMemoriesResponse> {
         crate::agents::check_content_preview(options.content_preview_chars)?;
-        let url = format!("{}/v1/sessions/{}/memories", self.base_url, session_id);
+        let url = format!(
+            "{}/v1/sessions/{}/memories",
+            self.base_url,
+            crate::client::enc(session_id)
+        );
         let mut query: Vec<(&str, String)> = Vec::new();
         if let Some(l) = options.limit {
             query.push(("limit", l.to_string()));
@@ -2035,6 +2746,9 @@ impl DakeraClient {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// An agent that has stored nothing yet answers an empty `memories` list
+    /// (server v0.12.3+; older servers answered 404 `NAMESPACE_NOT_FOUND`).
     pub async fn batch_recall(&self, request: BatchRecallRequest) -> Result<BatchRecallResponse> {
         let url = format!("{}/v1/memories/recall/batch", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
@@ -2101,6 +2815,49 @@ impl DakeraClient {
     pub async fn batch_forget(&self, request: BatchForgetRequest) -> Result<BatchForgetResponse> {
         let url = format!("{}/v1/memories/forget/batch", self.base_url);
         let response = self.client.delete(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
+    // Deduplication trash (server v0.12.3+, Dakera-AI/dakera#930)
+    // ========================================================================
+
+    /// List the memories of `agent_id` that deduplication or consolidation
+    /// deleted and that can still be restored (`GET /v1/memory/deduplicated`,
+    /// server v0.12.3+; read scope on the agent). How long they stay
+    /// restorable is the autopilot's `trash_retention_hours`.
+    ///
+    /// A server older than v0.12.3 answers 404.
+    pub async fn list_deduplicated(&self, agent_id: &str) -> Result<DeduplicatedListResponse> {
+        let url = format!(
+            "{}/v1/memory/deduplicated?agent_id={}",
+            self.base_url,
+            crate::client::enc_query(agent_id)
+        );
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Put back memory `memory_id` of `agent_id` that deduplication or
+    /// consolidation deleted, exactly as it was stored, and return it
+    /// (`POST /v1/memory/deduplicated/{id}/restore`, server v0.12.3+; write
+    /// scope on the agent).
+    ///
+    /// A 404 ([`ClientError::is_not_found`]) when it has no restorable copy
+    /// (never deleted, purged, or a server older than v0.12.3); a 409 when
+    /// the agent holds a memory with that id again.
+    pub async fn restore_deduplicated(
+        &self,
+        agent_id: &str,
+        memory_id: &str,
+    ) -> Result<RecalledMemory> {
+        let url = format!(
+            "{}/v1/memory/deduplicated/{}/restore?agent_id={}",
+            self.base_url,
+            crate::client::enc(memory_id),
+            crate::client::enc_query(agent_id)
+        );
+        let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
 
@@ -2193,35 +2950,53 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
+    /// Stream live audit events via SSE (OBS-1): `GET /v1/audit/stream`,
+    /// global admin key.
+    ///
+    /// The server sends memory lifecycle events (`event_type`, `agent_id`,
+    /// `memory_id`, ...) after a `connected` handshake; this method yields
+    /// them as [`MemoryEvent`](crate::events::MemoryEvent).
+    pub async fn stream_audit_memory_events(
+        &self,
+        agent_id: Option<&str>,
+        event_type: Option<&str>,
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::events::MemoryEvent>>> {
+        self.stream_sse(audit_stream_url(&self.base_url, agent_id, event_type))
+            .await
+    }
+
     /// Stream live audit events via SSE (OBS-1).
     ///
     /// Returns a [`tokio::sync::mpsc::Receiver`] that yields [`DakeraEvent`] results.
+    #[deprecated(
+        note = "the audit stream carries memory events, which do not decode as DakeraEvent \
+                (only the `connected` handshake does); use stream_audit_memory_events"
+    )]
     pub async fn stream_audit_events(
         &self,
         agent_id: Option<&str>,
         event_type: Option<&str>,
     ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::events::DakeraEvent>>> {
-        let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(aid) = agent_id {
-            params.push(("agent_id", aid.to_string()));
-        }
-        if let Some(et) = event_type {
-            params.push(("event_type", et.to_string()));
-        }
-        let base = format!("{}/v1/audit/stream", self.base_url);
-        let url = if params.is_empty() {
-            base
-        } else {
-            let qs = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
-                .collect::<Vec<_>>()
-                .join("&");
-            format!("{}?{}", base, qs)
-        };
-        self.stream_sse(url).await
+        self.stream_sse(audit_stream_url(&self.base_url, agent_id, event_type))
+            .await
     }
+}
 
+/// `GET /v1/audit/stream` with its optional filters.
+fn audit_stream_url(base_url: &str, agent_id: Option<&str>, event_type: Option<&str>) -> String {
+    let params: Vec<String> = [("agent_id", agent_id), ("event_type", event_type)]
+        .into_iter()
+        .filter_map(|(k, v)| v.map(|v| format!("{}={}", k, urlencoding::encode(v))))
+        .collect();
+    let base = format!("{}/v1/audit/stream", base_url);
+    if params.is_empty() {
+        base
+    } else {
+        format!("{}?{}", base, params.join("&"))
+    }
+}
+
+impl DakeraClient {
     /// Bulk-export audit log entries (OBS-1): `GET /v1/audit/export`.
     ///
     /// `format` is `"json"` (default) or `"csv"`; `from_ts` / `to_ts` are Unix
@@ -2343,28 +3118,74 @@ impl DakeraClient {
     // SEC-3: AES-256-GCM Encryption Key Rotation
     // =========================================================================
 
-    /// Re-encrypt all memory content blobs with a new AES-256-GCM key (SEC-3).
+    /// Rotate the data key that seals memory content, text documents and
+    /// BM25 indexes at rest (SEC-3). `POST /v1/admin/encryption/rotate-key`.
     ///
-    /// After this call the new key is active in the running process.
-    /// The operator must update `DAKERA_ENCRYPTION_KEY` and restart to make
-    /// the rotation durable across restarts.
-    ///
-    /// Requires Admin scope.
+    /// Requires a global Admin key. See the response's `action_required` for
+    /// what the operator must do next.
     ///
     /// # Arguments
-    /// * `new_key` - New passphrase or 64-char hex key.
-    /// * `namespace` - If `Some`, rotate only this namespace. `None` rotates all.
+    /// * `new_key` - Passphrase or 64-char hex key; `""` lets the server
+    ///   generate a random key.
+    /// * `namespace` - If `Some`, rotate only this namespace. `None` rotates
+    ///   the global key.
     pub async fn rotate_encryption_key(
         &self,
         new_key: &str,
         namespace: Option<&str>,
     ) -> Result<RotateEncryptionKeyResponse> {
-        let body = RotateEncryptionKeyRequest {
+        self.rotate_encryption_key_with(RotateEncryptionKeyRequest {
             new_key: new_key.to_string(),
             namespace: namespace.map(|s| s.to_string()),
-        };
+            wait_secs: None,
+        })
+        .await
+    }
+
+    /// [`Self::rotate_encryption_key`] with every request field (`wait_secs`).
+    /// Only fields the server accepts are sent (the route answers `422` for
+    /// unknown fields).
+    pub async fn rotate_encryption_key_with(
+        &self,
+        request: RotateEncryptionKeyRequest,
+    ) -> Result<RotateEncryptionKeyResponse> {
         let url = format!("{}/v1/admin/encryption/rotate-key", self.base_url);
-        let response = self.client.post(&url).json(&body).send().await?;
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Encryption-at-rest status: keys (ids only) and re-seal progress.
+    /// `GET /v1/admin/encryption/status`. Global Admin key.
+    pub async fn encryption_status(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/v1/admin/encryption/status", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Start (and optionally wait for) a re-seal pass that moves values to
+    /// the current key. `POST /v1/admin/encryption/reseal`. The answer is
+    /// `{"pass": {...}}` when the pass finished within `wait_secs`, else
+    /// `{"reseal": "running", "status_url": ...}`. Global Admin key.
+    pub async fn reseal_encryption(
+        &self,
+        request: ResealEncryptionRequest,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/v1/admin/encryption/reseal", self.base_url);
+        let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Revoke the master of a retired operator key, so the passphrase it came
+    /// from no longer opens the keyring (the data key is kept).
+    /// `POST /v1/admin/encryption/keys/{key_id}/revoke-master`; `409` while
+    /// the key still seals or is not retired. Global Admin key.
+    pub async fn revoke_encryption_master(&self, key_id: &str) -> Result<serde_json::Value> {
+        let url = format!(
+            "{}/v1/admin/encryption/keys/{}/revoke-master",
+            self.base_url,
+            urlencoding::encode(key_id)
+        );
+        let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
 }
