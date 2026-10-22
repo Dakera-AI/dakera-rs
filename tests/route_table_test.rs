@@ -100,6 +100,9 @@ fn the_routes_this_release_depends_on_are_in_the_table() {
         "/v1/sessions/{}/touch",
         "/v1/admin/derivations/status",
         "/v1/admin/derivations/drain",
+        // v0.12.3
+        "/v1/memory/deduplicated",
+        "/v1/memory/deduplicated/{}/restore",
     ] {
         assert!(server.contains(p), "{p} missing from the route table");
     }

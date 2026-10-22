@@ -250,6 +250,20 @@ pub struct RuntimeConfig {
     /// never ended for inactivity). `None` from older servers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_idle_timeout_secs: Option<u64>,
+    /// AutoPilot dedup mode (`off`, `report`, `merge`) set through
+    /// [`DakeraClient::autopilot_update_config`] (server v0.12.3+). `None`
+    /// until set there (the server's environment rules) and from older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot_dedup_mode: Option<String>,
+    /// AutoPilot cross-session dedup, when set at runtime (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot_dedup_cross_session: Option<bool>,
+    /// AutoPilot cross-session consolidation, when set at runtime (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot_consolidate_cross_session: Option<bool>,
+    /// AutoPilot trash retention in hours, when set at runtime (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot_trash_retention_hours: Option<u64>,
 }
 
 fn default_true() -> bool {
@@ -403,6 +417,15 @@ pub struct RestoreBackupResponse {
 // AutoPilot Types (PILOT-1 / PILOT-2 / PILOT-3)
 // ============================================================================
 
+/// AutoPilot dedup mode values (server v0.12.3+,
+/// [`AutoPilotConfig::dedup_mode`]): no dedup pass.
+pub const DEDUP_MODE_OFF: &str = "off";
+/// Dedup finds and reports duplicates, deletes none.
+pub const DEDUP_MODE_REPORT: &str = "report";
+/// Dedup folds duplicates into their survivor (restorable for
+/// `trash_retention_hours`, see [`DakeraClient::restore_deduplicated`]).
+pub const DEDUP_MODE_MERGE: &str = "merge";
+
 /// AutoPilot configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutoPilotConfig {
@@ -410,6 +433,22 @@ pub struct AutoPilotConfig {
     pub dedup_threshold: f32,
     pub dedup_interval_hours: u64,
     pub consolidation_interval_hours: u64,
+    /// What dedup does: [`DEDUP_MODE_OFF`] (the server default),
+    /// [`DEDUP_MODE_REPORT`] or [`DEDUP_MODE_MERGE`] (server v0.12.3+; empty
+    /// from older servers).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub dedup_mode: String,
+    /// Whether dedup may fold memories of different sessions (server v0.12.3+).
+    #[serde(default)]
+    pub dedup_cross_session: bool,
+    /// Whether consolidation may merge memories of different sessions
+    /// (server v0.12.3+).
+    #[serde(default)]
+    pub consolidate_cross_session: bool,
+    /// Hours a memory deleted by dedup or consolidation stays restorable
+    /// (`0` = none; server v0.12.3+).
+    #[serde(default)]
+    pub trash_retention_hours: u64,
 }
 
 /// Result snapshot from a deduplication cycle
@@ -418,6 +457,10 @@ pub struct DedupResultSnapshot {
     pub namespaces_processed: usize,
     pub memories_scanned: usize,
     pub duplicates_removed: usize,
+    /// Duplicates the pass found; in `report` mode none is removed (server
+    /// v0.12.3+; `0` from older servers).
+    #[serde(default)]
+    pub duplicates_found: usize,
 }
 
 /// Result snapshot from a consolidation cycle
@@ -456,6 +499,19 @@ pub struct AutoPilotConfigRequest {
     pub dedup_interval_hours: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub consolidation_interval_hours: Option<u64>,
+    /// [`DEDUP_MODE_OFF`], [`DEDUP_MODE_REPORT`] or [`DEDUP_MODE_MERGE`]
+    /// (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedup_mode: Option<String>,
+    /// Let dedup fold memories of different sessions (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedup_cross_session: Option<bool>,
+    /// Let consolidation merge memories of different sessions (server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consolidate_cross_session: Option<bool>,
+    /// Hours a deleted memory stays restorable (`0..=8760`, server v0.12.3+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trash_retention_hours: Option<u64>,
 }
 
 /// PILOT-2: AutoPilot configuration update response
@@ -487,6 +543,14 @@ pub struct AutoPilotDedupResult {
     pub namespaces_processed: usize,
     pub memories_scanned: usize,
     pub duplicates_removed: usize,
+    /// Duplicates found; in `report` mode none is removed (server v0.12.3+;
+    /// `0` from older servers).
+    #[serde(default)]
+    pub duplicates_found: usize,
+    /// The mode the pass ran in (`report` or `merge`; server v0.12.3+, empty
+    /// from older servers).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mode: String,
 }
 
 /// Consolidation result returned by a manual trigger

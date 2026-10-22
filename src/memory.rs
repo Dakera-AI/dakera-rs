@@ -28,8 +28,94 @@ pub enum MemoryType {
     Working,
 }
 
+/// When a memory's event happened (`event_time`, server v0.12.3+,
+/// Dakera-AI/dakera#932): Unix seconds or an RFC 3339 timestamp such as
+/// `2023-05-20T02:21:00Z`.
+///
+/// For a client that writes history (an import, a backfill, a replayed
+/// conversation). The server records it as metadata
+/// [`EVENT_TIME_META_KEY`] (integer seconds) and as the memory's event date;
+/// recency, `since` / `until`, the time range a query implies and the
+/// temporal edges then read it instead of the ingest time. `created_at` stays
+/// the ingest time (TTL and decay count from it). The server refuses a time
+/// before 1970 or more than 24 h in the future with a 400 naming the field;
+/// a server older than v0.12.3 ignores it. Build one with `From`:
+/// `EventTime::from(1_684_549_260)` or `EventTime::from("2023-05-20T02:21:00Z")`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EventTime {
+    /// Seconds since the Unix epoch.
+    Unix(i64),
+    /// An RFC 3339 timestamp (`2023-05-20T02:21:00Z`).
+    Rfc3339(String),
+}
+
+impl From<i64> for EventTime {
+    fn from(secs: i64) -> Self {
+        EventTime::Unix(secs)
+    }
+}
+
+impl From<String> for EventTime {
+    fn from(rfc3339: String) -> Self {
+        EventTime::Rfc3339(rfc3339)
+    }
+}
+
+impl From<&str> for EventTime {
+    fn from(rfc3339: &str) -> Self {
+        EventTime::Rfc3339(rfc3339.to_string())
+    }
+}
+
+/// Metadata key under which the server records a memory's
+/// [`EventTime`] (integer Unix seconds, server v0.12.3+). Set it with
+/// [`StoreMemoryRequest::with_event_time`]: the server refuses it in
+/// `metadata`.
+pub const EVENT_TIME_META_KEY: &str = "_dakera_event_time";
+
+/// Metadata key the server's bi-temporal validity boost reads (Unix seconds);
+/// [`StoreMemoryRequest::valid_from`] is sent under it.
+pub const VALID_FROM_META_KEY: &str = "valid_from";
+
+/// `metadata` as sent: with `valid_from` folded in under
+/// [`VALID_FROM_META_KEY`], which is where the server reads it (a top-level
+/// `valid_from` is not a store field). A value the caller put in the
+/// metadata wins; metadata that is not an object is sent unchanged.
+fn metadata_with_valid_from(
+    metadata: Option<&serde_json::Value>,
+    valid_from: Option<i64>,
+) -> Option<std::borrow::Cow<'_, serde_json::Value>> {
+    use std::borrow::Cow;
+    let Some(valid_from) = valid_from else {
+        return metadata.map(Cow::Borrowed);
+    };
+    match metadata {
+        None => {
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                VALID_FROM_META_KEY.to_string(),
+                serde_json::Value::from(valid_from),
+            );
+            Some(Cow::Owned(serde_json::Value::Object(obj)))
+        }
+        Some(serde_json::Value::Object(obj)) if !obj.contains_key(VALID_FROM_META_KEY) => {
+            let mut obj = obj.clone();
+            obj.insert(
+                VALID_FROM_META_KEY.to_string(),
+                serde_json::Value::from(valid_from),
+            );
+            Some(Cow::Owned(serde_json::Value::Object(obj)))
+        }
+        other => other.map(Cow::Borrowed),
+    }
+}
+
 /// Store a memory request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Serializes to exactly the body of `POST /v1/memory/store`: optional
+/// fields are omitted unless set, and `valid_from` travels in `metadata`.
+#[derive(Debug, Clone, Deserialize)]
 pub struct StoreMemoryRequest {
     pub agent_id: String,
     pub content: String,
@@ -53,9 +139,12 @@ pub struct StoreMemoryRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
     /// Bi-temporal validity start — Unix timestamp (seconds) indicating when this
-    /// memory becomes temporally valid. Defaults to ingest time when omitted.
-    /// Used by temporal recall queries (server v0.11.98+, DAK-7424).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// memory becomes temporally valid. Used by the server's bi-temporal
+    /// recall boost, which reads it from the memory's metadata: it is sent as
+    /// `metadata.valid_from` ([`VALID_FROM_META_KEY`]; a value already in
+    /// `metadata` wins). To say when the event happened, prefer
+    /// [`event_time`](Self::event_time).
+    #[serde(default)]
     pub valid_from: Option<i64>,
     /// Language of `content` for the write-time derivations (event date,
     /// rule-based entity tags): an ISO 639-1 code or name, optionally with a
@@ -71,6 +160,48 @@ pub struct StoreMemoryRequest {
     /// (server v0.12+).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachment_ref: Option<String>,
+    /// When the memory's event happened (server v0.12.3+, see [`EventTime`]).
+    /// `None` = the ingest time, as before.
+    #[serde(default)]
+    pub event_time: Option<EventTime>,
+}
+
+impl Serialize for StoreMemoryRequest {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let metadata = metadata_with_valid_from(self.metadata.as_ref(), self.valid_from);
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("agent_id", &self.agent_id)?;
+        map.serialize_entry("content", &self.content)?;
+        map.serialize_entry("memory_type", &self.memory_type)?;
+        map.serialize_entry("importance", &self.importance)?;
+        map.serialize_entry("tags", &self.tags)?;
+        if let Some(session_id) = &self.session_id {
+            map.serialize_entry("session_id", session_id)?;
+        }
+        if let Some(metadata) = &metadata {
+            map.serialize_entry("metadata", metadata)?;
+        }
+        if let Some(ttl_seconds) = &self.ttl_seconds {
+            map.serialize_entry("ttl_seconds", ttl_seconds)?;
+        }
+        if let Some(expires_at) = &self.expires_at {
+            map.serialize_entry("expires_at", expires_at)?;
+        }
+        if let Some(lang) = &self.lang {
+            map.serialize_entry("lang", lang)?;
+        }
+        if let Some(attachment_ref) = &self.attachment_ref {
+            map.serialize_entry("attachment_ref", attachment_ref)?;
+        }
+        if let Some(event_time) = &self.event_time {
+            map.serialize_entry("event_time", event_time)?;
+        }
+        map.end()
+    }
 }
 
 fn default_importance() -> f32 {
@@ -93,7 +224,15 @@ impl StoreMemoryRequest {
             valid_from: None,
             lang: None,
             attachment_ref: None,
+            event_time: None,
         }
+    }
+
+    /// Set when the memory's event happened (server v0.12.3+): Unix seconds
+    /// (`i64`) or an RFC 3339 string. See [`EventTime`].
+    pub fn with_event_time(mut self, event_time: impl Into<EventTime>) -> Self {
+        self.event_time = Some(event_time.into());
+        self
     }
 
     /// Set the language of `content` (server v0.12+).
@@ -152,12 +291,91 @@ impl StoreMemoryRequest {
         self
     }
 
-    /// Set bi-temporal validity start as a Unix timestamp (seconds).
-    /// Defaults to ingest time when omitted (server v0.11.98+, DAK-7424).
+    /// Set bi-temporal validity start as a Unix timestamp (seconds); sent as
+    /// `metadata.valid_from` (see [`valid_from`](Self::valid_from)).
     pub fn with_valid_from(mut self, valid_from: i64) -> Self {
         self.valid_from = Some(valid_from);
         self
     }
+}
+
+/// How the embedding model cut a memory's text (server v0.12.3+,
+/// Dakera-AI/dakera#933): the text is longer than the model reads, so its
+/// vector covers the first `embedded_tokens` only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbedTruncation {
+    /// Always `true` when reported.
+    #[serde(default)]
+    pub truncated: bool,
+    /// Tokens of the whole text.
+    #[serde(default)]
+    pub content_tokens: usize,
+    /// Tokens the model embedded (the prefix the vector covers).
+    #[serde(default)]
+    pub embedded_tokens: usize,
+    /// The model's token cap on this server.
+    #[serde(default)]
+    pub max_tokens: usize,
+    /// The counts are a model-free estimate (the model is not loaded on that
+    /// node), not the tokenizer's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tokens_estimated: bool,
+    /// Overlapping windows of the text stored as sub-memories so its tail is
+    /// searchable (`0` when the server does not derive them).
+    #[serde(default)]
+    pub windows: usize,
+}
+
+impl EmbedTruncation {
+    /// The report flattened into a store / update answer: `Some` only when
+    /// it says `truncated: true`.
+    fn from_flat(val: &serde_json::Value) -> Option<Self> {
+        if val.get("truncated").and_then(|v| v.as_bool()) != Some(true) {
+            return None;
+        }
+        let count = |key: &str| {
+            val.get(key)
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+                .unwrap_or(0)
+        };
+        Some(Self {
+            truncated: true,
+            content_tokens: count("content_tokens"),
+            embedded_tokens: count("embedded_tokens"),
+            max_tokens: count("max_tokens"),
+            tokens_estimated: val
+                .get("tokens_estimated")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            windows: count("windows"),
+        })
+    }
+}
+
+/// A memory of a batch store whose text the embedding model cut (server
+/// v0.12.3+): [`BatchStoreMemoryResponse::truncated`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TruncatedMemory {
+    /// The memory's id.
+    pub id: String,
+    /// How its text was cut.
+    #[serde(flatten)]
+    pub truncation: EmbedTruncation,
+}
+
+/// The `warnings` of a store or recall answer (server v0.12.3+): the request
+/// fields the server ignored. Empty when there are none.
+fn warnings_of(val: &serde_json::Value) -> Vec<String> {
+    val.get("warnings")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|w| w.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Stored memory response from `POST /v1/memory/store`.
@@ -180,6 +398,17 @@ pub struct StoreMemoryResponse {
     /// `"ended"` — storing into an ended session still succeeds. `None` when
     /// the memory has no started session, or from older servers.
     pub session_state: Option<String>,
+    /// Set when the content is longer than the embedding model reads (server
+    /// v0.12.3+): the vector covers only its first
+    /// [`embedded_tokens`](EmbedTruncation::embedded_tokens). `None` when the
+    /// model read it whole, and from older servers. Also set by
+    /// [`DakeraClient::update_memory`] when the new content was cut.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncation: Option<EmbedTruncation>,
+    /// Request fields the server ignored (server v0.12.3+), e.g.
+    /// `"unknown field 'created_at' ignored"`. Empty when there were none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
@@ -217,6 +446,8 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
                 namespace,
                 embedding_time_ms,
                 session_state,
+                truncation: EmbedTruncation::from_flat(&val),
+                warnings: warnings_of(&val),
             });
         }
 
@@ -245,6 +476,8 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
             namespace,
             embedding_time_ms: None,
             session_state: None,
+            truncation: EmbedTruncation::from_flat(&val),
+            warnings: warnings_of(&val),
         })
     }
 }
@@ -309,6 +542,13 @@ pub struct RerankReport {
     /// why its order was not used (`low_confidence`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
+    /// The server's candidate cap (`DAKERA_RERANK_MAX_CANDIDATES`) left part
+    /// of the pool unscored: the best `candidates` by retrieval score were
+    /// rescored and the rest stayed below them in retrieval order. Also set
+    /// when the request's `rerank_candidates` was above the cap and lowered
+    /// to it. `false` otherwise and from servers older than v0.12.3.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capped: bool,
 }
 
 /// Retrieval routing mode for recall and search (CE-10).
@@ -860,6 +1100,10 @@ pub struct RecallResponse {
     /// served it. `None` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub late_interaction_first_stage: Option<String>,
+    /// Recall only: request fields the server ignored (server v0.12.3+).
+    /// Empty when there were none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Forget (delete) memories request
@@ -1257,9 +1501,23 @@ pub struct AuditEvent {
     pub namespace: Option<String>,
     /// Unix milliseconds.
     pub timestamp: u64,
+    /// Why the event happened, when the server says (server v0.12.3+): for a
+    /// `deduplicated` event, the memory it was absorbed into. `None` on rows
+    /// written by older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     #[serde(default)]
     pub details: serde_json::Value,
 }
+
+/// Audit / memory event types of the deduplication trash (server v0.12.3+):
+/// a memory deleted by deduplication.
+pub const EVENT_DEDUPLICATED: &str = "deduplicated";
+/// A memory merged into another by consolidation.
+pub const EVENT_CONSOLIDATED: &str = "consolidated";
+/// A deduplicated or consolidated memory put back
+/// ([`DakeraClient::restore_deduplicated`]).
+pub const EVENT_RESTORED: &str = "restored";
 
 fn id_as_string<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
@@ -1281,6 +1539,8 @@ pub struct AuditListResponse {
     /// Number of events returned (the server's `count`).
     #[serde(default, alias = "count")]
     pub total: usize,
+    /// Not sent by the server (`GET /v1/audit` has no cursor; page with
+    /// `from` / `to`); kept for compatibility. Always `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
 }
@@ -1307,6 +1567,9 @@ pub struct AuditQuery {
     pub to: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Not read by the server (`GET /v1/audit` has no cursor; page with
+    /// `from` / `to`, Unix milliseconds, both inclusive). Kept for
+    /// compatibility.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
 }
@@ -1562,6 +1825,10 @@ pub struct BatchRecallResponse {
     /// True when the result set was capped by `limit` and more matching memories exist.
     #[serde(default)]
     pub truncated: bool,
+    /// Request fields the server ignored (server v0.12.3+), e.g. a misspelt
+    /// filter field. Empty when there were none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 // ============================================================================
@@ -1571,7 +1838,9 @@ pub struct BatchRecallResponse {
 /// A single memory entry within a [`BatchStoreMemoryRequest`].
 ///
 /// Mirrors [`StoreMemoryRequest`] but omits `agent_id` (supplied at batch level).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// Serializes to exactly the item the server reads: optional fields are
+/// omitted unless set, and `valid_from` travels in `metadata`.
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct BatchStoreMemoryItem {
     /// Memory content (required, max 100 000 chars).
     pub content: String,
@@ -1589,9 +1858,9 @@ pub struct BatchStoreMemoryItem {
     pub ttl_seconds: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
-    /// Bi-temporal validity start — Unix timestamp (seconds). Defaults to ingest time when omitted.
-    /// Used by temporal recall queries (server v0.11.98+, DAK-7424).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Bi-temporal validity start — Unix timestamp (seconds); sent as
+    /// `metadata.valid_from` (see [`StoreMemoryRequest::valid_from`]).
+    #[serde(default)]
     pub valid_from: Option<i64>,
     /// Optional custom ID. Auto-generated if not provided.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1600,6 +1869,46 @@ pub struct BatchStoreMemoryItem {
     /// namespace (server v0.12+, needs `DAKERA_ATTACHMENTS`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachment_ref: Option<String>,
+    /// When the memory's event happened (server v0.12.3+, see [`EventTime`]).
+    #[serde(default)]
+    pub event_time: Option<EventTime>,
+}
+
+impl Serialize for BatchStoreMemoryItem {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let metadata = metadata_with_valid_from(self.metadata.as_ref(), self.valid_from);
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("content", &self.content)?;
+        map.serialize_entry("memory_type", &self.memory_type)?;
+        map.serialize_entry("importance", &self.importance)?;
+        map.serialize_entry("tags", &self.tags)?;
+        if let Some(session_id) = &self.session_id {
+            map.serialize_entry("session_id", session_id)?;
+        }
+        if let Some(metadata) = &metadata {
+            map.serialize_entry("metadata", metadata)?;
+        }
+        if let Some(ttl_seconds) = &self.ttl_seconds {
+            map.serialize_entry("ttl_seconds", ttl_seconds)?;
+        }
+        if let Some(expires_at) = &self.expires_at {
+            map.serialize_entry("expires_at", expires_at)?;
+        }
+        if let Some(id) = &self.id {
+            map.serialize_entry("id", id)?;
+        }
+        if let Some(attachment_ref) = &self.attachment_ref {
+            map.serialize_entry("attachment_ref", attachment_ref)?;
+        }
+        if let Some(event_time) = &self.event_time {
+            map.serialize_entry("event_time", event_time)?;
+        }
+        map.end()
+    }
 }
 
 impl BatchStoreMemoryItem {
@@ -1636,10 +1945,17 @@ impl BatchStoreMemoryItem {
         self
     }
 
-    /// Set bi-temporal validity start as a Unix timestamp (seconds).
-    /// Defaults to ingest time when omitted (server v0.11.98+, DAK-7424).
+    /// Set bi-temporal validity start as a Unix timestamp (seconds); sent as
+    /// `metadata.valid_from`.
     pub fn with_valid_from(mut self, valid_from: i64) -> Self {
         self.valid_from = Some(valid_from);
+        self
+    }
+
+    /// Set when the memory's event happened (server v0.12.3+): Unix seconds
+    /// (`i64`) or an RFC 3339 string. See [`EventTime`].
+    pub fn with_event_time(mut self, event_time: impl Into<EventTime>) -> Self {
+        self.event_time = Some(event_time.into());
         self
     }
 
@@ -1716,6 +2032,68 @@ pub struct BatchStoreMemoryResponse {
     /// none, or from older servers). The memories were stored.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ended_sessions: Vec<String>,
+    /// The stored memories whose text is longer than the embedding model
+    /// reads (server v0.12.3+): their vectors cover a prefix only. Empty when
+    /// none was cut, and from older servers. (Not the `truncated` flag of
+    /// [`BatchRecallResponse`], which says a recall hit its `limit`.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub truncated: Vec<TruncatedMemory>,
+    /// Request fields the server ignored (server v0.12.3+); an unknown item
+    /// field is reported once, e.g. `"unknown field 'memories[].created_at'
+    /// ignored (in 3 items)"`. Empty when there were none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+// ============================================================================
+// Deduplication trash (server v0.12.3+, Dakera-AI/dakera#930)
+// ============================================================================
+
+/// Which background pass deleted a [`DeduplicatedMemory`].
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DeduplicationKind {
+    /// Folded into a duplicate of it (`survivor_id`) by deduplication.
+    Deduplication,
+    /// Merged with others into a new memory (`survivor_id`) by consolidation.
+    Consolidation,
+    /// A kind this SDK version does not know (a newer server sent it).
+    #[serde(other)]
+    Unknown,
+}
+
+/// A memory that deduplication or consolidation deleted and that can still
+/// be restored with [`DakeraClient::restore_deduplicated`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeduplicatedMemory {
+    /// The deleted memory's id (it is restored under this id).
+    pub id: String,
+    /// Which pass deleted it.
+    pub kind: DeduplicationKind,
+    /// The memory it was folded (deduplication) or merged (consolidation) into.
+    pub survivor_id: String,
+    /// Its session, if it had one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// When it was deleted (Unix seconds).
+    pub deleted_at: u64,
+    /// Until when it can be restored (Unix seconds); purged after.
+    pub restorable_until: u64,
+}
+
+/// Response of [`DakeraClient::list_deduplicated`]
+/// (`GET /v1/memory/deduplicated`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeduplicatedListResponse {
+    /// The agent.
+    #[serde(default)]
+    pub agent_id: String,
+    /// Its restorable deleted memories, newest first.
+    #[serde(default)]
+    pub memories: Vec<DeduplicatedMemory>,
+    /// How many.
+    #[serde(default)]
+    pub count: usize,
 }
 
 /// Request body for `DELETE /v1/memories/forget/batch`.
@@ -1797,6 +2175,10 @@ impl DakeraClient {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// An agent that has stored nothing yet answers an empty `memories` list
+    /// (server v0.12.3+; older servers answered 404 `NAMESPACE_NOT_FOUND`).
+    /// [`RecallResponse::warnings`] lists request fields the server ignored.
     pub async fn recall(&self, request: RecallRequest) -> Result<RecallResponse> {
         let url = format!("{}/v1/memory/recall", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
@@ -1814,16 +2196,34 @@ impl DakeraClient {
             .await
     }
 
-    /// Get a specific memory by ID (requires agent_id for namespace lookup)
+    /// Get a specific memory by ID in `agent_id`'s memories.
+    ///
+    /// An empty `agent_id` omits it, as [`get_memory_by_id`](Self::get_memory_by_id)
+    /// does (server v0.12.3+).
     pub async fn get_memory(&self, agent_id: &str, memory_id: &str) -> Result<RecalledMemory> {
-        let url = format!(
-            "{}/v1/memory/get/{}?agent_id={}",
+        let mut url = format!(
+            "{}/v1/memory/get/{}",
             self.base_url,
-            crate::client::enc(memory_id),
-            crate::client::enc_query(agent_id)
+            crate::client::enc(memory_id)
         );
+        if !agent_id.is_empty() {
+            url.push_str("?agent_id=");
+            url.push_str(&crate::client::enc_query(agent_id));
+        }
         let response = self.client.get(&url).send().await?;
         self.handle_response(response).await
+    }
+
+    /// Get a memory by ID alone, without naming its agent (server v0.12.3+):
+    /// `GET /v1/memory/get/{id}` without `agent_id`.
+    ///
+    /// The server looks in the agent memories the key may read. One agent
+    /// holds the id: that memory. None: a 404 ([`ClientError::is_not_found`]).
+    /// Several: a 400 naming them; pass the agent with
+    /// [`get_memory`](Self::get_memory).
+    /// A server older than v0.12.3 answers 400 (`agent_id` was required).
+    pub async fn get_memory_by_id(&self, memory_id: &str) -> Result<RecalledMemory> {
+        self.get_memory("", memory_id).await
     }
 
     /// Forget (delete) memories
@@ -1834,6 +2234,9 @@ impl DakeraClient {
     }
 
     /// Search memories with advanced filters
+    ///
+    /// An agent that has stored nothing yet answers an empty `memories` list
+    /// (server v0.12.3+; older servers answered 404 `NAMESPACE_NOT_FOUND`).
     pub async fn search_memories(&self, request: RecallRequest) -> Result<RecallResponse> {
         let url = format!("{}/v1/memory/search", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
@@ -2343,6 +2746,9 @@ impl DakeraClient {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// An agent that has stored nothing yet answers an empty `memories` list
+    /// (server v0.12.3+; older servers answered 404 `NAMESPACE_NOT_FOUND`).
     pub async fn batch_recall(&self, request: BatchRecallRequest) -> Result<BatchRecallResponse> {
         let url = format!("{}/v1/memories/recall/batch", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
@@ -2409,6 +2815,49 @@ impl DakeraClient {
     pub async fn batch_forget(&self, request: BatchForgetRequest) -> Result<BatchForgetResponse> {
         let url = format!("{}/v1/memories/forget/batch", self.base_url);
         let response = self.client.delete(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    // ========================================================================
+    // Deduplication trash (server v0.12.3+, Dakera-AI/dakera#930)
+    // ========================================================================
+
+    /// List the memories of `agent_id` that deduplication or consolidation
+    /// deleted and that can still be restored (`GET /v1/memory/deduplicated`,
+    /// server v0.12.3+; read scope on the agent). How long they stay
+    /// restorable is the autopilot's `trash_retention_hours`.
+    ///
+    /// A server older than v0.12.3 answers 404.
+    pub async fn list_deduplicated(&self, agent_id: &str) -> Result<DeduplicatedListResponse> {
+        let url = format!(
+            "{}/v1/memory/deduplicated?agent_id={}",
+            self.base_url,
+            crate::client::enc_query(agent_id)
+        );
+        let response = self.client.get(&url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Put back memory `memory_id` of `agent_id` that deduplication or
+    /// consolidation deleted, exactly as it was stored, and return it
+    /// (`POST /v1/memory/deduplicated/{id}/restore`, server v0.12.3+; write
+    /// scope on the agent).
+    ///
+    /// A 404 ([`ClientError::is_not_found`]) when it has no restorable copy
+    /// (never deleted, purged, or a server older than v0.12.3); a 409 when
+    /// the agent holds a memory with that id again.
+    pub async fn restore_deduplicated(
+        &self,
+        agent_id: &str,
+        memory_id: &str,
+    ) -> Result<RecalledMemory> {
+        let url = format!(
+            "{}/v1/memory/deduplicated/{}/restore?agent_id={}",
+            self.base_url,
+            crate::client::enc(memory_id),
+            crate::client::enc_query(agent_id)
+        );
+        let response = self.client.post(&url).send().await?;
         self.handle_response(response).await
     }
 

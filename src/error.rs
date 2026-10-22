@@ -36,6 +36,10 @@ pub enum ServerErrorCode {
     Conflict,
     /// 403: cross-origin state-changing request refused (auth disabled).
     CrossOriginRequestRefused,
+    /// 421: authentication is disabled and the request's `Host` names a host
+    /// the server does not answer for (DNS rebinding protection; allow it with
+    /// the server's `DAKERA_ALLOWED_HOSTS`).
+    HostNotAllowed,
     /// 429.
     RateLimitExceeded,
     /// 504: a query ran past `query_timeout_ms`.

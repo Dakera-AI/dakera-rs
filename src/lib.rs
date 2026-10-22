@@ -110,7 +110,8 @@ pub use admin::{
     FulltextReindexNamespaceResult, FulltextReindexResponse, IndexStats, IndexStatsResponse,
     KpiSnapshot, LastDecayCycleStats, NodeInfo, NodeListResponse, OpsStats, RestoreBackupRequest,
     RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse, TtlCleanupRequest,
-    TtlCleanupResponse, TtlStats, TtlStatsResponse,
+    TtlCleanupResponse, TtlStats, TtlStatsResponse, DEDUP_MODE_MERGE, DEDUP_MODE_OFF,
+    DEDUP_MODE_REPORT,
 };
 pub use agents::{
     AgentMemoriesOptions, AgentStats, AgentSummary, CompressResponse, CreateAgentRequest,
@@ -172,6 +173,13 @@ pub use memory::{
     // CE-6: DBSCAN Adaptive Consolidation
     ConsolidationConfig,
     ConsolidationLogEntry,
+    // v0.12.3: deduplication trash
+    DeduplicatedListResponse,
+    DeduplicatedMemory,
+    DeduplicationKind,
+    // v0.12.3: truncation report and event time
+    EmbedTruncation,
+    EventTime,
     // EXT-1: External Extraction Providers
     ExtractionResult,
     ForgetRequest,
@@ -201,7 +209,13 @@ pub use memory::{
     SessionTouchResponse,
     StoreMemoryRequest,
     StoreMemoryResponse,
+    TruncatedMemory,
+    EVENT_CONSOLIDATED,
+    EVENT_DEDUPLICATED,
+    EVENT_RESTORED,
+    EVENT_TIME_META_KEY,
     RETRIEVAL_NEIGHBORHOOD,
+    VALID_FROM_META_KEY,
 };
 // v0.12: records with named representations
 pub use records::{

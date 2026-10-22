@@ -299,3 +299,5 @@ GET /v1/memory/documents/jobs/{}
 GET /v1/memory/documents/{}
 DELETE /v1/memory/documents/{}
 POST /v1/namespaces/{}/attachments/{}/document
+GET /v1/memory/deduplicated
+POST /v1/memory/deduplicated/{}/restore

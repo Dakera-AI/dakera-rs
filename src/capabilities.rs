@@ -215,6 +215,13 @@ pub struct NamingCapability {
     /// Longest agent id (bytes; 241 since v0.12.2).
     #[serde(default)]
     pub agent_id_max_bytes: usize,
+    /// Regular expression a session id must match: the agent-id alphabet
+    /// plus `:` (server v0.12.3+; empty from older servers).
+    #[serde(default)]
+    pub session_id_pattern: String,
+    /// Longest session id (bytes; server v0.12.3+, `0` from older servers).
+    #[serde(default)]
+    pub session_id_max_bytes: usize,
     /// Prefix of an agent's memory namespace (`_dakera_agent_`).
     #[serde(default)]
     pub agent_namespace_prefix: String,
