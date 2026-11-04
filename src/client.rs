@@ -173,6 +173,39 @@ impl DakeraClient {
         self.refresh_capabilities().await
     }
 
+    /// `Ok(())` when the server is at least `min` (`major.minor.patch` of
+    /// [`ServerCapabilities::server_version`], from the cached capabilities);
+    /// otherwise [`ClientError::InvalidRequest`] naming `what` and `why`. A
+    /// server without the capabilities route (404, older than v0.12) or with a
+    /// version that does not read as `major.minor.patch` counts as too old.
+    /// Any other error fetching the capabilities is returned as it is.
+    pub(crate) async fn require_server_version(
+        &self,
+        min: (u64, u64, u64),
+        what: &str,
+        why: &str,
+    ) -> Result<()> {
+        let version = match self.capabilities().await {
+            Ok(caps) => Some(caps.server_version.clone()),
+            Err(err) if err.is_not_found() => None,
+            Err(err) => return Err(err),
+        };
+        if let Some(parsed) = version.as_deref().and_then(parse_server_version) {
+            if parsed >= min {
+                return Ok(());
+            }
+        }
+        let seen = match version.as_deref() {
+            Some(v) if !v.is_empty() => format!("v{}", v.trim_start_matches('v')),
+            Some(_) => "an unknown version".to_string(),
+            None => "older than v0.12 (no capabilities route)".to_string(),
+        };
+        Err(ClientError::InvalidRequest(format!(
+            "{what} needs Dakera server v{}.{}.{}+ (this server: {seen}); {why}",
+            min.0, min.1, min.2
+        )))
+    }
+
     /// Fetch `GET /v1/capabilities` again and replace the cache.
     #[instrument(skip(self))]
     pub async fn refresh_capabilities(&self) -> Result<Arc<ServerCapabilities>> {
@@ -1700,6 +1733,19 @@ impl DakeraClient {
     }
 }
 
+/// `(major, minor, patch)` of a server version such as `0.12.4` (a leading
+/// `v` and anything after the patch number, e.g. `-rc.1`, are ignored);
+/// `None` when it does not start with three numbers.
+fn parse_server_version(version: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = version.trim().trim_start_matches('v').splitn(3, '.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let rest = parts.next()?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let patch = digits.parse().ok()?;
+    Some((major, minor, patch))
+}
+
 /// Builder for DakeraClient (its `Debug` output redacts the API key and
 /// header values).
 pub struct DakeraClientBuilder {
@@ -2063,6 +2109,18 @@ impl DakeraClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_versions_parse() {
+        assert_eq!(parse_server_version("0.12.4"), Some((0, 12, 4)));
+        assert_eq!(parse_server_version("v0.12.10"), Some((0, 12, 10)));
+        assert_eq!(parse_server_version("0.12.4-rc.1"), Some((0, 12, 4)));
+        assert_eq!(parse_server_version(" 1.0.0+build "), Some((1, 0, 0)));
+        assert_eq!(parse_server_version(""), None);
+        assert_eq!(parse_server_version("0.12"), None);
+        assert_eq!(parse_server_version("dev"), None);
+        assert!(parse_server_version("0.12.3").unwrap() < (0, 12, 4));
+    }
 
     #[test]
     fn sse_parser_keeps_utf8_split_across_chunks() {

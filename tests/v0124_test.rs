@@ -165,6 +165,139 @@ async fn forget_refuses_invalid_v0124_fields_before_sending() {
     }
 }
 
+// ----------------------------------------------------------------------------
+// A v0.12.4 field with a filter needs a v0.12.4 server: an older one ignores
+// the field and would forget everything the filter selects (a dry run would
+// delete).
+// ----------------------------------------------------------------------------
+
+async fn capabilities_mock(
+    server: &mut mockito::ServerGuard,
+    status: usize,
+    body: &str,
+    hits: usize,
+) -> mockito::Mock {
+    json_mock(server, "GET", "/v1/capabilities", status, body)
+        .expect(hits)
+        .create_async()
+        .await
+}
+
+#[tokio::test]
+async fn forget_with_a_filter_is_sent_to_a_v0124_server() {
+    let mut server = mockito::Server::new_async().await;
+    let caps = capabilities_mock(&mut server, 200, r#"{"server_version":"0.12.4"}"#, 1).await;
+    let forget = json_mock(
+        &mut server,
+        "POST",
+        "/v1/memory/forget",
+        200,
+        r#"{"deleted_count":0,"forgotten_ids":["m1","m2"]}"#,
+    )
+    .match_body(Matcher::Json(json!({
+        "agent_id": "a", "session_id": "s1", "dry_run": true
+    })))
+    .expect(2)
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    for _ in 0..2 {
+        let resp = client
+            .forget(ForgetRequest::by_session("a", "s1").dry_run())
+            .await
+            .unwrap();
+        assert_eq!(resp.forgotten_ids.unwrap().len(), 2);
+    }
+    // The version is read once and cached.
+    caps.assert_async().await;
+    forget.assert_async().await;
+}
+
+#[tokio::test]
+async fn forget_with_a_filter_is_refused_for_an_older_or_unknown_server() {
+    for (status, body) in [
+        (200, r#"{"server_version":"0.12.3"}"#),
+        (200, r#"{"server_version":"v0.11.108"}"#),
+        (200, r#"{"server_version":""}"#),
+        (200, r#"{"server_version":"dev"}"#),
+        (404, r#"{"error":"not found"}"#),
+    ] {
+        let mut server = mockito::Server::new_async().await;
+        let _caps = capabilities_mock(&mut server, status, body, 1).await;
+        let forget = server
+            .mock("POST", "/v1/memory/forget")
+            .expect(0)
+            .create_async()
+            .await;
+        let client = DakeraClient::new(server.url()).unwrap();
+        for req in [
+            ForgetRequest::by_session("a", "s1").dry_run(),
+            ForgetRequest::by_ids("a", vec!["m1".into()]).restorable(),
+            ForgetRequest::by_tags("a", vec!["t".into()]).with_limit(3),
+            ForgetRequest::about("a", "x").with_type(MemoryType::Episodic),
+        ] {
+            match client.forget(req).await {
+                Err(ClientError::InvalidRequest(msg)) => {
+                    assert!(msg.contains("v0.12.4"), "{msg}")
+                }
+                other => panic!("{body}: expected InvalidRequest, got {other:?}"),
+            }
+        }
+        forget.assert_async().await;
+    }
+}
+
+#[tokio::test]
+async fn forget_version_check_errors_are_returned_and_nothing_is_sent() {
+    let mut server = mockito::Server::new_async().await;
+    let _caps = capabilities_mock(
+        &mut server,
+        500,
+        r#"{"error":"boom","code":"INTERNAL_ERROR"}"#,
+        1,
+    )
+    .await;
+    let forget = server
+        .mock("POST", "/v1/memory/forget")
+        .expect(0)
+        .create_async()
+        .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    let err = client
+        .forget(ForgetRequest::by_session("a", "s1").dry_run())
+        .await
+        .unwrap_err();
+    assert!(!matches!(err, ClientError::InvalidRequest(_)), "{err:?}");
+    forget.assert_async().await;
+}
+
+#[tokio::test]
+async fn forget_without_the_combination_makes_no_version_call() {
+    let mut server = mockito::Server::new_async().await;
+    let caps = capabilities_mock(&mut server, 200, r#"{"server_version":"0.12.3"}"#, 0).await;
+    let forget = json_mock(
+        &mut server,
+        "POST",
+        "/v1/memory/forget",
+        200,
+        r#"{"deleted_count":1}"#,
+    )
+    .expect(3)
+    .create_async()
+    .await;
+    let client = DakeraClient::new(server.url()).unwrap();
+    // A plain filter, and a v0.12.4 field alone (an older server answers 400).
+    for req in [
+        ForgetRequest::by_session("a", "s1"),
+        ForgetRequest::by_ids("a", vec!["m1".into()]),
+        ForgetRequest::about("a", "x").dry_run(),
+    ] {
+        client.forget(req).await.unwrap();
+    }
+    caps.assert_async().await;
+    forget.assert_async().await;
+}
+
 #[tokio::test]
 async fn forget_without_reranker_is_a_retryable_503() {
     let mut server = mockito::Server::new_async().await;

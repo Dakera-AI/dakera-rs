@@ -1301,8 +1301,9 @@ pub struct ForgetRequest {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub restorable: bool,
     /// Report what would be forgotten in [`ForgetResponse::forgotten_ids`]
-    /// and forget nothing (server v0.12.4+; an older server ignores it and
-    /// forgets).
+    /// and forget nothing (server v0.12.4+; an older server would ignore it
+    /// and forget, so [`DakeraClient::forget`] checks the server version when
+    /// it is combined with a filter).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dry_run: bool,
 }
@@ -1390,6 +1391,37 @@ impl ForgetRequest {
     pub fn dry_run(mut self) -> Self {
         self.dry_run = true;
         self
+    }
+
+    /// The v0.12.4 fields this request sets (`about`, `request`, `until`,
+    /// `min_score`, `limit`, `restorable`, `dry_run`).
+    fn v0124_fields(&self) -> Vec<&'static str> {
+        let mut set = Vec::new();
+        for (name, on) in [
+            ("about", self.about.is_some()),
+            ("request", self.request.is_some()),
+            ("until", self.until.is_some()),
+            ("min_score", self.min_score.is_some()),
+            ("limit", self.limit.is_some()),
+            ("restorable", self.restorable),
+            ("dry_run", self.dry_run),
+        ] {
+            if on {
+                set.push(name);
+            }
+        }
+        set
+    }
+
+    /// Whether the request selects memories by a filter every server reads
+    /// (`memory_ids`, `memory_type`, `session_id`, `tags`,
+    /// `below_importance`).
+    fn has_filter(&self) -> bool {
+        !self.memory_ids.is_empty()
+            || !self.tags.is_empty()
+            || self.memory_type.is_some()
+            || self.session_id.is_some()
+            || self.below_importance.is_some()
     }
 
     /// The checks the server applies to the v0.12.4 fields, made before
@@ -2756,8 +2788,33 @@ impl DakeraClient {
     /// by `about` / `request` needs the server's reranker (and, for
     /// `request`, its detector): without them it answers `503`
     /// ([`ClientError::ServiceUnavailable`]) and forgets nothing.
+    ///
+    /// **Safety with older servers.** A server before v0.12.4 ignores the
+    /// v0.12.4 fields (`about`, `request`, `until`, `min_score`, `limit`,
+    /// `restorable`, `dry_run`) and would forget every memory the other
+    /// selectors match: a `dry_run` would delete. So when one of them is
+    /// combined with `memory_ids` or a filter (`memory_type`, `session_id`,
+    /// `tags`, `below_importance`), the server version is checked first
+    /// ([`capabilities`](Self::capabilities), cached by the client) and the
+    /// request is refused with [`ClientError::InvalidRequest`], nothing sent,
+    /// when the server is older than v0.12.4 or its version cannot be read
+    /// (no capabilities route, or a version string that is not
+    /// `major.minor.patch`). An error fetching the capabilities is returned
+    /// as it is, and nothing is sent either. A request without such a
+    /// combination makes no extra call (`about` / `request` alone is refused
+    /// with `400` by an older server, which forgets nothing).
     pub async fn forget(&self, request: ForgetRequest) -> Result<ForgetResponse> {
         request.validate()?;
+        let new_fields = request.v0124_fields();
+        if !new_fields.is_empty() && request.has_filter() {
+            self.require_server_version(
+                (0, 12, 4),
+                &format!("forget with {} and a filter", new_fields.join(", ")),
+                "an older server ignores these fields and would forget every memory the \
+                 filters select",
+            )
+            .await?;
+        }
         let url = format!("{}/v1/memory/forget", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
         self.handle_response(response).await

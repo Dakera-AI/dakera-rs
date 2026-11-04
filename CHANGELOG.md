@@ -11,8 +11,7 @@ Support for the Dakera server **v0.12.4**. Every new request field is omitted un
 new response field is optional, so the crate keeps working against v0.12.0 – v0.12.3 servers; the
 new calls and fields need server >= 0.12.4 (older servers ignore the request fields, answer
 `None` / empty for the response fields and `404` for `detect_forget_requests`). An older server
-ignores `dry_run` on a forget: a dry-run forget that also names ids, tags or a session forgets
-there.
+ignores the new forget fields, so `forget` refuses to send them with a filter to it (below).
 
 ### Added
 
@@ -24,6 +23,15 @@ there.
   (`ForgetIntent`). `forget` refuses `about` with `request`, an empty or over-long text
   (`MAX_FORGET_TEXT_CHARS`), a `limit` outside 1–`MAX_FORGET_LIMIT` and a `min_score` outside
   0–1 with `ClientError::InvalidRequest` before sending.
+- **Forget safety with older servers**: a server before v0.12.4 ignores `about`, `request`,
+  `until`, `min_score`, `limit`, `restorable` and `dry_run` and would forget every memory the
+  other selectors match (a `dry_run` would delete). When one of them is combined with
+  `memory_ids` or a filter (`memory_type`, `session_id`, `tags`, `below_importance`), `forget`
+  first reads the server version from `capabilities()` (cached by the client) and returns
+  `ClientError::InvalidRequest` without sending anything when the server is older than v0.12.4
+  or its version cannot be read (no capabilities route, or not `major.minor.patch`); an error
+  fetching the capabilities is returned and nothing is sent. Requests without that combination
+  make no extra call.
 - `detect_forget_requests(&texts)` — `POST /v1/memory/forget/detect` (`ForgetDetectResponse`,
   `ForgetVerdict`; 1 to `MAX_FORGET_DETECT_TEXTS` messages).
 - `StoreMemoryResponse::forget_request`; `BatchStoreMemoryResponse::forget_requests`

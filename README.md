@@ -169,6 +169,9 @@ means. `detect_forget_requests(&messages)` reads up to 64 messages and says whic
 without touching memories. Any forget can be `restorable()` (the memories go to the agent's
 trash, `list_deduplicated` / `restore_deduplicated`, kind `Deletion`) or a `dry_run()` (the ids it
 would forget, in `forgotten_ids`). A server without its reranker or detector answers `503`.
+Combined with ids or a filter, these fields are sent only to a server that reports v0.12.4 or
+later in `capabilities()` (checked once, cached): an older server would ignore them and forget
+everything the filter selects, so `forget` refuses with `ClientError::InvalidRequest` instead.
 
 ```rust,no_run
 use dakera_client::{memory::ForgetRequest, DakeraClient};
@@ -615,7 +618,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | v0.12.0 | yes | opt-in features answer `501 FEATURE_DISABLED` until the operator enables them |
 | v0.12.1 | yes | as v0.12.0; the v0.12.2 calls answer `404` and the new fields are `None` / empty |
 | v0.12.2 | yes | as v0.12.1 plus the v0.12.2 calls; the v0.12.3 recall fields are ignored / `None` and the document routes answer `404` |
-| v0.12.3 | yes | as v0.12.2 plus the v0.12.3 calls; the v0.12.4 fields are ignored / `None` (a `dry_run` forget that also names ids, tags or a session **forgets** there; a forget by `about` / `request` alone is refused with `400`) and `detect_forget_requests` answers `404` |
+| v0.12.3 | yes | as v0.12.2 plus the v0.12.3 calls; the v0.12.4 fields are ignored / `None` (`forget` refuses, before sending, a v0.12.4 forget field combined with ids or a filter, which this server would ignore and forget everything the filter selects; a forget by `about` / `request` alone is refused with `400` by the server) and `detect_forget_requests` answers `404` |
 | v0.12.4 | yes | everything above |
 
 ---
