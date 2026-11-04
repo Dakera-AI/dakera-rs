@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4] - Unreleased
+
 Support for the Dakera server **v0.12.4**. Every new request field is omitted unless set and every
 new response field is optional, so the crate keeps working against v0.12.0 – v0.12.3 servers; the
 new calls and fields need server >= 0.12.4 (older servers ignore the request fields, answer
