@@ -104,6 +104,27 @@ pub struct KeySuccessResponse {
     pub success: bool,
     /// Server message.
     pub message: String,
+    /// `true` when the server answered `202 Accepted` (server v0.12.4+): the
+    /// revocation or deactivation applies on every node but is not stored
+    /// yet; the server logged it and retries until it is stored, after a
+    /// restart too. `false` for `200` (stored). A change that could not even
+    /// be logged is a `503` error ([`ClientError::ServiceUnavailable`]), and
+    /// one a later change of the same key took over first a `409`.
+    ///
+    /// [`ClientError::ServiceUnavailable`]: crate::ClientError::ServiceUnavailable
+    #[serde(default)]
+    pub pending: bool,
+}
+
+impl DakeraClient {
+    /// A key change's answer, with [`KeySuccessResponse::pending`] set from
+    /// a `202`.
+    async fn key_change(&self, response: reqwest::Response) -> Result<KeySuccessResponse> {
+        let accepted = response.status() == reqwest::StatusCode::ACCEPTED;
+        let mut answer: KeySuccessResponse = self.handle_response(response).await?;
+        answer.pending = accepted;
+        Ok(answer)
+    }
 }
 
 /// Rotate key response
@@ -318,7 +339,9 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// Delete (revoke) an API key
+    /// Delete (revoke) an API key. From server v0.12.4 the revocation applies
+    /// on every node at once; [`KeySuccessResponse::pending`] says when it is
+    /// not stored yet (`202`).
     pub async fn delete_key(&self, key_id: &str) -> Result<KeySuccessResponse> {
         let url = format!(
             "{}/admin/keys/{}",
@@ -326,10 +349,11 @@ impl DakeraClient {
             crate::client::enc(key_id)
         );
         let response = self.client.delete(&url).send().await?;
-        self.handle_response(response).await
+        self.key_change(response).await
     }
 
-    /// Deactivate an API key (soft delete)
+    /// Deactivate an API key (soft delete). From server v0.12.4
+    /// [`KeySuccessResponse::pending`] says when it is not stored yet (`202`).
     pub async fn deactivate_key(&self, key_id: &str) -> Result<KeySuccessResponse> {
         let url = format!(
             "{}/admin/keys/{}/deactivate",
@@ -337,7 +361,7 @@ impl DakeraClient {
             crate::client::enc(key_id)
         );
         let response = self.client.post(&url).send().await?;
-        self.handle_response(response).await
+        self.key_change(response).await
     }
 
     /// Rotate an API key (creates new key, deactivates old)
@@ -459,7 +483,9 @@ impl DakeraClient {
         self.handle_response(response).await
     }
 
-    /// Revoke a namespace-scoped API key (SEC-1).
+    /// Revoke a namespace-scoped API key (SEC-1). From server v0.12.4
+    /// [`KeySuccessResponse::pending`] says when the revocation is not stored
+    /// yet (`202`).
     pub async fn delete_namespace_key(
         &self,
         namespace: &str,
@@ -472,7 +498,7 @@ impl DakeraClient {
             crate::client::enc(key_id)
         );
         let response = self.client.delete(&url).send().await?;
-        self.handle_response(response).await
+        self.key_change(response).await
     }
 
     /// Rename a key of `namespace` or replace its namespaces (server v0.12.2+;

@@ -152,6 +152,92 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
+## What's new in v0.12.4
+
+This release supports the Dakera server **v0.12.4** and keeps working against **v0.12.0 –
+v0.12.3**: every new request field is omitted unless set and every new response field is optional
+(`None` / empty from an older server); the new route answers `404` on an older server.
+
+### Forget by description, or by what the user asked
+
+`ForgetRequest::about(agent, text)` forgets the memories a description is about (what was said,
+not the request to forget it); the server's cross-encoder decides, most relevant first, at most
+`limit` (default 10, at most 50) at or above `min_score` (default 0.5).
+`ForgetRequest::by_request(agent, message)` takes a user's request to forget as they said it, in
+any language: the server checks that it is one (`ForgetResponse::intent`) and forgets what it
+means. `detect_forget_requests(&messages)` reads up to 64 messages and says which are requests
+without touching memories. Any forget can be `restorable()` (the memories go to the agent's
+trash, `list_deduplicated` / `restore_deduplicated`, kind `Deletion`) or a `dry_run()` (the ids it
+would forget, in `forgotten_ids`). A server without its reranker or detector answers `503`.
+Combined with ids or a filter, these fields are sent only to a server that reports v0.12.4 or
+later in `capabilities()` (checked once, cached): an older server would ignore them and forget
+everything the filter selects, so `forget` refuses with `ClientError::InvalidRequest` instead.
+
+```rust,no_run
+use dakera_client::{memory::ForgetRequest, DakeraClient};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = DakeraClient::new("http://localhost:3000")?;
+    let messages = ["Please forget what I told you about my job", "What's the weather?"];
+    let detected = client.detect_forget_requests(&messages).await?;
+    for (message, verdict) in messages.iter().zip(&detected.results) {
+        if verdict.is_request {
+            let preview = client
+                .forget(ForgetRequest::by_request("my-agent", *message).dry_run())
+                .await?;
+            println!("would forget {:?}", preview.forgotten_ids);
+            client
+                .forget(ForgetRequest::by_request("my-agent", *message).restorable())
+                .await?;
+        }
+    }
+    Ok(())
+}
+```
+
+A store whose text reads as a request to forget says so in `StoreMemoryResponse::forget_request`
+(`forget_requests` on a batch); the memory is stored either way.
+
+### Recall defaults moved on the server
+
+From server v0.12.4 `importance_weighted` defaults to `false` and `include_associated` to `true`.
+`RecallRequest` sends neither unless set, so the server's defaults apply;
+`with_importance_weighted(bool)` and `with_include_associated(bool)` choose. `include_associated`
+is now an `Option<bool>` (it was a `bool` that could not send `false`). New on recall:
+`with_rerank_head(n)` (the length of the reranked head when `top_k` is larger; `0` = the reranked
+list alone), `RecallResponse::instructions` (the agent's standing instructions that fit the query,
+memories tagged `INSTRUCTION_TAG`) and `RecallResponse::degraded` (the parts of the recall a failed
+read left out).
+
+### Smaller changes (server v0.12.4+)
+
+- Sessions: `end_session_with(id, &SessionEndRequest::default().with_auto_summarize(false))`;
+  `SessionEndResponse::summary_pending` when the summary memory is stored later.
+- Audit: `AuditQuery::cursor` / `AuditListResponse::next_cursor` page the log.
+- `get_memory_with_projection(agent, id, days)`: the memory's importance for each of the next days
+  under its decay policy.
+- Import: `import_memories` uploads the file as the server expects (multipart, one agent);
+  `import_memories_file(agent, name, bytes, &ImportOptions { run_async: true, .. })` returns the job
+  at once, `import_job_status` follows it.
+- `MemoryPolicy::stored`; a policy's TTLs default to none (no expiry by memory type), as do
+  `MemoryPolicy::default()`'s.
+- `NamespaceEntityConfig::source` (`namespace` or `server_default`: entity extraction is on by
+  default), `EntityExtractionResponse::{extractor, warnings}`, link labels on `GraphEdge` and
+  `GraphLinkResponse`.
+- What could not be done is said: `DeduplicateResponse::groups_failed`,
+  `CrossAgentNetworkResponse::unavailable`, `CompressResponse::{deprecation_skipped,
+  deprecation_error}`, autopilot and decay `failures`, `TtlCleanupResponse::failed`,
+  `DerivationStatus::entity_tagging`.
+- Admin: `consolidation_mode` on the autopilot (`CONSOLIDATION_MODE_*`, `report` by default),
+  `WarmCacheRequest::{with_query_vector, with_min_score_threshold,
+  with_recently_accessed_within}`; a key revocation answered `202` (applied, stored later) sets
+  `KeySuccessResponse::pending`.
+- A namespace whose deletion is still being cleaned up answers `503` with `Retry-After`
+  (`ClientError::ServiceUnavailable`, retryable with `execute_with_retry`).
+
+---
+
 ## What's new in v0.12.3
 
 `dakera-client` 0.12.3 supports the Dakera server **v0.12.3** (Dakera-AI/dakera#917, #920, #921,
@@ -532,7 +618,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | v0.12.0 | yes | opt-in features answer `501 FEATURE_DISABLED` until the operator enables them |
 | v0.12.1 | yes | as v0.12.0; the v0.12.2 calls answer `404` and the new fields are `None` / empty |
 | v0.12.2 | yes | as v0.12.1 plus the v0.12.2 calls; the v0.12.3 recall fields are ignored / `None` and the document routes answer `404` |
-| v0.12.3 | yes | everything above |
+| v0.12.3 | yes | as v0.12.2 plus the v0.12.3 calls; the v0.12.4 fields are ignored / `None` (`forget` refuses, before sending, a v0.12.4 forget field combined with ids or a filter, which this server would ignore and forget everything the filter selects; a forget by `about` / `request` alone is refused with `400` by the server) and `detect_forget_requests` answers `404` |
+| v0.12.4 | yes | everything above |
 
 ---
 

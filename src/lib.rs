@@ -106,11 +106,12 @@ pub use admin::{
     ClearCacheResponse, ClusterStatus, ConsolidationResultSnapshot, CreateBackupRequest,
     CreateBackupResponse, DecayConfigResponse, DecayConfigUpdateRequest, DecayConfigUpdateResponse,
     DecayStatsResponse, DedupResultSnapshot, DerivationHeal, DerivationReconciler,
-    DerivationStatus, DrainDerivationsRequest, DrainDerivationsResponse,
+    DerivationStatus, DrainDerivationsRequest, DrainDerivationsResponse, EntityTaggingStatus,
     FulltextReindexNamespaceResult, FulltextReindexResponse, IndexStats, IndexStatsResponse,
     KpiSnapshot, LastDecayCycleStats, NodeInfo, NodeListResponse, OpsStats, RestoreBackupRequest,
     RestoreBackupResponse, RuntimeConfig, SlowQueryListResponse, TtlCleanupRequest,
-    TtlCleanupResponse, TtlStats, TtlStatsResponse, DEDUP_MODE_MERGE, DEDUP_MODE_OFF,
+    TtlCleanupResponse, TtlStats, TtlStatsResponse, CONSOLIDATION_MODE_MERGE,
+    CONSOLIDATION_MODE_OFF, CONSOLIDATION_MODE_REPORT, DEDUP_MODE_MERGE, DEDUP_MODE_OFF,
     DEDUP_MODE_REPORT,
 };
 pub use agents::{
@@ -153,11 +154,12 @@ pub use keys::{
     UpdateKeyRequest, WhoamiResponse, MAX_ROTATION_GRACE_SECS,
 };
 pub use knowledge::{
-    AgentNetworkEdge, AgentNetworkInfo, AgentNetworkNode, AgentNetworkStats,
+    AgentNetworkEdge, AgentNetworkInfo, AgentNetworkNode, AgentNetworkStats, AgentUnavailable,
     CrossAgentNetworkRequest, CrossAgentNetworkResponse, DeduplicateRequest, DeduplicateResponse,
-    DuplicateGroup, FullKnowledgeGraphRequest, KnowledgeCluster, KnowledgeEdge,
-    KnowledgeGraphRequest, KnowledgeGraphResponse, KnowledgeGraphRoot, KnowledgeGraphStats,
-    KnowledgeMemory, KnowledgeNode, KnowledgeRelated, SummarizeRequest, SummarizeResponse,
+    DuplicateGroup, DuplicateGroupFailure, FullKnowledgeGraphRequest, KnowledgeCluster,
+    KnowledgeEdge, KnowledgeGraphRequest, KnowledgeGraphResponse, KnowledgeGraphRoot,
+    KnowledgeGraphStats, KnowledgeMemory, KnowledgeNode, KnowledgeRelated, SummarizeRequest,
+    SummarizeResponse,
 };
 pub use memory::{
     // OBS-1: Business-Event Audit Log
@@ -165,6 +167,7 @@ pub use memory::{
     AuditExportResponse,
     AuditListResponse,
     AuditQuery,
+    BatchDuplicate,
     BatchForgetRequest,
     BatchForgetResponse,
     BatchMemoryFilter,
@@ -182,12 +185,19 @@ pub use memory::{
     EventTime,
     // EXT-1: External Extraction Providers
     ExtractionResult,
+    // v0.12.4: forget by description / request, forget-request detection
+    ForgetDetectResponse,
+    ForgetIntent,
     ForgetRequest,
     ForgetResponse,
+    ForgetVerdict,
+    ImportOptions,
     MemoryExportResponse,
     // DX-1: Memory Import / Export
     MemoryImportResponse,
     MemoryType,
+    // v0.12.4: strength projection
+    MemoryWithProjection,
     // #917: recall neighbourhood modes and result provenance
     NeighborhoodMode,
     RecallRequest,
@@ -201,6 +211,7 @@ pub use memory::{
     // CE-10: Routing mode
     RoutingMode,
     Session,
+    SessionEndRequest,
     SessionEndResponse,
     SessionMemoriesOptions,
     SessionMemoriesResponse,
@@ -209,11 +220,19 @@ pub use memory::{
     SessionTouchResponse,
     StoreMemoryRequest,
     StoreMemoryResponse,
+    StoredForgetRequest,
+    StrengthPoint,
     TruncatedMemory,
     EVENT_CONSOLIDATED,
     EVENT_DEDUPLICATED,
     EVENT_RESTORED,
     EVENT_TIME_META_KEY,
+    INSTRUCTION_TAG,
+    MAX_FORGET_DETECT_TEXTS,
+    MAX_FORGET_LIMIT,
+    MAX_FORGET_TEXT_CHARS,
+    MAX_PROJECTION_DAYS,
+    RETRIEVAL_INSTRUCTION,
     RETRIEVAL_NEIGHBORHOOD,
     VALID_FROM_META_KEY,
 };

@@ -914,6 +914,17 @@ pub struct WarmCacheRequest {
     /// Maximum vectors to warm
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_vectors: Option<usize>,
+    /// With `query_vector`: keep only records at or above this similarity
+    /// (server v0.12.4+, which applies it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_score_threshold: Option<f32>,
+    /// Keep only records accessed within the last this many seconds (server
+    /// v0.12.4+, which applies it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recently_accessed_within: Option<u64>,
+    /// Warm the records nearest this vector (server v0.12.4+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_vector: Option<Vec<f32>>,
 }
 
 impl WarmCacheRequest {
@@ -928,6 +939,9 @@ impl WarmCacheRequest {
             ttl_hint_seconds: None,
             access_pattern: AccessPatternHint::default(),
             max_vectors: None,
+            min_score_threshold: None,
+            recently_accessed_within: None,
+            query_vector: None,
         }
     }
 
@@ -970,6 +984,25 @@ impl WarmCacheRequest {
     /// Limit number of vectors to warm
     pub fn with_max_vectors(mut self, max: usize) -> Self {
         self.max_vectors = Some(max);
+        self
+    }
+
+    /// Warm the records nearest this vector (server v0.12.4+).
+    pub fn with_query_vector(mut self, vector: Vec<f32>) -> Self {
+        self.query_vector = Some(vector);
+        self
+    }
+
+    /// With a query vector, keep only records at or above this similarity
+    /// (server v0.12.4+).
+    pub fn with_min_score_threshold(mut self, threshold: f32) -> Self {
+        self.min_score_threshold = Some(threshold);
+        self
+    }
+
+    /// Keep only records accessed within the last `seconds` (server v0.12.4+).
+    pub fn with_recently_accessed_within(mut self, seconds: u64) -> Self {
+        self.recently_accessed_within = Some(seconds);
         self
     }
 }
@@ -2675,6 +2708,11 @@ pub struct GraphEdge {
     /// Unix timestamp of edge creation (0 when unknown).
     #[serde(default)]
     pub created_at: i64,
+    /// The label a client gave the link (`linked_by` edges), when it has
+    /// one. Stored from server v0.12.4 (earlier servers accepted it and
+    /// dropped it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// A node (memory) in the knowledge graph traversal result.
@@ -2745,7 +2783,9 @@ pub struct GraphLinkRequest {
     pub target_id: String,
     /// Agent that owns both memories (required by the server).
     pub agent_id: String,
-    /// Optional human-readable label for the link.
+    /// What the link means (at most 256 bytes, no control characters).
+    /// Stored with the edge and returned in traversals and exports from
+    /// server v0.12.4 (earlier servers dropped it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -2765,6 +2805,10 @@ pub struct GraphLinkResponse {
     pub to_id: String,
     /// Recorded edge type (`linked_by`).
     pub edge_type: EdgeType,
+    /// The link's label, as stored (server v0.12.4+; at most 256 bytes).
+    /// Linking the same pair again replaces it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for GraphLinkResponse {
@@ -2783,6 +2827,8 @@ impl<'de> Deserialize<'de> for GraphLinkResponse {
             to_id: Option<String>,
             #[serde(default)]
             edge_type: Option<EdgeType>,
+            #[serde(default)]
+            label: Option<String>,
         }
 
         let raw = Raw::deserialize(deserializer)?;
@@ -2801,9 +2847,11 @@ impl<'de> Deserialize<'de> for GraphLinkResponse {
                 edge_type: raw.edge_type.clone().unwrap_or_default(),
                 weight: 1.0,
                 created_at: 0,
+                label: raw.label.clone(),
             },
         };
         Ok(Self {
+            label: raw.label.or_else(|| edge.label.clone()),
             from_id: raw.from_id.unwrap_or_else(|| edge.source_id.clone()),
             to_id: raw.to_id.unwrap_or_else(|| edge.target_id.clone()),
             edge_type: raw.edge_type.unwrap_or_else(|| edge.edge_type.clone()),
@@ -2893,6 +2941,19 @@ pub struct ExtractedEntity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityExtractionResponse {
     pub entities: Vec<ExtractedEntity>,
+    /// Number of entities.
+    #[serde(default)]
+    pub count: usize,
+    /// Which extractor produced `entities`: `"gliner"` (the neural pass ran,
+    /// on top of the rules) or `"rule_based"` (server v0.12.4+; `None` from
+    /// older servers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extractor: Option<String>,
+    /// What to know about the result: the neural pass failed (rule-based
+    /// entities only) or covered part of the text (server v0.12.4+). Empty
+    /// when there is nothing to say.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Response from GET /v1/memory/entities/:id
@@ -3521,21 +3582,31 @@ pub struct KgExportResponse {
 /// Controls type-specific TTLs, decay curves, and spaced repetition behaviour.
 /// All fields have sensible defaults; only override what you need.
 ///
+/// From server v0.12.4 a policy's TTLs default to none: a memory type without
+/// a TTL does not expire by type (a `PUT` that leaves a TTL out no longer
+/// starts expiring that type; earlier servers applied 4 h / 30 d / 365 d /
+/// 730 d), and a `None` TTL stays none across server restarts.
+/// [`MemoryPolicy::default`] matches the server's defaults.
+///
 /// Used by [`DakeraClient::get_memory_policy`] and
 /// [`DakeraClient::set_memory_policy`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryPolicy {
     // Differential TTLs ------------------------------------------------------
-    /// Default TTL for `working` memories in seconds (default: 14 400 = 4 h).
+    /// TTL for `working` memories in seconds (default: none, no expiry by
+    /// type; servers before v0.12.4 applied 14 400 = 4 h).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_ttl_seconds: Option<u64>,
-    /// Default TTL for `episodic` memories in seconds (default: 2 592 000 = 30 d).
+    /// TTL for `episodic` memories in seconds (default: none; servers before
+    /// v0.12.4 applied 2 592 000 = 30 d).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub episodic_ttl_seconds: Option<u64>,
-    /// Default TTL for `semantic` memories in seconds (default: 31 536 000 = 365 d).
+    /// TTL for `semantic` memories in seconds (default: none; servers before
+    /// v0.12.4 applied 31 536 000 = 365 d).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_ttl_seconds: Option<u64>,
-    /// Default TTL for `procedural` memories in seconds (default: 63 072 000 = 730 d).
+    /// TTL for `procedural` memories in seconds (default: none; servers before
+    /// v0.12.4 applied 63 072 000 = 730 d).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub procedural_ttl_seconds: Option<u64>,
 
@@ -3601,21 +3672,28 @@ pub struct MemoryPolicy {
     /// by [`dedup_threshold`](Self::dedup_threshold)).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedup_on_store: Option<bool>,
-    /// Cosine-similarity threshold for store-time deduplication (default: `0.92`).
+    /// Cosine-similarity threshold for store-time deduplication (default: `0.95`).
     ///
     /// Memories with similarity ≥ this value are considered duplicates and the
     /// incoming memory is dropped. Only active when `dedup_on_store` is `true`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedup_threshold: Option<f32>,
+
+    /// **Read-only** (server v0.12.4+): `true` when the namespace has a
+    /// stored policy, `false` when it has none and the answer says what its
+    /// memories get (no TTL by type, the server's decay curve for every type,
+    /// nothing else on). `None` from older servers. Never sent.
+    #[serde(default, skip_serializing)]
+    pub stored: Option<bool>,
 }
 
 impl Default for MemoryPolicy {
     fn default() -> Self {
         Self {
-            working_ttl_seconds: Some(14_400),
-            episodic_ttl_seconds: Some(2_592_000),
-            semantic_ttl_seconds: Some(31_536_000),
-            procedural_ttl_seconds: Some(63_072_000),
+            working_ttl_seconds: None,
+            episodic_ttl_seconds: None,
+            semantic_ttl_seconds: None,
+            procedural_ttl_seconds: None,
             working_decay: Some("exponential".to_string()),
             episodic_decay: Some("power_law".to_string()),
             semantic_decay: Some("logarithmic".to_string()),
@@ -3630,7 +3708,8 @@ impl Default for MemoryPolicy {
             rate_limit_stores_per_minute: None,
             rate_limit_recalls_per_minute: None,
             dedup_on_store: Some(false),
-            dedup_threshold: Some(0.92),
+            dedup_threshold: Some(0.95),
+            stored: None,
         }
     }
 }
@@ -3742,7 +3821,19 @@ pub struct NamespaceEntityConfig {
     pub namespace: String,
     pub extract_entities: bool,
     pub entity_types: Vec<String>,
+    /// Where `extract_entities` / `entity_types` come from (server v0.12.4+):
+    /// `"namespace"` (set for the namespace) or `"server_default"` (the
+    /// namespace never set them and runs the server's default entity types,
+    /// on by default from v0.12.4). The first `PUT` / `PATCH` makes the
+    /// namespace's own setting hold. `None` from older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
+
+/// [`NamespaceEntityConfig::source`] of a namespace's own setting.
+pub const ENTITY_CONFIG_SOURCE_NAMESPACE: &str = "namespace";
+/// [`NamespaceEntityConfig::source`] of the server's default entity types.
+pub const ENTITY_CONFIG_SOURCE_SERVER_DEFAULT: &str = "server_default";
 
 /// Response from `GET /v1/namespaces/{ns}/extractor`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4184,7 +4275,7 @@ pub struct RouteResponse {
 pub struct ImportJobStatus {
     /// Unique job identifier.
     pub job_id: String,
-    /// Current job status (e.g. "running", "completed", "failed").
+    /// `"running"`, `"done"` or `"failed"`.
     pub status: String,
     /// Import file format (e.g. "jsonl", "csv").
     pub format: String,

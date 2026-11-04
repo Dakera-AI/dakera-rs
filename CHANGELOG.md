@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4] - Unreleased
+
+Support for the Dakera server **v0.12.4**. Every new request field is omitted unless set and every
+new response field is optional, so the crate keeps working against v0.12.0 – v0.12.3 servers; the
+new calls and fields need server >= 0.12.4 (older servers ignore the request fields, answer
+`None` / empty for the response fields and `404` for `detect_forget_requests`). An older server
+ignores the new forget fields, so `forget` refuses to send them with a filter to it (below).
+
+### Added
+
+- **Forget by description or by request**: `ForgetRequest::about(agent, text)` and
+  `ForgetRequest::by_request(agent, message)`, with `with_until`, `with_min_score`, `with_limit`,
+  `with_type`, `restorable()` and `dry_run()`; `ForgetRequest` gains `about`, `request`, `until`,
+  `min_score`, `limit`, `restorable`, `dry_run`, `memory_type` and `below_importance` (the last
+  two were read by the server and not settable). `ForgetResponse::forgotten_ids` and `intent`
+  (`ForgetIntent`). `forget` refuses `about` with `request`, an empty or over-long text
+  (`MAX_FORGET_TEXT_CHARS`), a `limit` outside 1–`MAX_FORGET_LIMIT` and a `min_score` outside
+  0–1 with `ClientError::InvalidRequest` before sending.
+- **Forget safety with older servers**: a server before v0.12.4 ignores `about`, `request`,
+  `until`, `min_score`, `limit`, `restorable` and `dry_run` and would forget every memory the
+  other selectors match (a `dry_run` would delete). When one of them is combined with
+  `memory_ids` or a filter (`memory_type`, `session_id`, `tags`, `below_importance`), `forget`
+  first reads the server version from `capabilities()` (cached by the client) and returns
+  `ClientError::InvalidRequest` without sending anything when the server is older than v0.12.4
+  or its version cannot be read (no capabilities route, or not `major.minor.patch`); an error
+  fetching the capabilities is returned and nothing is sent. Requests without that combination
+  make no extra call.
+- `detect_forget_requests(&texts)` — `POST /v1/memory/forget/detect` (`ForgetDetectResponse`,
+  `ForgetVerdict`; 1 to `MAX_FORGET_DETECT_TEXTS` messages).
+- `StoreMemoryResponse::forget_request`; `BatchStoreMemoryResponse::forget_requests`
+  (`StoredForgetRequest`) and `duplicates` (`BatchDuplicate`, items not stored by store-time
+  deduplication).
+- Recall: `RecallRequest::rerank_head` / `with_rerank_head`, `with_include_associated(bool)`,
+  `with_importance_weighted(bool)`; `RecallResponse::instructions` (standing instructions,
+  `INSTRUCTION_TAG`, `RETRIEVAL_INSTRUCTION`) and `degraded`.
+- Sessions: `SessionEndRequest::auto_summarize` (`with_summary`, `with_auto_summarize`, now
+  `Default` and exported), `end_session_with(id, &request)`, `SessionEndResponse::summary_pending`.
+- Audit: `AuditListResponse::next_cursor`; `AuditQuery::cursor` is sent and read by the server.
+- `get_memory_with_projection(agent_id, memory_id, days)` — `GET /v1/memory/get/{id}?projection_days=N`
+  (`MemoryWithProjection`, `StrengthPoint`, `MAX_PROJECTION_DAYS`).
+- `DeduplicatedMemory::content`; `DeduplicationKind::Deletion` (restorable forgets).
+- `import_memories_file(agent_id, file_name, bytes, &ImportOptions)` — the multipart upload of
+  `POST /v1/import`, with `ImportOptions::run_async` (`?async=true`: `202` with the running job,
+  followed with `import_job_status`).
+- `ConsolidateRequest::memory_ids` and `target_type`; `ConsolidateResponse::consolidated_memory`,
+  `source_memory_ids` and `memories_removed`.
+- `GraphEdge::label`, `GraphLinkResponse::label`.
+- `EntityExtractionResponse::{count, extractor, warnings}`; `NamespaceEntityConfig::source`
+  (`ENTITY_CONFIG_SOURCE_NAMESPACE`, `ENTITY_CONFIG_SOURCE_SERVER_DEFAULT`).
+- `MemoryPolicy::stored` (read-only, never sent).
+- `DeduplicateResponse::groups_failed` (`DuplicateGroupFailure`),
+  `CrossAgentNetworkResponse::unavailable` (`AgentUnavailable`),
+  `CompressResponse::{deprecation_skipped, deprecation_error}`.
+- `AnalyticsOverview::{period, namespace}` (the server now applies both).
+- Admin: `AutoPilotConfig::consolidation_mode`, `AutoPilotConfigRequest::consolidation_mode`,
+  `RuntimeConfig::autopilot_consolidation_mode` (`CONSOLIDATION_MODE_OFF` / `_REPORT` / `_MERGE`);
+  `failures` on `DedupResultSnapshot`, `ConsolidationResultSnapshot`, `AutoPilotDedupResult`,
+  `AutoPilotConsolidationResult` and `LastDecayCycleStats`; `clusters_found` /
+  `memories_in_clusters` on the consolidation results and `mode` on the trigger's;
+  `DecayStatsResponse::cycles_failed`; `TtlCleanupResponse::failed`;
+  `DerivationStatus::entity_tagging` (`EntityTaggingStatus`); `WarmCacheRequest::{query_vector,
+  min_score_threshold, recently_accessed_within}` with builders.
+- `KeySuccessResponse::pending`: `delete_key`, `deactivate_key` and `delete_namespace_key` set it
+  when the server answers `202` (applied on every node, stored later).
+
+### Fixed
+
+- `ForgetRequest::by_session` and `by_tags` sent `"memory_ids": []`, which the server reads as an
+  id filter matching nothing: they forgot nothing. Empty `memory_ids` / `tags` are no longer sent.
+- `import_memories` sent a JSON body; `POST /v1/import` takes a multipart file upload into one
+  agent and answers the import job. It now uploads `data` as a file (a JSON array as JSON Lines
+  for `jsonl`, a string as it is) and maps the job to `MemoryImportResponse`; `agent_id` is
+  required (`ClientError::InvalidRequest` before sending) and `namespace` is not sent.
+- `RecallRequest::include_associated` could not send `false`, so from server v0.12.4 (where it
+  defaults to on) associated memories could not be turned off.
+- `consolidate` sent `memory_type`, `dry_run` and `config`, which the server does not read: it
+  never sends them now, and refuses `dry_run: true` (the server merges and deletes; it has no dry
+  run).
+- `MemoryPolicy::default()` matches the server: no TTL by memory type (it set 4 h / 30 d / 365 d /
+  730 d, which a `set_memory_policy` with the defaults stored) and `dedup_threshold` 0.95 (was
+  0.92).
+
+### Changed (source-breaking)
+
+- `RecallRequest::include_associated` is `Option<bool>` (was `bool`); use `with_associated()` /
+  `with_include_associated(bool)`.
+- New public fields on structs that can be built with struct literals: `ForgetRequest` (now also
+  `Default`), `SessionEndRequest`, `ConsolidateRequest`, `WarmCacheRequest`, `MemoryPolicy`,
+  `AutoPilotConfig`, `AutoPilotConfigRequest`, `CompressResponse` and the response types above.
+  Add the fields or use `..Default::default()` / the constructors.
+- `DeduplicationKind` has a new variant, `Deletion`.
+
+### Docs
+
+- Server v0.12.4 behaviour: recall's `importance_weighted` defaults to `false` and
+  `include_associated` to `true`; `agent_memories_with`'s `memory_type` and `agent_sessions`'
+  `active_only` are applied; automatic consolidation answers `400` when no memories are that
+  similar; a memory policy without a stored policy reads `stored: false`; the analytics filters
+  apply; an unreadable audit log is a `500`; a namespace whose deletion is still being cleaned up
+  answers `503` with `Retry-After`.
+
 ## [0.12.3] - 2026-10-22
 
 Support for the Dakera server **v0.12.3** (Dakera-AI/dakera#917, #920, #921, #926, #930, #932, #933,

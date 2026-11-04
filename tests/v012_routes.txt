@@ -243,6 +243,7 @@ POST /v1/memories/store/batch
 POST /v1/memory/consolidate
 POST /v1/memory/feedback
 POST /v1/memory/forget
+POST /v1/memory/forget/detect
 POST /v1/memory/importance
 POST /v1/memory/recall
 POST /v1/memory/search
