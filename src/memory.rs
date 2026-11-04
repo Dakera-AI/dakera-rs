@@ -409,6 +409,17 @@ pub struct StoreMemoryResponse {
     /// `"unknown field 'created_at' ignored"`. Empty when there were none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// Set when the stored text reads as a request to forget something said
+    /// (server v0.12.4+, which detects it on store by default): act on it with
+    /// [`ForgetRequest::by_request`]. The memory was stored either way. `None`
+    /// otherwise, and from older servers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forget_request: Option<ForgetIntent>,
+}
+
+fn forget_request_of(val: &serde_json::Value) -> Option<ForgetIntent> {
+    val.get("forget_request")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
 }
 
 impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
@@ -448,6 +459,7 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
                 session_state,
                 truncation: EmbedTruncation::from_flat(&val),
                 warnings: warnings_of(&val),
+                forget_request: forget_request_of(&val),
             });
         }
 
@@ -478,6 +490,7 @@ impl<'de> serde::Deserialize<'de> for StoreMemoryResponse {
             session_state: None,
             truncation: EmbedTruncation::from_flat(&val),
             warnings: warnings_of(&val),
+            forget_request: forget_request_of(&val),
         })
     }
 }
@@ -594,10 +607,13 @@ pub struct RecallRequest {
     pub session_id: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    /// COG-2: traverse KG depth-1 from recalled memories and include
-    /// associatively linked memories in the response (default: false)
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub include_associated: bool,
+    /// Traverse the knowledge graph from the recalled memories and return
+    /// their neighbours in [`RecallResponse::associated_memories`]. `None`
+    /// uses the server default, which is on from server v0.12.4
+    /// (`DAKERA_RECALL_INCLUDE_ASSOCIATED`; off before); `Some(false)` turns
+    /// it off. Sent only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_associated: Option<bool>,
     /// COG-2: max associated memories to return (default: 10, max: 10)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub associated_memories_cap: Option<u32>,
@@ -626,9 +642,18 @@ pub struct RecallRequest {
     /// score). `None` = the whole candidate pool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rerank_candidates: Option<usize>,
-    /// Importance-weighted re-ranking. `None` uses the server default (`true`).
+    /// Importance-weighted re-ranking (flat relevance / importance weights).
+    /// `None` uses the server default: `false` from server v0.12.4
+    /// (`DAKERA_RECALL_IMPORTANCE_WEIGHTED`), `true` before. Sent only when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub importance_weighted: Option<bool>,
+    /// Reranked head (server v0.12.4+): with `rerank` and a `top_k` above it,
+    /// the first N results are the cross-encoder's order and the rest
+    /// interleave the recall without the cross-encoder. `Some(0)` returns the
+    /// reranked list alone; `None` uses the server default
+    /// (`DAKERA_RERANK_HEAD`, 10). Sent only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerank_head: Option<usize>,
     /// CE-14: fusion strategy when `routing = Hybrid`. `None` uses server default (`MinMax`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fusion: Option<FusionStrategy>,
@@ -684,7 +709,7 @@ impl RecallRequest {
             min_importance: 0.0,
             session_id: None,
             tags: Vec::new(),
-            include_associated: false,
+            include_associated: None,
             associated_memories_cap: None,
             associated_memories_depth: None,
             associated_memories_min_weight: None,
@@ -700,6 +725,7 @@ impl RecallRequest {
             include_summaries: None,
             rerank_candidates: None,
             importance_weighted: None,
+            rerank_head: None,
             lang: None,
         }
     }
@@ -740,15 +766,23 @@ impl RecallRequest {
         self
     }
 
-    /// COG-2: include KG depth-1 associated memories in the response
+    /// Include knowledge-graph associated memories in the response
+    /// (`include_associated: true`).
     pub fn with_associated(mut self) -> Self {
-        self.include_associated = true;
+        self.include_associated = Some(true);
+        self
+    }
+
+    /// Ask for associated memories (`true`) or not (`false`) instead of the
+    /// server default (on from server v0.12.4).
+    pub fn with_include_associated(mut self, include: bool) -> Self {
+        self.include_associated = Some(include);
         self
     }
 
     /// COG-2: set max associated memories cap (default: 10, max: 10)
     pub fn with_associated_cap(mut self, cap: u32) -> Self {
-        self.include_associated = true;
+        self.include_associated = Some(true);
         self.associated_memories_cap = Some(cap);
         self
     }
@@ -779,7 +813,7 @@ impl RecallRequest {
 
     /// KG-3: set KG traversal depth (1–3, default: 1); implies include_associated
     pub fn with_associated_depth(mut self, depth: u8) -> Self {
-        self.include_associated = true;
+        self.include_associated = Some(true);
         self.associated_memories_depth = Some(depth);
         self
     }
@@ -837,6 +871,20 @@ impl RecallRequest {
     /// Rerank at most `n` retrieved candidates with the cross-encoder.
     pub fn with_rerank_candidates(mut self, n: usize) -> Self {
         self.rerank_candidates = Some(n);
+        self
+    }
+
+    /// Importance-weighted re-ranking on (`true`) or off (`false`) instead of
+    /// the server default (off from server v0.12.4).
+    pub fn with_importance_weighted(mut self, weighted: bool) -> Self {
+        self.importance_weighted = Some(weighted);
+        self
+    }
+
+    /// The reranked head's length (server v0.12.4+); `0` returns the reranked
+    /// list alone.
+    pub fn with_rerank_head(mut self, head: usize) -> Self {
+        self.rerank_head = Some(head);
         self
     }
 }
@@ -1074,8 +1122,10 @@ pub struct RecallResponse {
     /// The recall route does not report a total, so it is 0 there.
     #[serde(default, alias = "total_count")]
     pub total_found: usize,
-    /// COG-2 / KG-3: KG associated memories at configurable depth (only present when include_associated was true)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Knowledge-graph neighbours of the recalled memories, apart from the
+    /// ranked results. Present when associated memories were asked for, which
+    /// is the server default from v0.12.4.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub associated_memories: Option<Vec<RecalledMemory>>,
     /// Neighbourhood context under [`NeighborhoodMode::Separate`], each entry
     /// with `context_of`. `None` in the other modes and from older servers.
@@ -1104,20 +1154,157 @@ pub struct RecallResponse {
     /// Empty when there were none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// Recall only (server v0.12.4+): the agent's standing instructions
+    /// (memories tagged [`INSTRUCTION_TAG`]) that best fit the query, best
+    /// first, at most 3, each with `retrieval` `"instruction"`. Not returned
+    /// for a recall that narrows by tags, type, session, time or importance.
+    /// `None` when there are none, and from older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<Vec<RecalledMemory>>,
+    /// Recall only (server v0.12.4+): the parts of the recall that could not
+    /// be served because a read failed, each with why (e.g. `"graph: ..."`,
+    /// `"associated_memories: ..."`). The results are still ranked, without
+    /// those parts. Empty when the recall is complete.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub degraded: Vec<String>,
 }
 
-/// Forget (delete) memories request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Tag of a standing instruction (server v0.12.4+): a stored rule for later
+/// answers ("From now on, answer in French"). The server tags such texts on
+/// store; a client may set it too. Recall returns the best-fitting ones in
+/// [`RecallResponse::instructions`].
+pub const INSTRUCTION_TAG: &str = "dakera-instruction";
+
+/// [`RecalledMemory::retrieval`] of an entry of
+/// [`RecallResponse::instructions`] (server v0.12.4+).
+pub const RETRIEVAL_INSTRUCTION: &str = "instruction";
+
+/// Longest strength projection [`DakeraClient::get_memory_with_projection`]
+/// asks for (days).
+pub const MAX_PROJECTION_DAYS: u32 = 365;
+
+/// One day of a memory's strength projection.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct StrengthPoint {
+    /// Days from now (0 = today).
+    pub day: u32,
+    /// The memory's importance on that day if nothing touches it.
+    pub importance: f32,
+}
+
+/// A memory and its projected strength
+/// ([`DakeraClient::get_memory_with_projection`], server v0.12.4+).
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryWithProjection {
+    /// The memory.
+    pub memory: RecalledMemory,
+    /// Its importance for each day from today, day 0 first. Empty from a
+    /// server older than v0.12.4.
+    pub strength_projection: Vec<StrengthPoint>,
+}
+
+/// Longest `about` / `request` text the server reads (characters).
+pub const MAX_FORGET_TEXT_CHARS: usize = 8_000;
+/// Most memories one forget by `about` / `request` deletes.
+pub const MAX_FORGET_LIMIT: usize = 50;
+/// Most messages one [`DakeraClient::detect_forget_requests`] call reads.
+pub const MAX_FORGET_DETECT_TEXTS: usize = 64;
+
+/// Forget (delete) memories request (`POST /v1/memory/forget`).
+///
+/// At least one filter is required (`memory_ids`, `memory_type`,
+/// `session_id`, `tags`, `below_importance`, `about` or `request`); the
+/// filters combine. Empty `memory_ids` / `tags` are not sent (an empty list
+/// would match nothing).
+///
+/// Server v0.12.4 adds forgetting by description ([`ForgetRequest::about`])
+/// and by a user's request to forget ([`ForgetRequest::by_request`]),
+/// `until`, `min_score`, `limit`, `restorable` and `dry_run`. Each is
+/// omitted unless set, so the type keeps working with older servers, which
+/// ignore them.
+///
+/// ```
+/// use dakera_client::memory::ForgetRequest;
+///
+/// let req = ForgetRequest::about("agent-1", "I love sushi")
+///     .with_min_score(0.75)
+///     .with_limit(5)
+///     .restorable()
+///     .dry_run();
+/// assert_eq!(
+///     serde_json::to_value(&req).unwrap(),
+///     serde_json::json!({
+///         "agent_id": "agent-1",
+///         "about": "I love sushi",
+///         "min_score": 0.75,
+///         "limit": 5,
+///         "restorable": true,
+///         "dry_run": true
+///     })
+/// );
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ForgetRequest {
     pub agent_id: String,
-    #[serde(default)]
+    /// Forget these ids (with `about` / `request`: only those of them that
+    /// match).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub memory_ids: Vec<String>,
-    #[serde(default)]
+    /// Forget memories carrying any of these tags.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Not read by the server (it is ignored); use `until` with `about` /
+    /// `request`, or the other filters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub before_timestamp: Option<u64>,
+    /// Only memories of this type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_type: Option<MemoryType>,
+    /// Only memories below this importance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub below_importance: Option<f32>,
+    /// Forget by description (server v0.12.4+): what was said, not the request
+    /// to forget it (`"I love sushi"`, not `"Please forget that I love
+    /// sushi"`). The cross-encoder judges which memories are about it (at
+    /// least `min_score`), most relevant first, at most `limit`. Not with
+    /// `request`. At most [`MAX_FORGET_TEXT_CHARS`] characters. A server
+    /// without its reranker answers `503`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub about: Option<String>,
+    /// A user's request to forget, as said, in any language (server
+    /// v0.12.4+): the server checks that it is one
+    /// ([`ForgetResponse::intent`]) and forgets the memories it means; a
+    /// message that is not a request forgets nothing. Not with `about`. At
+    /// most [`MAX_FORGET_TEXT_CHARS`] characters. A server without its
+    /// detector or reranker answers `503`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<String>,
+    /// With `about` / `request`: only memories stored (`created_at`) at or
+    /// before this instant (Unix seconds), so what was said after the request
+    /// is kept (server v0.12.4+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<u64>,
+    /// With `about`: the least cross-encoder relevance (0–1) a memory needs.
+    /// Server default `0.5` (v0.12.4+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_score: Option<f32>,
+    /// With `about` / `request`: the most memories forgotten, 1 to
+    /// [`MAX_FORGET_LIMIT`]. Server default `10` (v0.12.4+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+    /// Keep a restorable copy of each deleted memory in the agent's trash
+    /// ([`DakeraClient::list_deduplicated`], kind
+    /// [`DeduplicationKind::Deletion`]; [`DakeraClient::restore_deduplicated`])
+    /// for the trash retention (server v0.12.4+). Default: a plain delete.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restorable: bool,
+    /// Report what would be forgotten in [`ForgetResponse::forgotten_ids`]
+    /// and forget nothing (server v0.12.4+; an older server ignores it and
+    /// forgets).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dry_run: bool,
 }
 
 impl ForgetRequest {
@@ -1126,9 +1313,7 @@ impl ForgetRequest {
         Self {
             agent_id: agent_id.into(),
             memory_ids: ids,
-            tags: Vec::new(),
-            session_id: None,
-            before_timestamp: None,
+            ..Self::default()
         }
     }
 
@@ -1136,10 +1321,8 @@ impl ForgetRequest {
     pub fn by_tags(agent_id: impl Into<String>, tags: Vec<String>) -> Self {
         Self {
             agent_id: agent_id.into(),
-            memory_ids: Vec::new(),
             tags,
-            session_id: None,
-            before_timestamp: None,
+            ..Self::default()
         }
     }
 
@@ -1147,11 +1330,100 @@ impl ForgetRequest {
     pub fn by_session(agent_id: impl Into<String>, session_id: impl Into<String>) -> Self {
         Self {
             agent_id: agent_id.into(),
-            memory_ids: Vec::new(),
-            tags: Vec::new(),
             session_id: Some(session_id.into()),
-            before_timestamp: None,
+            ..Self::default()
         }
+    }
+
+    /// Forget the memories `about` describes (server v0.12.4+; see
+    /// [`ForgetRequest::about`](#structfield.about)).
+    pub fn about(agent_id: impl Into<String>, about: impl Into<String>) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            about: Some(about.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Forget what a user's request to forget means, in any language
+    /// (server v0.12.4+; see [`ForgetRequest::request`](#structfield.request)).
+    /// Check messages first with [`DakeraClient::detect_forget_requests`].
+    pub fn by_request(agent_id: impl Into<String>, request: impl Into<String>) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            request: Some(request.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Only memories stored at or before `until` (Unix seconds).
+    pub fn with_until(mut self, until: u64) -> Self {
+        self.until = Some(until);
+        self
+    }
+
+    /// The least cross-encoder relevance (0–1) for `about`.
+    pub fn with_min_score(mut self, min_score: f32) -> Self {
+        self.min_score = Some(min_score);
+        self
+    }
+
+    /// The most memories forgotten by `about` / `request` (1–50).
+    pub fn with_limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    /// Only memories of this type.
+    pub fn with_type(mut self, memory_type: MemoryType) -> Self {
+        self.memory_type = Some(memory_type);
+        self
+    }
+
+    /// Keep restorable copies in the agent's trash.
+    pub fn restorable(mut self) -> Self {
+        self.restorable = true;
+        self
+    }
+
+    /// Report what would be forgotten, forget nothing.
+    pub fn dry_run(mut self) -> Self {
+        self.dry_run = true;
+        self
+    }
+
+    /// The checks the server applies to the v0.12.4 fields, made before
+    /// anything is sent.
+    fn validate(&self) -> Result<()> {
+        let invalid = |m: String| Err(ClientError::InvalidRequest(m));
+        if self.about.is_some() && self.request.is_some() {
+            return invalid("forget takes `about` or `request`, not both".to_string());
+        }
+        for (name, text) in [("about", &self.about), ("request", &self.request)] {
+            if let Some(text) = text {
+                if text.trim().is_empty() {
+                    return invalid(format!("forget `{name}` is empty"));
+                }
+                if text.chars().count() > MAX_FORGET_TEXT_CHARS {
+                    return invalid(format!(
+                        "forget `{name}` is longer than {MAX_FORGET_TEXT_CHARS} characters"
+                    ));
+                }
+            }
+        }
+        if let Some(limit) = self.limit {
+            if limit == 0 || limit > MAX_FORGET_LIMIT {
+                return invalid(format!(
+                    "forget `limit` must be between 1 and {MAX_FORGET_LIMIT}"
+                ));
+            }
+        }
+        if let Some(score) = self.min_score {
+            if !(0.0..=1.0).contains(&score) {
+                return invalid("forget `min_score` must be between 0 and 1".to_string());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1159,6 +1431,57 @@ impl ForgetRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForgetResponse {
     pub deleted_count: u64,
+    /// With `about` (most relevant first), `request` or `dry_run`: the ids
+    /// forgotten, or that would be (server v0.12.4+). `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forgotten_ids: Option<Vec<String>>,
+    /// With `request`: how the message was read (server v0.12.4+). Only
+    /// `is_request` forgets anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<ForgetIntent>,
+}
+
+/// How the server read a text as a request to forget (server v0.12.4+):
+/// [`ForgetResponse::intent`], [`StoreMemoryResponse::forget_request`],
+/// [`StoredForgetRequest`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ForgetIntent {
+    /// Probability that the text asks to forget something said.
+    pub probability: f32,
+    /// The detector's threshold (`probability >= threshold` is a request).
+    pub threshold: f32,
+    /// The text reads as a request to forget (or one of its sentences does).
+    pub is_request: bool,
+    /// The sentence that read as the request, when it was one sentence of a
+    /// long message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sentence: Option<String>,
+}
+
+/// One message's reading by [`DakeraClient::detect_forget_requests`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ForgetVerdict {
+    /// Probability that the message asks to forget something said.
+    pub probability: f32,
+    /// The message reads as a request to forget (or one of its sentences does).
+    pub is_request: bool,
+    /// The sentence that read as the request, when it was one sentence of a
+    /// long message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sentence: Option<String>,
+}
+
+/// Response from `POST /v1/memory/forget/detect` (server v0.12.4+).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForgetDetectResponse {
+    /// The detector's encoder.
+    pub model: String,
+    /// A message at or above this probability is a request to forget.
+    pub threshold: f32,
+    /// A sentence of a long message at or above this probability makes it one.
+    pub sentence_threshold: f32,
+    /// One per message, in order.
+    pub results: Vec<ForgetVerdict>,
 }
 
 /// Session start request (`POST /v1/sessions/start`).
@@ -1301,11 +1624,39 @@ pub struct SessionMemoriesResponse {
     pub total: Option<usize>,
 }
 
-/// Session end request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Session end request (`POST /v1/sessions/{id}/end`).
+///
+/// ```
+/// use dakera_client::memory::SessionEndRequest;
+///
+/// let req = SessionEndRequest::default().with_auto_summarize(false);
+/// assert_eq!(serde_json::to_string(&req).unwrap(), r#"{"auto_summarize":false}"#);
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionEndRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// Whether the session's summary memory is stored. `None`: the server's
+    /// rule (stored when the session has more than 3 memories); `Some(true)`:
+    /// stored when it has any; `Some(false)`: not stored. Honoured from
+    /// server v0.12.4 (older servers ignore it). Sent only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_summarize: Option<bool>,
+}
+
+impl SessionEndRequest {
+    /// End with this summary.
+    pub fn with_summary(mut self, summary: impl Into<String>) -> Self {
+        self.summary = Some(summary.into());
+        self
+    }
+
+    /// Store the summary memory (`true`) or not (`false`) instead of the
+    /// server's rule.
+    pub fn with_auto_summarize(mut self, auto_summarize: bool) -> Self {
+        self.auto_summarize = Some(auto_summarize);
+        self
+    }
 }
 
 /// Response from `POST /v1/sessions/start`
@@ -1327,6 +1678,11 @@ pub struct SessionEndResponse {
     pub session: Session,
     /// Memories in the session at close.
     pub memory_count: usize,
+    /// Present only when the session's summary memory could not be stored
+    /// yet (server v0.12.4+): why, and what happens next. The server stores it
+    /// once its store recovers; the session is ended either way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_pending: Option<String>,
 }
 
 /// Response from `GET /v1/sessions`
@@ -1389,18 +1745,36 @@ pub struct ConsolidationLogEntry {
     pub duration_ms: f64,
 }
 
-/// Request to consolidate memories
+/// Request to consolidate memories (`POST /v1/memory/consolidate`).
+///
+/// The server reads `memory_ids`, `threshold` and `target_type`. Without
+/// `memory_ids` (or with an empty list) it takes the most important memory
+/// that has neighbours of the same type and session at cosine >= `threshold`
+/// (server default 0.85) and merges it with up to 4 of them, answering `400`
+/// when none is that similar (server v0.12.4; earlier servers merged the five
+/// most important memories of the commonest type, similar or not).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConsolidateRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Not read by the server (never sent); use `target_type` for the type
+    /// of the merged memory.
+    #[serde(default, skip_serializing)]
     pub memory_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threshold: Option<f32>,
-    #[serde(default)]
+    /// The server has no dry run: it merges and deletes the sources.
+    /// [`DakeraClient::consolidate`] refuses `true` with
+    /// [`ClientError::InvalidRequest`]. Never sent.
+    #[serde(default, skip_serializing)]
     pub dry_run: bool,
-    /// Optional DBSCAN algorithm configuration (CE-6).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Not read by the server (never sent).
+    #[serde(default, skip_serializing)]
     pub config: Option<ConsolidationConfig>,
+    /// The memories to merge. `None` (or empty): the server picks them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_ids: Option<Vec<String>>,
+    /// Type of the merged memory (server default: the sources' type).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_type: Option<MemoryType>,
 }
 
 /// Response from consolidation (`POST /v1/memory/consolidate`).
@@ -1409,6 +1783,14 @@ pub struct ConsolidateRequest {
 /// `consolidated_count` is mapped from `memories_removed` for backward compat.
 #[derive(Debug, Clone, Serialize)]
 pub struct ConsolidateResponse {
+    /// The merged memory the server stored (`None` when the answer did not
+    /// carry a readable one).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consolidated_memory: Option<RecalledMemory>,
+    /// The ids of the merged (deleted) source memories.
+    pub source_memory_ids: Vec<String>,
+    /// How many source memories were deleted.
+    pub memories_removed: usize,
     /// Number of source memories removed (= `memories_removed` from server)
     pub consolidated_count: usize,
     /// Alias for consolidated_count
@@ -1442,7 +1824,13 @@ impl<'de> serde::Deserialize<'de> for ConsolidateResponse {
                     .collect()
             })
             .unwrap_or_default();
+        let consolidated_memory = val
+            .get("consolidated_memory")
+            .and_then(|m| serde_json::from_value(m.clone()).ok());
         Ok(Self {
+            consolidated_memory,
+            source_memory_ids: source_ids.clone(),
+            memories_removed: removed,
             consolidated_count: removed,
             removed_count: removed,
             new_memories: source_ids,
@@ -1454,6 +1842,51 @@ impl<'de> serde::Deserialize<'de> for ConsolidateResponse {
 // ============================================================================
 // DX-1: Memory Import / Export
 // ============================================================================
+
+/// Options of [`DakeraClient::import_memories_file`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ImportOptions {
+    /// `jsonl`, `csv`, `mem0` or `zep`. `None`: detected by the server from
+    /// the file name, then from the content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    /// Answer at once with the job and import in the background (server
+    /// v0.12.4+, `?async=true`).
+    #[serde(default)]
+    pub run_async: bool,
+}
+
+/// A `multipart/form-data` body holding one file field, and its content type.
+fn multipart_file(file_name: &str, data: Vec<u8>) -> (String, Vec<u8>) {
+    // The server reads the first field to its end; a time-derived boundary
+    // is not expected inside an import file.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let boundary = format!("dakera-rs-{nanos:032x}");
+    let name: String = file_name
+        .chars()
+        .map(|c| {
+            if c == '"' || c == '\\' || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let mut body = Vec::with_capacity(data.len() + 256);
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; \
+             filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(&data);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={boundary}"), body)
+}
 
 /// Response from `POST /v1/import` (DX-1).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1532,17 +1965,22 @@ fn id_as_string<'de, D: serde::Deserializer<'de>>(
     }
 }
 
-/// Response from `GET /v1/audit` (OBS-1): `{events, count}`.
+/// Response from `GET /v1/audit` (OBS-1): `{events, count, next_cursor?}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditListResponse {
     pub events: Vec<AuditEvent>,
     /// Number of events returned (the server's `count`).
     #[serde(default, alias = "count")]
     pub total: usize,
-    /// Not sent by the server (`GET /v1/audit` has no cursor; page with
-    /// `from` / `to`); kept for compatibility. Always `None`.
+    /// Not sent by the server; kept for compatibility. Always `None`: the
+    /// next page's cursor is [`next_cursor`](Self::next_cursor).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// Pass as [`AuditQuery::cursor`] for the next page (older events);
+    /// `None` on the last page, and from servers before v0.12.4, which do
+    /// not page by cursor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// Result of `GET /v1/audit/export` (OBS-1): the raw body (a JSON document
@@ -1567,9 +2005,10 @@ pub struct AuditQuery {
     pub to: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
-    /// Not read by the server (`GET /v1/audit` has no cursor; page with
-    /// `from` / `to`, Unix milliseconds, both inclusive). Kept for
-    /// compatibility.
+    /// The previous page's [`AuditListResponse::next_cursor`]: the events
+    /// after it (older), newest first, ties by id, so pages neither repeat
+    /// nor skip an event (server v0.12.4+; older servers ignore it, page
+    /// those with `from` / `to`, Unix milliseconds, both inclusive).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
 }
@@ -2043,6 +2482,36 @@ pub struct BatchStoreMemoryResponse {
     /// ignored (in 3 items)"`. Empty when there were none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// The stored memories whose text reads as a request to forget something
+    /// said (server v0.12.4+). Empty when none, and from older servers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forget_requests: Vec<StoredForgetRequest>,
+    /// Items not stored because the namespace's memory policy deduplicates on
+    /// store (`dedup_on_store`) and they were near a stored memory or an
+    /// earlier item of the batch (server v0.12.4+). Empty when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub duplicates: Vec<BatchDuplicate>,
+}
+
+/// A stored memory whose text reads as a request to forget
+/// ([`BatchStoreMemoryResponse::forget_requests`], server v0.12.4+).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StoredForgetRequest {
+    /// The stored memory.
+    pub id: String,
+    /// How its text was read.
+    #[serde(flatten)]
+    pub intent: ForgetIntent,
+}
+
+/// A batch item not stored as a near-duplicate
+/// ([`BatchStoreMemoryResponse::duplicates`], server v0.12.4+).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BatchDuplicate {
+    /// The item's position in the request.
+    pub index: usize,
+    /// The stored memory it duplicates.
+    pub existing_id: String,
 }
 
 // ============================================================================
@@ -2057,6 +2526,9 @@ pub enum DeduplicationKind {
     Deduplication,
     /// Merged with others into a new memory (`survivor_id`) by consolidation.
     Consolidation,
+    /// Deleted by a restorable forget ([`ForgetRequest::restorable`], server
+    /// v0.12.4+); `survivor_id` is empty.
+    Deletion,
     /// A kind this SDK version does not know (a newer server sent it).
     #[serde(other)]
     Unknown,
@@ -2070,7 +2542,9 @@ pub struct DeduplicatedMemory {
     pub id: String,
     /// Which pass deleted it.
     pub kind: DeduplicationKind,
-    /// The memory it was folded (deduplication) or merged (consolidation) into.
+    /// The memory it was folded (deduplication) or merged (consolidation) into;
+    /// empty for a [`DeduplicationKind::Deletion`].
+    #[serde(default)]
     pub survivor_id: String,
     /// Its session, if it had one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2079,6 +2553,9 @@ pub struct DeduplicatedMemory {
     pub deleted_at: u64,
     /// Until when it can be restored (Unix seconds); purged after.
     pub restorable_until: u64,
+    /// What the memory said (server v0.12.4+; `None` from older servers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 /// Response of [`DakeraClient::list_deduplicated`]
@@ -2226,10 +2703,100 @@ impl DakeraClient {
         self.get_memory("", memory_id).await
     }
 
-    /// Forget (delete) memories
+    /// Get a memory and its projected strength for the next `days` days
+    /// (`GET /v1/memory/get/{id}?projection_days=N`, server v0.12.4+): its
+    /// importance on each day if nothing touches it, under its namespace's
+    /// decay policy. An empty `agent_id` omits it, as
+    /// [`get_memory_by_id`](Self::get_memory_by_id) does.
+    ///
+    /// `days` must be 1–365 ([`ClientError::InvalidRequest`] before sending).
+    /// A server older than v0.12.4 ignores the parameter: the projection is
+    /// then empty.
+    pub async fn get_memory_with_projection(
+        &self,
+        agent_id: &str,
+        memory_id: &str,
+        days: u32,
+    ) -> Result<MemoryWithProjection> {
+        if !(1..=MAX_PROJECTION_DAYS).contains(&days) {
+            return Err(ClientError::InvalidRequest(format!(
+                "projection_days must be between 1 and {MAX_PROJECTION_DAYS}"
+            )));
+        }
+        let mut url = format!(
+            "{}/v1/memory/get/{}?projection_days={}",
+            self.base_url,
+            crate::client::enc(memory_id),
+            days
+        );
+        if !agent_id.is_empty() {
+            url.push_str("&agent_id=");
+            url.push_str(&crate::client::enc_query(agent_id));
+        }
+        let response = self.client.get(&url).send().await?;
+        let mut body: serde_json::Value = self.handle_response(response).await?;
+        let strength_projection = match body
+            .as_object_mut()
+            .and_then(|o| o.remove("strength_projection"))
+        {
+            Some(points) => serde_json::from_value(points)?,
+            None => Vec::new(),
+        };
+        Ok(MemoryWithProjection {
+            memory: serde_json::from_value(body)?,
+            strength_projection,
+        })
+    }
+
+    /// Forget (delete) memories (`POST /v1/memory/forget`).
+    ///
+    /// The v0.12.4 fields are checked before anything is sent (`about` and
+    /// `request` together, an empty or over-long text, `limit` outside 1–50,
+    /// `min_score` outside 0–1: [`ClientError::InvalidRequest`]). Forgetting
+    /// by `about` / `request` needs the server's reranker (and, for
+    /// `request`, its detector): without them it answers `503`
+    /// ([`ClientError::ServiceUnavailable`]) and forgets nothing.
     pub async fn forget(&self, request: ForgetRequest) -> Result<ForgetResponse> {
+        request.validate()?;
         let url = format!("{}/v1/memory/forget", self.base_url);
         let response = self.client.post(&url).json(&request).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Read whether each message asks to forget something said, in any
+    /// language (`POST /v1/memory/forget/detect`, server v0.12.4+; read
+    /// scope). Reads no memory: forget the requests with
+    /// [`ForgetRequest::by_request`].
+    ///
+    /// 1 to [`MAX_FORGET_DETECT_TEXTS`] messages of at most
+    /// [`MAX_FORGET_TEXT_CHARS`] characters each, checked before sending
+    /// ([`ClientError::InvalidRequest`]). A server without its detector
+    /// answers `503`; one older than v0.12.4 answers `404`.
+    pub async fn detect_forget_requests<S: AsRef<str>>(
+        &self,
+        texts: &[S],
+    ) -> Result<ForgetDetectResponse> {
+        if texts.is_empty() || texts.len() > MAX_FORGET_DETECT_TEXTS {
+            return Err(ClientError::InvalidRequest(format!(
+                "detect_forget_requests takes 1 to {MAX_FORGET_DETECT_TEXTS} messages"
+            )));
+        }
+        if let Some(i) = texts
+            .iter()
+            .position(|t| t.as_ref().chars().count() > MAX_FORGET_TEXT_CHARS)
+        {
+            return Err(ClientError::InvalidRequest(format!(
+                "message {i} is longer than {MAX_FORGET_TEXT_CHARS} characters"
+            )));
+        }
+        let texts: Vec<&str> = texts.iter().map(|t| t.as_ref()).collect();
+        let url = format!("{}/v1/memory/forget/detect", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .json(&serde_json::json!({ "texts": texts }))
+            .send()
+            .await?;
         self.handle_response(response).await
     }
 
@@ -2291,6 +2858,13 @@ impl DakeraClient {
         agent_id: &str,
         request: ConsolidateRequest,
     ) -> Result<ConsolidateResponse> {
+        if request.dry_run {
+            return Err(ClientError::InvalidRequest(
+                "consolidate has no dry run: the server merges the memories and deletes the \
+                 sources"
+                    .to_string(),
+            ));
+        }
         // Server endpoint: POST /v1/memory/consolidate with agent_id in body
         let url = format!("{}/v1/memory/consolidate", self.base_url);
         let mut body = serde_json::to_value(&request)?;
@@ -2648,13 +3222,31 @@ impl DakeraClient {
         session_id: &str,
         summary: Option<String>,
     ) -> Result<SessionEndResponse> {
+        let request = SessionEndRequest {
+            summary,
+            ..SessionEndRequest::default()
+        };
+        self.end_session_with(session_id, &request).await
+    }
+
+    /// End a session with the full request, e.g. choosing whether its
+    /// summary memory is stored ([`SessionEndRequest::with_auto_summarize`]).
+    ///
+    /// [`SessionEndResponse::summary_pending`] says when the summary could
+    /// not be stored yet (server v0.12.4+). A server that cannot read the
+    /// session's memories answers an error and leaves the session open: end
+    /// it again.
+    pub async fn end_session_with(
+        &self,
+        session_id: &str,
+        request: &SessionEndRequest,
+    ) -> Result<SessionEndResponse> {
         let url = format!(
             "{}/v1/sessions/{}/end",
             self.base_url,
             crate::client::enc(session_id)
         );
-        let request = SessionEndRequest { summary };
-        let response = self.client.post(&url).json(&request).send().await?;
+        let response = self.client.post(&url).json(request).send().await?;
         self.handle_response(response).await
     }
 
@@ -2867,13 +3459,21 @@ impl DakeraClient {
 
     /// Import memories from an external format (DX-1).
     ///
-    /// Supported formats: `"jsonl"`, `"mem0"`, `"zep"`, `"csv"`.
+    /// Supported formats: `"jsonl"`, `"mem0"`, `"zep"`, `"csv"`. `POST
+    /// /v1/import` takes the file as a multipart upload into one agent's
+    /// memories, so `agent_id` is required ([`ClientError::InvalidRequest`]
+    /// before sending when `None`) and `namespace` is not sent (the server
+    /// does not read it). `data` becomes the file: for `jsonl` a JSON array
+    /// is written one item per line, for `csv` it must be a string, for
+    /// `mem0` / `zep` it is the JSON document. A string is sent as it is.
+    /// See [`import_memories_file`](Self::import_memories_file) to send a file
+    /// as it is or to import in the background.
     ///
     /// ```no_run
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = dakera_client::DakeraClient::new("http://localhost:3000")?;
-    /// let data = serde_json::json!([{"content": "hello", "agent_id": "agent-1"}]);
-    /// let resp = client.import_memories(data, "jsonl", None, None).await?;
+    /// let data = serde_json::json!([{"content": "hello"}]);
+    /// let resp = client.import_memories(data, "jsonl", Some("agent-1"), None).await?;
     /// println!("Imported {} memories", resp.imported_count);
     /// # Ok(())
     /// # }
@@ -2885,15 +3485,79 @@ impl DakeraClient {
         agent_id: Option<&str>,
         namespace: Option<&str>,
     ) -> Result<MemoryImportResponse> {
-        let mut body = serde_json::json!({"data": data, "format": format});
-        if let Some(aid) = agent_id {
-            body["agent_id"] = serde_json::Value::String(aid.to_string());
+        let _ = namespace;
+        let Some(aid) = agent_id else {
+            return Err(ClientError::InvalidRequest(
+                "import_memories needs agent_id (POST /v1/import imports into one agent)"
+                    .to_string(),
+            ));
+        };
+        let file = match (&data, format) {
+            (serde_json::Value::String(text), _) => text.clone().into_bytes(),
+            (serde_json::Value::Array(items), "jsonl") => {
+                let mut out = Vec::new();
+                for item in items {
+                    serde_json::to_writer(&mut out, item)?;
+                    out.push(b'\n');
+                }
+                out
+            }
+            (_, "csv") => {
+                return Err(ClientError::InvalidRequest(
+                    "a csv import takes the CSV text as a JSON string".to_string(),
+                ))
+            }
+            (other, _) => serde_json::to_vec(other)?,
+        };
+        let options = ImportOptions {
+            format: Some(format.to_string()),
+            run_async: false,
+        };
+        let file_name = format!("import.{format}");
+        let job = self
+            .import_memories_file(aid, &file_name, file, &options)
+            .await?;
+        Ok(MemoryImportResponse {
+            imported_count: job.imported,
+            skipped_count: job.skipped,
+            errors: job.errors,
+        })
+    }
+
+    /// Upload a file of memories into `agent_id`'s memories (`POST
+    /// /v1/import`, multipart). The format is `options.format`, else detected
+    /// by the server from `file_name` (`.jsonl`, `.ndjson`, `.csv`, ...),
+    /// then from the content.
+    ///
+    /// With [`ImportOptions::run_async`] (server v0.12.4+) the server answers
+    /// `202` at once with the job (`status` `"running"`) and imports in the
+    /// background: poll [`import_job_status`](Self::import_job_status) until
+    /// `status` is `"done"` or `"failed"`. An older server ignores it and
+    /// imports within the request. Without it the answer is the finished job.
+    pub async fn import_memories_file(
+        &self,
+        agent_id: &str,
+        file_name: &str,
+        data: Vec<u8>,
+        options: &ImportOptions,
+    ) -> Result<crate::types::ImportJobStatus> {
+        let mut params = vec![("agent_id", agent_id.to_string())];
+        if let Some(format) = &options.format {
+            params.push(("format", format.clone()));
         }
-        if let Some(ns) = namespace {
-            body["namespace"] = serde_json::Value::String(ns.to_string());
+        if options.run_async {
+            params.push(("async", "true".to_string()));
         }
+        let (content_type, body) = multipart_file(file_name, data);
         let url = format!("{}/v1/import", self.base_url);
-        let response = self.client.post(&url).json(&body).send().await?;
+        let response = self
+            .client
+            .post(&url)
+            .query(&params)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body)
+            .send()
+            .await?;
         self.handle_response(response).await
     }
 
@@ -2943,7 +3607,9 @@ impl DakeraClient {
     // OBS-1: Business-Event Audit Log
     // ========================================================================
 
-    /// List paginated audit log entries (OBS-1).
+    /// List paginated audit log entries (OBS-1), newest first. Page with
+    /// [`AuditListResponse::next_cursor`] (server v0.12.4+). A log the server
+    /// cannot read is an error (`500`), not an empty page.
     pub async fn list_audit_events(&self, query: AuditQuery) -> Result<AuditListResponse> {
         let url = format!("{}/v1/audit", self.base_url);
         let response = self.client.get(&url).query(&query).send().await?;
@@ -3441,8 +4107,11 @@ mod tests {
         assert!(!json.contains("vector_weight"));
         assert!(!json.contains("iterations"));
         assert!(!json.contains("neighborhood"));
-        // include_associated is false and uses skip_serializing_if="not"
+        // include_associated, importance_weighted and rerank_head are unset:
+        // the server defaults apply.
         assert!(!json.contains("include_associated"));
+        assert!(!json.contains("importance_weighted"));
+        assert!(!json.contains("rerank_head"));
         assert!(json.contains("\"agent_id\":\"agent-1\""));
         assert!(json.contains("\"top_k\":5"));
     }
@@ -3464,7 +4133,7 @@ mod tests {
     #[test]
     fn test_recall_request_with_associated_sets_flag() {
         let req = RecallRequest::new("a", "q").with_associated();
-        assert!(req.include_associated);
+        assert_eq!(req.include_associated, Some(true));
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"include_associated\":true"));
     }
@@ -3472,14 +4141,14 @@ mod tests {
     #[test]
     fn test_recall_request_with_associated_depth_implies_associated() {
         let req = RecallRequest::new("a", "q").with_associated_depth(2);
-        assert!(req.include_associated);
+        assert_eq!(req.include_associated, Some(true));
         assert_eq!(req.associated_memories_depth, Some(2));
     }
 
     #[test]
     fn test_recall_request_with_associated_cap_implies_associated() {
         let req = RecallRequest::new("a", "q").with_associated_cap(5);
-        assert!(req.include_associated);
+        assert_eq!(req.include_associated, Some(true));
         assert_eq!(req.associated_memories_cap, Some(5));
     }
 

@@ -68,7 +68,9 @@ pub struct CreateAgentResponse {
 /// Every field is optional and omitted from the query when unset.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentMemoriesOptions {
-    /// Filter by memory type (sent as `memory_type`).
+    /// Filter by memory type (sent as `memory_type`: `episodic`, `semantic`,
+    /// `procedural`, `working`). Applied from server v0.12.4; older servers
+    /// ignored it and listed every type.
     pub memory_type: Option<String>,
     /// Page size (server default 50, capped at 1000).
     pub limit: Option<u32>,
@@ -342,7 +344,9 @@ impl DakeraClient {
         Ok(rx)
     }
 
-    /// Get sessions for an agent
+    /// Get sessions for an agent. `active_only: Some(true)` lists only the
+    /// sessions not yet ended (applied from server v0.12.4; older servers
+    /// ignored it and listed every session).
     pub async fn agent_sessions(
         &self,
         agent_id: &str,
@@ -569,9 +573,19 @@ pub struct CompressResponse {
     /// Summary memories created from cluster centroids
     #[serde(default)]
     pub summaries_created: i64,
-    /// IDs of memories that were deprecated
+    /// IDs of memories that were deprecated (from server v0.12.4: those
+    /// actually written; earlier servers listed every planned one).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deprecated_ids: Vec<String>,
+    /// Originals left as they were because they changed since the pass read
+    /// them (server v0.12.4+). Empty when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deprecation_skipped: Vec<String>,
+    /// A deprecation write that failed (server v0.12.4+): the summaries then
+    /// stand beside the originals until the next compression. `None` when
+    /// every deprecation was written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecation_error: Option<String>,
     /// Wall-clock duration of the compression pass in milliseconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<f64>,
@@ -745,6 +759,8 @@ mod tests {
             clusters_found: 0,
             summaries_created: 0,
             deprecated_ids: vec![],
+            deprecation_skipped: vec![],
+            deprecation_error: None,
             duration_ms: None,
             summary_ids: vec![],
             summaries_skipped: vec![],

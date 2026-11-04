@@ -264,6 +264,10 @@ pub struct RuntimeConfig {
     /// AutoPilot trash retention in hours, when set at runtime (server v0.12.3+).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub autopilot_trash_retention_hours: Option<u64>,
+    /// AutoPilot consolidation mode (`off`, `report`, `merge`), when set at
+    /// runtime (server v0.12.4+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot_consolidation_mode: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -426,6 +430,16 @@ pub const DEDUP_MODE_REPORT: &str = "report";
 /// `trash_retention_hours`, see [`DakeraClient::restore_deduplicated`]).
 pub const DEDUP_MODE_MERGE: &str = "merge";
 
+/// AutoPilot consolidation mode values (server v0.12.4+,
+/// [`AutoPilotConfig::consolidation_mode`]): no consolidation pass.
+pub const CONSOLIDATION_MODE_OFF: &str = "off";
+/// Consolidation finds the groups it would merge and changes nothing (the
+/// server default from v0.12.4).
+pub const CONSOLIDATION_MODE_REPORT: &str = "report";
+/// Consolidation merges each group of faded similar memories and deletes the
+/// originals (what every release before v0.12.4 did).
+pub const CONSOLIDATION_MODE_MERGE: &str = "merge";
+
 /// AutoPilot configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutoPilotConfig {
@@ -433,11 +447,17 @@ pub struct AutoPilotConfig {
     pub dedup_threshold: f32,
     pub dedup_interval_hours: u64,
     pub consolidation_interval_hours: u64,
-    /// What dedup does: [`DEDUP_MODE_OFF`] (the server default),
-    /// [`DEDUP_MODE_REPORT`] or [`DEDUP_MODE_MERGE`] (server v0.12.3+; empty
-    /// from older servers).
+    /// What dedup does: [`DEDUP_MODE_OFF`], [`DEDUP_MODE_REPORT`] (the
+    /// server default from v0.12.4; `off` before) or [`DEDUP_MODE_MERGE`]
+    /// (server v0.12.3+; empty from older servers).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub dedup_mode: String,
+    /// What consolidation does: [`CONSOLIDATION_MODE_OFF`],
+    /// [`CONSOLIDATION_MODE_REPORT`] (the server default) or
+    /// [`CONSOLIDATION_MODE_MERGE`] (server v0.12.4+; empty from older
+    /// servers, which always merged).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub consolidation_mode: String,
     /// Whether dedup may fold memories of different sessions (server v0.12.3+).
     #[serde(default)]
     pub dedup_cross_session: bool,
@@ -461,6 +481,12 @@ pub struct DedupResultSnapshot {
     /// v0.12.3+; `0` from older servers).
     #[serde(default)]
     pub duplicates_found: usize,
+    /// What the cycle could not do (a namespace or content it could not
+    /// read, a search or merge that failed), each with its namespace and why;
+    /// at most 20 (server v0.12.4+). The counts are then partial and the pass
+    /// runs again after 5 minutes. Empty when the cycle did everything.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<String>,
 }
 
 /// Result snapshot from a consolidation cycle
@@ -470,6 +496,17 @@ pub struct ConsolidationResultSnapshot {
     pub memories_scanned: usize,
     pub clusters_merged: usize,
     pub memories_consolidated: usize,
+    /// Groups the pass found (in `report` mode none is merged; server
+    /// v0.12.4+).
+    #[serde(default)]
+    pub clusters_found: usize,
+    /// Memories in those groups (server v0.12.4+).
+    #[serde(default)]
+    pub memories_in_clusters: usize,
+    /// What the cycle could not do, as [`DedupResultSnapshot::failures`]
+    /// (server v0.12.4+).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<String>,
 }
 
 /// PILOT-1: AutoPilot status response
@@ -503,6 +540,10 @@ pub struct AutoPilotConfigRequest {
     /// (server v0.12.3+).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dedup_mode: Option<String>,
+    /// [`CONSOLIDATION_MODE_OFF`], [`CONSOLIDATION_MODE_REPORT`] or
+    /// [`CONSOLIDATION_MODE_MERGE`] (server v0.12.4+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consolidation_mode: Option<String>,
     /// Let dedup fold memories of different sessions (server v0.12.3+).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dedup_cross_session: Option<bool>,
@@ -551,6 +592,10 @@ pub struct AutoPilotDedupResult {
     /// from older servers).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub mode: String,
+    /// What the pass could not do (server v0.12.4+); the trigger's `success`
+    /// is then `false`. Empty when it did everything.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<String>,
 }
 
 /// Consolidation result returned by a manual trigger
@@ -560,6 +605,20 @@ pub struct AutoPilotConsolidationResult {
     pub memories_scanned: usize,
     pub clusters_merged: usize,
     pub memories_consolidated: usize,
+    /// Groups found (in `report` mode none is merged; server v0.12.4+).
+    #[serde(default)]
+    pub clusters_found: usize,
+    /// Memories in those groups (server v0.12.4+).
+    #[serde(default)]
+    pub memories_in_clusters: usize,
+    /// The mode the pass ran in (`report` or `merge`; server v0.12.4+, empty
+    /// from older servers).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mode: String,
+    /// What the pass could not do (server v0.12.4+); the trigger's `success`
+    /// is then `false`. Empty when it did everything.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<String>,
 }
 
 /// PILOT-3: Trigger response
@@ -618,6 +677,10 @@ pub struct LastDecayCycleStats {
     pub memories_processed: usize,
     pub memories_decayed: usize,
     pub memories_deleted: usize,
+    /// What the cycle could not do (a listing, page read, delete or rewrite),
+    /// with why (server v0.12.4+). Empty when it did everything.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<String>,
 }
 
 /// DECAY-2: Decay activity counters and last-cycle snapshot
@@ -632,6 +695,10 @@ pub struct DecayStatsResponse {
     pub last_run_at: Option<u64>,
     /// Number of decay cycles completed since startup
     pub cycles_run: u64,
+    /// Of those, the cycles that could not do everything (server v0.12.4+;
+    /// see [`LastDecayCycleStats::failures`]).
+    #[serde(default)]
+    pub cycles_failed: u64,
     /// Stats from the most recent decay cycle (None if never run)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_cycle: Option<LastDecayCycleStats>,
@@ -651,10 +718,16 @@ pub struct TtlCleanupRequest {
 /// TTL cleanup response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtlCleanupResponse {
+    /// `false` when a namespace could not be swept (server v0.12.4+; see
+    /// `failed`).
     pub success: bool,
     pub vectors_removed: u64,
     pub namespaces_cleaned: Vec<String>,
     pub message: String,
+    /// The namespaces whose sweep failed, with why (server v0.12.4+). Empty
+    /// when every namespace was swept.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failed: Vec<crate::types::UnavailableNamespace>,
 }
 
 /// TTL statistics for a namespace
@@ -1756,9 +1829,44 @@ pub struct DerivationStatus {
     /// Per-process counters since start (`derived`, `adopted`, ...).
     #[serde(default)]
     pub counters: HashMap<String, u64>,
+    /// The background entity tagging of stored memories on this node (server
+    /// v0.12.4+; `settled` waits for it too). `None` from older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity_tagging: Option<EntityTaggingStatus>,
     /// Fields this SDK version does not model yet.
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Background entity tagging on a node (`status.entity_tagging`, server
+/// v0.12.4+). The counters run since the node started.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct EntityTaggingStatus {
+    /// `background` (the default) or `inline`.
+    #[serde(default)]
+    pub mode: String,
+    /// Memories queued or being tagged.
+    #[serde(default)]
+    pub pending: u64,
+    /// Namespaces marked for a sweep.
+    #[serde(default)]
+    pub sweep_namespaces: Vec<String>,
+    #[serde(default)]
+    pub tagged: u64,
+    #[serde(default)]
+    pub already_tagged: u64,
+    #[serde(default)]
+    pub superseded: u64,
+    #[serde(default)]
+    pub retried: u64,
+    #[serde(default)]
+    pub dropped_to_sweep: u64,
+    #[serde(default)]
+    pub failed: u64,
+    /// Memories left untagged because the store's LLM extractor failed 3
+    /// times on their text (tried again when the memory is written again).
+    #[serde(default)]
+    pub extractor_gave_up: u64,
 }
 
 /// Body of `POST /admin/derivations/drain`.

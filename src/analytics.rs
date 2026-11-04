@@ -13,6 +13,17 @@ use crate::DakeraClient;
 /// Analytics overview response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyticsOverview {
+    /// The latency window used (`?period=`; `5m` when not given). Server
+    /// v0.12.4+, which applies `period` (older servers ignored it); `None`
+    /// from older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period: Option<String>,
+    /// The namespace the figures are restricted to (`?namespace=`; the
+    /// error rate, cache figures and uptime stay node-wide). Server v0.12.4+,
+    /// which applies it (older servers ignored it); `None` for the whole
+    /// server and from older servers. An unknown namespace is a 404.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     pub total_queries: u64,
     pub avg_latency_ms: f64,
     pub p95_latency_ms: f64,
@@ -160,7 +171,9 @@ pub struct NamespaceStorage {
 // ============================================================================
 
 impl DakeraClient {
-    /// Get analytics overview
+    /// Get analytics overview. From server v0.12.4 `period` sets the latency
+    /// window and `namespace` restricts the counts and storage figures (both
+    /// echoed in the answer); older servers ignored them.
     pub async fn analytics_overview(
         &self,
         period: Option<&str>,
@@ -231,7 +244,9 @@ impl DakeraClient {
         Ok(t)
     }
 
-    /// Get storage analytics
+    /// Get storage analytics. From server v0.12.4 `namespace` restricts the
+    /// breakdown and totals to that namespace (404 when unknown; older servers
+    /// ignored it).
     pub async fn analytics_storage(&self, namespace: Option<&str>) -> Result<StorageAnalytics> {
         let mut url = format!("{}/v1/analytics/storage", self.base_url);
         if let Some(ns) = namespace {

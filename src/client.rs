@@ -1661,9 +1661,12 @@ impl DakeraClient {
     ///
     /// Sends `GET /v1/namespaces/{namespace}/memory_policy`.
     ///
-    /// When no explicit policy has been configured the server returns the COG-1
-    /// defaults: working=4 h, episodic=30 d, semantic=365 d, procedural=730 d;
-    /// exponential/power_law/logarithmic/flat decay curves; SR factor 1.0.
+    /// From server v0.12.4 the answer says what applies:
+    /// [`MemoryPolicy::stored`] is `false` for a namespace without a stored
+    /// policy, whose memories get no TTL by type, the server's decay curve for
+    /// every type and nothing else. (Earlier servers answered the policy
+    /// defaults there, 4 h / 30 d / 365 d / 730 d TTLs by type, none of which
+    /// applied.)
     #[instrument(skip(self))]
     pub async fn get_memory_policy(&self, namespace: &str) -> Result<MemoryPolicy> {
         let url = format!(

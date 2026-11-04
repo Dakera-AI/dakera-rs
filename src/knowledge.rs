@@ -404,6 +404,32 @@ pub struct DeduplicateResponse {
     /// forgotten) between the scan and the write (server v0.12.2+; `0` on a
     /// dry run and from older servers).
     pub duplicates_skipped_changed: usize,
+    /// Groups whose merge failed (their duplicates are still stored; server
+    /// v0.12.4+, which used to log them only). Empty when none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub groups_failed: Vec<DuplicateGroupFailure>,
+}
+
+/// A duplicate group whose merge failed
+/// ([`DeduplicateResponse::groups_failed`], server v0.12.4+).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DuplicateGroupFailure {
+    /// The memory that would have been kept.
+    pub canonical_id: String,
+    /// The duplicates, still stored.
+    pub duplicate_ids: Vec<String>,
+    /// Why the merge failed.
+    pub reason: String,
+}
+
+/// An agent left out of the cross-agent network because its memories could
+/// not be read ([`CrossAgentNetworkResponse::unavailable`], server v0.12.4+).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentUnavailable {
+    /// The agent.
+    pub agent_id: String,
+    /// Why.
+    pub reason: String,
 }
 
 impl<'de> Deserialize<'de> for DeduplicateResponse {
@@ -446,12 +472,17 @@ impl<'de> Deserialize<'de> for DeduplicateResponse {
             ),
         };
         let duplicates_skipped_changed = count(&["duplicates_skipped_changed"]).unwrap_or(0);
+        let groups_failed = match val.get("groups_failed") {
+            Some(v) => serde_json::from_value(v.clone()).map_err(D::Error::custom)?,
+            None => Vec::new(),
+        };
         Ok(Self {
             duplicates_found,
             removed_count,
             groups,
             duplicate_groups,
             duplicates_skipped_changed,
+            groups_failed,
         })
     }
 }
@@ -555,6 +586,10 @@ pub struct CrossAgentNetworkResponse {
     /// Total number of memory nodes in the network (added in server v0.6.2).
     #[serde(default)]
     pub node_count: usize,
+    /// Agents whose memories could not be read, left out of the network
+    /// (server v0.12.4+, which used to drop them silently). Empty when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<AgentUnavailable>,
 }
 
 // ============================================================================
